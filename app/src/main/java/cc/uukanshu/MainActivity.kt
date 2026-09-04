@@ -14,8 +14,16 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -23,6 +31,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import cc.uukanshu.data.convert.T2S
+import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.ui.detail.DetailScreen
 import cc.uukanshu.ui.home.HomeScreen
 import cc.uukanshu.ui.library.LibraryScreen
@@ -40,12 +50,32 @@ private data class Tab(val route: String, val label: String, val icon: @Composab
 
 @Composable
 fun UukanshuApp() {
-    MaterialTheme {
+    val app = LocalContext.current.applicationContext as App
+    val prefs = remember { Prefs(app) }
+    val t2s = remember { T2S(app) }
+    // Global display prefs: bottom nav + theme follow them live.
+    val simplified by prefs.simplified.collectAsState(initial = false)
+    val theme by prefs.theme.collectAsState(initial = Prefs.SYSTEM)
+    fun display(raw: String): String = if (simplified) t2s.convert(raw) else raw
+    // minSdk 31 guarantees dynamic color; plain schemes as fallback.
+    val dark = when (theme) {
+        Prefs.LIGHT -> false
+        Prefs.DARK -> true
+        else -> isSystemInDarkTheme()
+    }
+    val context = LocalContext.current
+    MaterialTheme(
+        colorScheme = if (dark) {
+            runCatching { dynamicDarkColorScheme(context) }.getOrElse { darkColorScheme() }
+        } else {
+            runCatching { dynamicLightColorScheme(context) }.getOrElse { lightColorScheme() }
+        },
+    ) {
         val nav = rememberNavController()
         val tabs = listOf(
-            Tab("home", "首頁") { Icon(Icons.Filled.Home, contentDescription = null) },
-            Tab("search", "搜索") { Icon(Icons.Filled.Search, contentDescription = null) },
-            Tab("library", "書架") { Icon(Icons.Filled.List, contentDescription = null) },
+            Tab("home", display("首頁")) { Icon(Icons.Filled.Home, contentDescription = null) },
+            Tab("search", display("搜索")) { Icon(Icons.Filled.Search, contentDescription = null) },
+            Tab("library", display("書架")) { Icon(Icons.Filled.List, contentDescription = null) },
         )
         Scaffold(
             bottomBar = {

@@ -59,6 +59,7 @@ class HomeViewModel(
         val error: String? = null,
         val endOfList: Boolean = false,
         val simplified: Boolean = false,
+        val theme: String = Prefs.SYSTEM,
     )
 
     private val _ui = MutableStateFlow(Ui(loading = true))
@@ -66,7 +67,10 @@ class HomeViewModel(
 
     init {
         viewModelScope.launch {
-            _ui.value = _ui.value.copy(simplified = prefs.simplified.first())
+            _ui.value = _ui.value.copy(
+                simplified = prefs.simplified.first(),
+                theme = prefs.theme.first(),
+            )
             refresh()
         }
     }
@@ -80,6 +84,25 @@ class HomeViewModel(
 
     fun display(raw: String): String =
         if (_ui.value.simplified) t2s.convert(raw) else raw
+
+    /** Cycle system → light → dark theme. Applied app-wide via prefs. */
+    fun cycleTheme() {
+        viewModelScope.launch {
+            val next = when (_ui.value.theme) {
+                Prefs.SYSTEM -> Prefs.LIGHT
+                Prefs.LIGHT -> Prefs.DARK
+                else -> Prefs.SYSTEM
+            }
+            prefs.setTheme(next)
+            _ui.value = _ui.value.copy(theme = next)
+        }
+    }
+
+    fun themeLabel(): String = display(when (_ui.value.theme) {
+        Prefs.LIGHT -> "淺色"
+        Prefs.DARK -> "深色"
+        else -> "自動"
+    })
 
     fun selectTab(tab: Int) {
         if (_ui.value.tab == tab) return
@@ -148,6 +171,9 @@ fun HomeScreen(onBook: (String) -> Unit) {
             )
             TextButton(onClick = { vm.toggleSimplified() }) {
                 Text(if (ui.simplified) "简" else "繁")
+            }
+            TextButton(onClick = { vm.cycleTheme() }) {
+                Text(vm.themeLabel())
             }
         }
         TabRow(selectedTabIndex = ui.tab) {
