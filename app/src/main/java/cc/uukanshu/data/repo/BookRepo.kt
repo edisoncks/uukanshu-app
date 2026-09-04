@@ -25,9 +25,13 @@ class BookRepo(
             Parser.parseCategory(site.get("${Parser.BASE}/class_${categoryId}_${page}.html"))
         }
 
-    suspend fun recent(): List<Parser.BookItem> =
+    /**
+     * Recently updated, paged: /top/lastupdate_{page}.html uses the same
+     * bookbox cards as categories (title/author/words/latest/intro).
+     */
+    suspend fun recent(page: Int): List<Parser.BookItem> =
         withContext(Dispatchers.IO) {
-            Parser.parseRecent(site.get("${Parser.BASE}/"))
+            Parser.parseCategory(site.get("${Parser.BASE}/top/lastupdate_${page}.html"))
         }
 
     suspend fun search(keyword: String): Parser.SearchResult =

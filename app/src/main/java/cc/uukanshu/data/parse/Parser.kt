@@ -117,21 +117,6 @@ object Parser {
         return SearchResult(total, parseBookBoxes(html))
     }
 
-    /** Recently-updated rail on `/` (`div#zuixin li`). */
-    fun parseRecent(html: String): List<BookItem> {
-        val doc = Jsoup.parse(html)
-        return doc.select("#zuixin li").mapNotNull { li ->
-            val a = li.selectFirst("a[href]") ?: return@mapNotNull null
-            val id = Regex("""/book/(\d+)/""").find(a.attr("href"))
-                ?.groupValues?.getOrNull(1)
-                ?.let { runCatching { it.toInt().toString() }.getOrNull() }
-                ?: return@mapNotNull null
-            val cat = Regex("""^[(（\[]([^)）\]]+)[)）\]]""").find(li.text().trim())
-                ?.groupValues?.getOrNull(1).orEmpty()
-            BookItem(id = id, title = a.text().trim(), author = li.selectFirst("span")?.text()?.trim().orEmpty(), category = cat)
-        }
-    }
-
     // -- TOC ------------------------------------------------------------
 
     private val tocLink = Regex(

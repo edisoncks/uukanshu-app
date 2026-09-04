@@ -122,10 +122,10 @@ class HomeViewModel(
         viewModelScope.launch {
             _ui.value = s.copy(loading = true, error = null)
             try {
-                val books = if (s.tab == 0) repo.recent() else repo.category(s.categoryId, 1)
+                val books = if (s.tab == 0) repo.recent(1) else repo.category(s.categoryId, 1)
                 _ui.value = s.copy(
                     books = books, loading = false,
-                    page = 1, endOfList = s.tab == 0 || books.isEmpty(),
+                    page = 1, endOfList = books.isEmpty(),
                 )
             } catch (e: Exception) {
                 _ui.value = s.copy(loading = false, error = "${e.javaClass.simpleName}: ${e.message}")
@@ -135,11 +135,12 @@ class HomeViewModel(
 
     fun loadMore() {
         val s = _ui.value
-        if (s.tab == 0 || s.loading || s.loadingMore || s.endOfList) return
+        if (s.loading || s.loadingMore || s.endOfList) return
         viewModelScope.launch {
             _ui.value = s.copy(loadingMore = true)
             try {
-                val next = repo.category(s.categoryId, s.page + 1)
+                val next = if (s.tab == 0) repo.recent(s.page + 1)
+                else repo.category(s.categoryId, s.page + 1)
                 _ui.value = s.copy(
                     books = s.books + next, page = s.page + 1,
                     loadingMore = false, endOfList = next.isEmpty(),

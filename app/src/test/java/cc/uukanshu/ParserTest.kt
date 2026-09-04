@@ -90,13 +90,21 @@ class ParserTest {
         assertEquals("流雲香菇", books[0].author)
     }
 
-    @Test fun recentRail() {
-        val html = """<div id="zuixin"><ul>
-            <li>[玄幻奇幻]<a href="/book/11992/">九星霸體訣</a><span>平凡魔術師</span></li>
-        </ul></div>"""
-        val recent = Parser.parseRecent(html)
-        assertEquals(1, recent.size)
-        assertEquals("九星霸體訣", recent[0].title)
-        assertEquals("玄幻奇幻", recent[0].category)
+    @Test fun lastupdateCardVariant() {
+        // /top/lastupdate_N.html uses <h4 class="bookname"> (categories and
+        // search use <div>); the same parser must handle it, with intro.
+        val html = """
+            <div class="bookbox"><div class="p10"><span class="num">1</span>
+            <div class="bookinfo"><h4 class="bookname"><a href="https://uukanshu.cc/book/26544/">獨守要塞三年，我成了長夜領主</a></h4>
+            <div class="author">作者：三陽開太泰</div><div class="author">字數：833947</div>
+            <div class="cat"><span>更新到：</span><a href="https://uukanshu.cc/book/26544/17772657.html">第218章</a></div>
+            <div class="update"><span>簡介：</span>黑暗入侵，全球崩潰。</div>
+            </div></div></div>
+        """.trimIndent()
+        val books = Parser.parseCategory(html)
+        assertEquals(1, books.size)
+        assertEquals("26544", books[0].id)
+        assertEquals("獨守要塞三年，我成了長夜領主", books[0].title)
+        assertEquals("黑暗入侵，全球崩潰。", books[0].intro)
     }
 }
