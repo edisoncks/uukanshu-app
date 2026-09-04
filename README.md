@@ -32,7 +32,7 @@ Toolchain is pinned in `mise.toml` (java 17, gradle 8.10.2, kotlin 2.0.20) with 
 mise install          # runtimes (project-local, no global installs)
 mise run setup-android  # platforms;android-34, build-tools;34.0.0 (first time)
 mise run build        # ./gradlew assembleRelease
-# → app/build/outputs/apk/release/uukanshu-1.0.0.apk
+# → app/build/outputs/apk/release/uukanshu-{version}.apk
 mise run test         # unit tests (Parser fixtures, T2S)
 ```
 
