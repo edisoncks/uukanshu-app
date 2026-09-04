@@ -17,7 +17,7 @@ android {
         targetSdk = 34
         versionCode = 1
         // Single source of truth for `uukanshu-{version}.apk`.
-        versionName = "0.1.0"
+        versionName = "1.0.0"
     }
 
     // Release signing: local `release.keystore` (dev key, gitignored) by
