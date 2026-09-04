@@ -11,6 +11,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -19,8 +21,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -162,6 +166,13 @@ class ReaderViewModel(
     fun display(raw: String): String =
         if (_ui.value.simplified) t2s.convert(raw) else raw
 
+    /** Converted theme-mode label for the settings menu. */
+    fun themeLabel(): String = display(when (_ui.value.theme) {
+        Prefs.LIGHT -> "主題：淺色"
+        Prefs.DARK -> "主題：深色"
+        else -> "主題：自動"
+    })
+
     /** Cycle system → light → dark theme. Applied app-wide via prefs. */
     fun cycleTheme() {
         viewModelScope.launch {
@@ -187,13 +198,15 @@ fun ReaderScreen(bookId: String, position: Int) {
     val ui by vm.ui.collectAsState()
     val snacks = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    var menu by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize()) {
-        // Navigation gets its own full-width row so it can never be
-        // squeezed out by display controls on narrow screens.
+        // Single compact row: navigation flexes, settings live in ⋯
+        // so nothing can overflow or steal reading space.
         Row(
-            Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 8.dp),
+            Modifier.fillMaxWidth().padding(8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Button(
                 onClick = { vm.load(ui.position - 1) },
@@ -213,19 +226,35 @@ fun ReaderScreen(bookId: String, position: Int) {
             ) {
                 Text(vm.display("下一章"))
             }
-        }
-        // Compact display controls on their own centered row.
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextButton(onClick = { vm.toggleSimplified() }) {
-                Text(if (ui.simplified) "简" else "繁")
+            Box {
+                TextButton(onClick = { menu = true }) {
+                    Text("⋯", fontSize = 20.sp)
+                }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(
+                        text = { Text(if (ui.simplified) vm.display("簡體 ✓") else vm.display("繁體 ✓")) },
+                        onClick = { vm.toggleSimplified(); menu = false },
+                    )
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(vm.display("字體"))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = { vm.font(-0.1f) }) { Text("A-") }
+                            TextButton(onClick = { vm.font(0.1f) }) { Text("A+") }
+                        }
+                    }
+                    DropdownMenuItem(
+                        text = { Text(vm.themeLabel()) },
+                        trailingIcon = {
+                            ThemeIconButton(ui.theme, { vm.cycleTheme() }, vm::display)
+                        },
+                        onClick = { vm.cycleTheme() },
+                    )
+                }
             }
-            TextButton(onClick = { vm.font(-0.1f) }) { Text("A-") }
-            TextButton(onClick = { vm.font(0.1f) }) { Text("A+") }
-            ThemeIconButton(ui.theme, { vm.cycleTheme() }, vm::display)
         }
         when {
             ui.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
