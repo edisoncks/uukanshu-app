@@ -33,6 +33,7 @@ import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.repo
+import cc.uukanshu.ui.ThemeIconButton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -55,6 +56,7 @@ class ReaderViewModel(
         val error: String? = null,
         val simplified: Boolean = false,
         val fontScale: Float = 1f,
+        val theme: String = Prefs.SYSTEM,
     )
 
     private val _ui = MutableStateFlow(Ui())
@@ -66,6 +68,7 @@ class ReaderViewModel(
             _ui.value = _ui.value.copy(
                 simplified = prefs.simplified.first(),
                 fontScale = prefs.fontScale.first(),
+                theme = prefs.theme.first(),
             )
             load(startPosition)
         }
@@ -157,6 +160,15 @@ class ReaderViewModel(
 
     fun display(raw: String): String =
         if (_ui.value.simplified) t2s.convert(raw) else raw
+
+    /** Cycle system → light → dark theme. Applied app-wide via prefs. */
+    fun cycleTheme() {
+        viewModelScope.launch {
+            val next = Prefs.next(_ui.value.theme)
+            prefs.setTheme(next)
+            _ui.value = _ui.value.copy(theme = next)
+        }
+    }
 }
 
 @Composable
@@ -185,6 +197,7 @@ fun ReaderScreen(bookId: String, position: Int) {
             }
             TextButton(onClick = { vm.font(-0.1f) }) { Text("A-") }
             TextButton(onClick = { vm.font(0.1f) }) { Text("A+") }
+            ThemeIconButton(ui.theme, { vm.cycleTheme() }, vm::display)
             Button(
                 onClick = {
                     if (ui.position >= ui.total && ui.total > 0) {

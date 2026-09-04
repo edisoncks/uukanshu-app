@@ -22,6 +22,13 @@ class Prefs(private val context: Context) {
         const val SYSTEM = "system"
         const val LIGHT = "light"
         const val DARK = "dark"
+
+        /** Cycle order for the theme toggle. */
+        fun next(current: String): String = when (current) {
+            SYSTEM -> LIGHT
+            LIGHT -> DARK
+            else -> SYSTEM
+        }
     }
 
     val simplified: Flow<Boolean> =

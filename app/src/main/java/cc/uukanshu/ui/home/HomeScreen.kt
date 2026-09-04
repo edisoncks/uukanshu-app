@@ -39,6 +39,7 @@ import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.repo
+import cc.uukanshu.ui.ThemeIconButton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -88,21 +89,11 @@ class HomeViewModel(
     /** Cycle system → light → dark theme. Applied app-wide via prefs. */
     fun cycleTheme() {
         viewModelScope.launch {
-            val next = when (_ui.value.theme) {
-                Prefs.SYSTEM -> Prefs.LIGHT
-                Prefs.LIGHT -> Prefs.DARK
-                else -> Prefs.SYSTEM
-            }
+            val next = Prefs.next(_ui.value.theme)
             prefs.setTheme(next)
             _ui.value = _ui.value.copy(theme = next)
         }
     }
-
-    fun themeLabel(): String = display(when (_ui.value.theme) {
-        Prefs.LIGHT -> "淺色"
-        Prefs.DARK -> "深色"
-        else -> "自動"
-    })
 
     fun selectTab(tab: Int) {
         if (_ui.value.tab == tab) return
@@ -173,9 +164,7 @@ fun HomeScreen(onBook: (String) -> Unit) {
             TextButton(onClick = { vm.toggleSimplified() }) {
                 Text(if (ui.simplified) "简" else "繁")
             }
-            TextButton(onClick = { vm.cycleTheme() }) {
-                Text(vm.themeLabel())
-            }
+            ThemeIconButton(ui.theme, { vm.cycleTheme() }, vm::display)
         }
         TabRow(selectedTabIndex = ui.tab) {
             Tab(selected = ui.tab == 0, onClick = { vm.selectTab(0) }, text = { Text(vm.display("最近更新")) })
