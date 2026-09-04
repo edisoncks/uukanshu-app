@@ -1,6 +1,7 @@
 package cc.uukanshu.ui.detail
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -175,29 +177,55 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(top = 8.dp),
                 )
+                val bookmarked = ui.bookmarkedPosition?.takeIf { it in 1..ui.chapters.size }
+                    ?.let { pos -> ui.chapters.firstOrNull { it.position == pos } }
                 if (ui.downloading) {
-                    LinearProgressIndicator(
-                        progress = { ui.done.toFloat() / ui.chapters.size.coerceAtLeast(1) },
+                    Column(
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    )
-                    Text(vm.displayTitle("下載中") + " ${ui.done}/${ui.chapters.size}", style = MaterialTheme.typography.bodySmall)
-                    Button({ vm.cancelDownload() }, Modifier.padding(top = 4.dp)) { Text(vm.displayTitle("取消")) }
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (bookmarked != null) {
+                            Button(
+                                onClick = { onChapter(bookId, bookmarked.position) },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    vm.displayTitle("繼續閱讀：第 ${bookmarked.position} 章 ${bookmarked.title}"),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                        LinearProgressIndicator(
+                            progress = { ui.done.toFloat() / ui.chapters.size.coerceAtLeast(1) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Text(vm.displayTitle("下載中") + " ${ui.done}/${ui.chapters.size}", style = MaterialTheme.typography.bodySmall)
+                        Button({ vm.cancelDownload() }, Modifier.fillMaxWidth()) { Text(vm.displayTitle("取消")) }
+                    }
                 } else {
-                    Button({ vm.downloadAll() }, Modifier.padding(top = 8.dp)) {
-                        Text(if (ui.done > 0 && ui.done >= ui.chapters.size) vm.displayTitle("重新下載整本") else vm.displayTitle("下載整本"))
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (bookmarked != null) {
+                            Button(
+                                onClick = { onChapter(bookId, bookmarked.position) },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    vm.displayTitle("繼續閱讀：第 ${bookmarked.position} 章 ${bookmarked.title}"),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                        Button({ vm.downloadAll() }, Modifier.fillMaxWidth()) {
+                            Text(if (ui.done > 0 && ui.done >= ui.chapters.size) vm.displayTitle("重新下載整本") else vm.displayTitle("下載整本"))
+                        }
                     }
                 }
                 ui.downloadError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                val bookmarked = ui.bookmarkedPosition?.takeIf { it in 1..ui.chapters.size }
-                    ?.let { pos -> ui.chapters.firstOrNull { it.position == pos } }
-                if (bookmarked != null) {
-                    Button(
-                        onClick = { onChapter(bookId, bookmarked.position) },
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    ) {
-                        Text(vm.displayTitle("繼續閱讀：第 ${bookmarked.position} 章 ${bookmarked.title}"))
-                    }
-                }
                 Text(
                     "${vm.displayTitle("共")} ${ui.chapters.size} ${vm.displayTitle("章")} · ${vm.displayTitle("已緩存")} ${ui.cached.size} ${vm.displayTitle("章")}",
                     style = MaterialTheme.typography.bodySmall,
