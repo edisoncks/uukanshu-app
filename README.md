@@ -2,13 +2,24 @@
 
 Clean, minimalist Android reader for novels from [uukanshu.cc](https://uukanshu.cc) — just the story: no images, no ads.
 
+## Install
+
+Grab `uukanshu-{version}.apk` from the
+[Releases page](https://github.com/edisoncks/uukanshu-app/releases/latest),
+then open it on your phone to install (Android 12+). If prompted, allow
+"install unknown apps" for your browser/file manager — the APK is signed
+but not Play-distributed.
+
+To update, download the newest APK and install over the old one (same
+signature, data and cache preserved).
+
 ## Features
 
 - 📚 Browse by category (10 cats, paged) and recently updated
 - 🔍 Search by title (`POST /search`, hot-span stripping)
-- 📖 Book detail with full chapter list (reading order)
+- 📖 Book detail with full chapter list (reading order, cached badges)
 - 📄 Chapter reader with prev/next, start/end snackbars
-- 🀄 Traditional → Simplified toggle (opencc4j, render-time; raw cached)
+- 🀄 Global Traditional → Simplified toggle (Home top bar + reader; opencc4j at render time, raw cached)
 - ⏬ Auto-cache next 5 chapters; manual full-novel download with progress + cancel
 - 🗑️ Library with per-book size, delete per book / clear all; offline cached-first reading
 - 🔤 Font-size +/-, persisted with DataStore; Material3 light/dark
@@ -21,7 +32,7 @@ Toolchain is pinned in `mise.toml` (java 17, gradle 8.10.2, kotlin 2.0.20) with 
 mise install          # runtimes (project-local, no global installs)
 mise run setup-android  # platforms;android-34, build-tools;34.0.0 (first time)
 mise run build        # ./gradlew assembleRelease
-# → app/build/outputs/apk/release/uukanshu-0.1.0.apk
+# → app/build/outputs/apk/release/uukanshu-1.0.0.apk
 mise run test         # unit tests (Parser fixtures, T2S)
 ```
 
