@@ -16,7 +16,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -169,8 +168,6 @@ fun ReaderScreen(bookId: String, position: Int) {
     val ui by vm.ui.collectAsState()
     val snacks = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-
-    LaunchedEffect(bookId) { vm.load(position) }
 
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(8.dp)) {

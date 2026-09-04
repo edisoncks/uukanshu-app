@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -19,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -33,13 +35,20 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cc.uukanshu.CATEGORIES
+import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.parse.Parser
+import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.repo
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-class HomeViewModel(private val repo: cc.uukanshu.data.repo.BookRepo) : ViewModel() {
+class HomeViewModel(
+    private val repo: cc.uukanshu.data.repo.BookRepo,
+    private val prefs: Prefs,
+    private val t2s: T2S,
+) : ViewModel() {
     data class Ui(
         val tab: Int = 0, // 0 recent, 1 category
         val categoryId: Int = 1,
@@ -49,21 +58,39 @@ class HomeViewModel(private val repo: cc.uukanshu.data.repo.BookRepo) : ViewMode
         val loadingMore: Boolean = false,
         val error: String? = null,
         val endOfList: Boolean = false,
+        val simplified: Boolean = false,
     )
 
     private val _ui = MutableStateFlow(Ui(loading = true))
     val ui: StateFlow<Ui> = _ui
 
-    init { refresh() }
+    init {
+        viewModelScope.launch {
+            _ui.value = _ui.value.copy(simplified = prefs.simplified.first())
+            refresh()
+        }
+    }
+
+    fun toggleSimplified() {
+        viewModelScope.launch {
+            prefs.setSimplified(!_ui.value.simplified)
+            _ui.value = _ui.value.copy(simplified = !_ui.value.simplified)
+        }
+    }
+
+    fun display(raw: String): String =
+        if (_ui.value.simplified) t2s.convert(raw) else raw
 
     fun selectTab(tab: Int) {
         if (_ui.value.tab == tab) return
-        _ui.value = Ui(tab = tab, categoryId = _ui.value.categoryId, loading = true)
+        _ui.value = Ui(tab = tab, categoryId = _ui.value.categoryId, loading = true,
+            simplified = _ui.value.simplified)
         refresh()
     }
 
     fun selectCategory(id: Int) {
-        _ui.value = _ui.value.copy(tab = 1, categoryId = id, page = 1, books = emptyList(), loading = true, endOfList = false, error = null)
+        _ui.value = _ui.value.copy(tab = 1, categoryId = id, page = 1, books = emptyList(),
+            loading = true, endOfList = false, error = null)
         refresh()
     }
 
@@ -104,17 +131,28 @@ class HomeViewModel(private val repo: cc.uukanshu.data.repo.BookRepo) : ViewMode
 @Composable
 fun HomeScreen(onBook: (String) -> Unit) {
     val ctx = LocalContext.current
+    val app = ctx.applicationContext as cc.uukanshu.App
     val vm: HomeViewModel = viewModel(factory = object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            HomeViewModel(ctx.repo()) as T
+            HomeViewModel(ctx.repo(), Prefs(app), T2S(app)) as T
     })
     val ui by vm.ui.collectAsState()
 
     Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "uukanshu",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f).padding(start = 12.dp),
+            )
+            TextButton(onClick = { vm.toggleSimplified() }) {
+                Text(if (ui.simplified) "简" else "繁")
+            }
+        }
         TabRow(selectedTabIndex = ui.tab) {
-            Tab(selected = ui.tab == 0, onClick = { vm.selectTab(0) }, text = { Text("最近更新") })
-            Tab(selected = ui.tab == 1, onClick = { vm.selectTab(1) }, text = { Text("分類") })
+            Tab(selected = ui.tab == 0, onClick = { vm.selectTab(0) }, text = { Text(vm.display("最近更新")) })
+            Tab(selected = ui.tab == 1, onClick = { vm.selectTab(1) }, text = { Text(vm.display("分類")) })
         }
         if (ui.tab == 1) {
             LazyRow(
@@ -124,7 +162,7 @@ fun HomeScreen(onBook: (String) -> Unit) {
                 items(CATEGORIES) { c ->
                     AssistChip(
                         onClick = { vm.selectCategory(c.id) },
-                        label = { Text(c.name) },
+                        label = { Text(vm.display(c.name)) },
                     )
                 }
             }
@@ -136,7 +174,7 @@ fun HomeScreen(onBook: (String) -> Unit) {
             ui.error != null && ui.books.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(ui.error!!, style = MaterialTheme.typography.bodyMedium)
-                    Button({ vm.refresh()}, Modifier.padding(top = 12.dp)) { Text("重試 / Retry") }
+                    Button({ vm.refresh()}, Modifier.padding(top = 12.dp)) { Text(vm.display("重試 / Retry")) }
                 }
             }
             else -> {
@@ -151,15 +189,18 @@ fun HomeScreen(onBook: (String) -> Unit) {
                     items(ui.books, key = { it.id + it.title }) { b ->
                         Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onBook(b.id) }) {
                             Column(Modifier.padding(12.dp)) {
-                                Text(b.title, style = MaterialTheme.typography.titleMedium)
-                                if (b.author.isNotEmpty()) Text("作者：${b.author}", style = MaterialTheme.typography.bodySmall)
+                                Text(vm.display(b.title), style = MaterialTheme.typography.titleMedium)
+                                if (b.author.isNotEmpty()) Text(
+                                    "${vm.display("作者")}：${vm.display(b.author)}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
                                 if (b.latestChapterTitle.isNotEmpty()) Text(
-                                    "更新到：${b.latestChapterTitle}",
+                                    "${vm.display("更新到")}：${vm.display(b.latestChapterTitle)}",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.primary,
                                 )
                                 if (b.intro.isNotEmpty()) Text(
-                                    b.intro.take(120),
+                                    vm.display(b.intro.take(120)),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
