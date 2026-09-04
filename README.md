@@ -41,6 +41,6 @@ Release builds are signed (unsigned APKs are rejected at install time with
 
 ## Scraping notes
 
-Ported from [`uukanshu-cli`](../uukanshu-cli): browser UA, 3× retry, Cloudflare `<title>` sniff, TOC LAST-occurrence dedup + numeric bookId filter, `mulu-box` + LAST nav-row cut, urljoin-then-validate nav (non-chapter hrefs = end-of-book), canonical book URLs, `POST /search`. Text only — `<img>`/iframes/scripts never fetched or rendered.
+Ported from [`uukanshu-cli`](../uukanshu-cli): browser UA, 3× retry, Cloudflare `<title>` sniff, TOC LAST-occurrence dedup + numeric bookId filter, `mulu-box` + LAST nav-row cut, urljoin-then-validate nav (non-chapter hrefs = end-of-book), canonical book URLs, `POST /search`. Text only — `<img>`/iframes/scripts never fetched or rendered. Bulk chapter fetching (full download, next-5 prefetch) pauses 3s + random 0–1s between requests to avoid rate limiting.
 
 Requires `minSdk 31` (Android 12+), `targetSdk 34`.

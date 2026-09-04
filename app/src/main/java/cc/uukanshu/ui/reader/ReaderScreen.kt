@@ -120,16 +120,18 @@ class ReaderViewModel(
         }
     }
 
-    /** Auto-cache the next 5 chapters, sequential, silent-fail. */
+    /** Auto-cache the next 5 chapters, sequential with crawl delay, silent-fail. */
     private fun prefetchNext5(from: Int) {
         viewModelScope.launch {
+            var fetchedAny = false
             for (pos in (from + 1)..minOf(from + 5, chapters.size)) {
+                if (repo.cachedChapterContent(bookId, pos) != null) continue
+                if (fetchedAny) repo.crawlDelay()
                 runCatching {
-                    if (repo.cachedChapterContent(bookId, pos) == null) {
-                        val ref = chapters[pos - 1]
-                        repo.saveChapterContent(bookId, pos, repo.chapter(ref.url).text)
-                    }
+                    val ref = chapters[pos - 1]
+                    repo.saveChapterContent(bookId, pos, repo.chapter(ref.url).text)
                 }
+                fetchedAny = true
             }
         }
     }

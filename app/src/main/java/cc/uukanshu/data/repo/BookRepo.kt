@@ -7,6 +7,7 @@ import cc.uukanshu.data.net.SiteApi
 import cc.uukanshu.data.parse.Parser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.random.Random
 
 /**
  * Network-first repository with Room fallback for cached novels.
@@ -90,18 +91,29 @@ class BookRepo(
         }
     }
 
+    /**
+     * Polite crawl delay between chapter fetches: 3s + random 0-1s jitter,
+     * so bulk downloading looks less like a bot to rate limiting.
+     * Only for multi-chapter loops (full download, prefetch) — single
+     * interactive chapter taps stay immediate (already user-paced).
+     */
+    suspend fun crawlDelay() {
+        kotlinx.coroutines.delay(3000L + Random.nextLong(0, 1001))
+    }
+
     /** Sequential full download; [onProgress] gets (done, total). Throwing aborts. */
     suspend fun downloadAll(bookId: String, onProgress: (Int, Int) -> Unit) {
         val chapters = withContext(Dispatchers.IO) { detail(bookId).chapters }
+        var fetchedAny = false
         chapters.forEachIndexed { idx, ref ->
             val has = withContext(Dispatchers.IO) {
                 cachedChapterContent(bookId, ref.position) != null
             }
             if (!has) {
-                // Small breather: polite to the site / Cloudflare.
-                kotlinx.coroutines.delay(250)
+                if (fetchedAny) crawlDelay()
                 val text = withContext(Dispatchers.IO) { chapter(ref.url).text }
                 saveChapterContent(bookId, ref.position, text)
+                fetchedAny = true
             }
             onProgress(idx + 1, chapters.size)
         }
