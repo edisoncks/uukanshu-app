@@ -27,6 +27,18 @@ mise run test         # unit tests (Parser fixtures, T2S)
 
 `versionName` in `app/build.gradle.kts` is the single source of truth; release APKs are renamed to `uukanshu-{version}.apk`.
 
+## Signing
+
+Release builds are signed (unsigned APKs are rejected at install time with
+"package appears to be invalid"):
+
+- Local dev key: `mise run setup-signing` generates a gitignored
+  `release.keystore` (password/alias `uukanshu`), used automatically.
+- Official releases: set `UUKANSHU_KEYSTORE_FILE`,
+  `UUKANSHU_KEYSTORE_PASSWORD`, `UUKANSHU_KEY_ALIAS`, `UUKANSHU_KEY_PASSWORD`.
+- Keep your keystore backed up: updates signed with a different key
+  require uninstalling the app first.
+
 ## Scraping notes
 
 Ported from [`uukanshu-cli`](../uukanshu-cli): browser UA, 3× retry, Cloudflare `<title>` sniff, TOC LAST-occurrence dedup + numeric bookId filter, `mulu-box` + LAST nav-row cut, urljoin-then-validate nav (non-chapter hrefs = end-of-book), canonical book URLs, `POST /search`. Text only — `<img>`/iframes/scripts never fetched or rendered.

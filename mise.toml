@@ -25,6 +25,20 @@ yes | "$TOOLS" --sdk_root="$SDK" --licenses >/dev/null 2>&1 || true
 "$TOOLS" --sdk_root="$SDK" "platforms;android-34" "build-tools;34.0.0" "platform-tools"
 """
 
+[tasks.setup-signing]
+description = "Generate local release.keystore (dev key, gitignored)"
+run = """
+set -e
+if [ -f "$MISE_CONFIG_ROOT/release.keystore" ]; then
+  echo "release.keystore already exists"
+  exit 0
+fi
+keytool -genkeypair -keystore "$MISE_CONFIG_ROOT/release.keystore" \
+  -alias uukanshu -keyalg RSA -keysize 2048 -validity 10000 \
+  -storepass uukanshu -keypass uukanshu \
+  -dname "CN=uukanshu, OU=app, O=uukanshu, L=, ST=, C="
+"""
+
 [tasks.build]
 description = "Build uukanshu-{version}.apk (release)"
 run = "./gradlew assembleRelease"

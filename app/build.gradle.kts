@@ -20,8 +20,41 @@ android {
         versionName = "0.1.0"
     }
 
+    // Release signing: local `release.keystore` (dev key, gitignored) by
+    // default; official releases override via UUKANSHU_KEYSTORE_* env.
+    // Without this the APK is unsigned and Android refuses to install it
+    // ("package appears to be invalid").
+    signingConfigs {
+        create("release") {
+            val ksProp = System.getenv("UUKANSHU_KEYSTORE_FILE")
+                ?: project.findProperty("UUKANSHU_KEYSTORE_FILE") as? String
+            val ksFile = if (ksProp != null) file(ksProp) else rootProject.file("release.keystore")
+            if (ksFile.exists()) {
+                storeFile = ksFile
+                storePassword = System.getenv("UUKANSHU_KEYSTORE_PASSWORD")
+                    ?: (project.findProperty("UUKANSHU_KEYSTORE_PASSWORD") as? String)
+                    ?: "uukanshu"
+                keyAlias = System.getenv("UUKANSHU_KEY_ALIAS")
+                    ?: (project.findProperty("UUKANSHU_KEY_ALIAS") as? String)
+                    ?: "uukanshu"
+                keyPassword = System.getenv("UUKANSHU_KEY_PASSWORD")
+                    ?: (project.findProperty("UUKANSHU_KEY_PASSWORD") as? String)
+                    ?: "uukanshu"
+            } else {
+                // Fresh clone without the local key: sign like debug so the
+                // APK is at least installable (never for official releases).
+                initWith(getByName("debug"))
+            }
+            // APK Signature Scheme v2 (supported since Android 7.0, and
+            // our minSdk is 31) — this signature is what makes the APK
+            // installable; unsigned builds are rejected as invalid.
+            enableV2Signing = true
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

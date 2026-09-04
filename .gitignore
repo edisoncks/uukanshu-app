@@ -1,3 +1,7 @@
+# Keystores (local dev key; official releases override via env)
+release.keystore
+*.jks
+*.keystore
 # Android / Gradle
 .gradle/
 build/
