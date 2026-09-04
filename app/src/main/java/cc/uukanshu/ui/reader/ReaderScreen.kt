@@ -1,5 +1,6 @@
 package cc.uukanshu.ui.reader
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -188,16 +189,19 @@ fun ReaderScreen(bookId: String, position: Int) {
     val scope = rememberCoroutineScope()
 
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(8.dp)) {
-            Button(onClick = { vm.load(ui.position - 1) }, enabled = !ui.loading && ui.position > 1) {
+        // Navigation gets its own full-width row so it can never be
+        // squeezed out by display controls on narrow screens.
+        Row(
+            Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Button(
+                onClick = { vm.load(ui.position - 1) },
+                enabled = !ui.loading && ui.position > 1,
+                modifier = Modifier.weight(1f),
+            ) {
                 Text(vm.display("上一章"))
             }
-            TextButton(onClick = { vm.toggleSimplified() }) {
-                Text(if (ui.simplified) "简" else "繁")
-            }
-            TextButton(onClick = { vm.font(-0.1f) }) { Text("A-") }
-            TextButton(onClick = { vm.font(0.1f) }) { Text("A+") }
-            ThemeIconButton(ui.theme, { vm.cycleTheme() }, vm::display)
             Button(
                 onClick = {
                     if (ui.position >= ui.total && ui.total > 0) {
@@ -205,9 +209,23 @@ fun ReaderScreen(bookId: String, position: Int) {
                     } else vm.load(ui.position + 1)
                 },
                 enabled = !ui.loading,
+                modifier = Modifier.weight(1f),
             ) {
                 Text(vm.display("下一章"))
             }
+        }
+        // Compact display controls on their own centered row.
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(onClick = { vm.toggleSimplified() }) {
+                Text(if (ui.simplified) "简" else "繁")
+            }
+            TextButton(onClick = { vm.font(-0.1f) }) { Text("A-") }
+            TextButton(onClick = { vm.font(0.1f) }) { Text("A+") }
+            ThemeIconButton(ui.theme, { vm.cycleTheme() }, vm::display)
         }
         when {
             ui.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
