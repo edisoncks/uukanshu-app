@@ -63,6 +63,13 @@ class DetailViewModel(
             _ui.value = _ui.value.copy(simplified = prefs.simplified.first())
             refresh()
         }
+        // Live badge state: every cache write (reader, prefetch, download)
+        // re-emits, so badges stay correct when returning to this screen.
+        viewModelScope.launch {
+            repo.cachedPositionsFlow(bookId).collect { positions ->
+                _ui.value = _ui.value.copy(cached = positions)
+            }
+        }
     }
 
     fun refresh() {
@@ -73,7 +80,6 @@ class DetailViewModel(
                 val d = repo.detail(bookId)
                 _ui.value = _ui.value.copy(
                     loading = false, meta = d.meta, chapters = d.chapters,
-                    cached = repo.cachedPositions(bookId),
                 )
             } catch (e: Exception) {
                 _ui.value = _ui.value.copy(
@@ -93,20 +99,13 @@ class DetailViewModel(
             _ui.value = _ui.value.copy(downloading = true, done = 0, downloadError = null)
             try {
                 repo.downloadAll(bookId) { done, _ ->
-                    val pos = _ui.value.chapters.getOrNull(done - 1)?.position
-                    _ui.value = _ui.value.copy(
-                        done = done,
-                        cached = if (pos != null) _ui.value.cached + pos else _ui.value.cached,
-                    )
+                    _ui.value = _ui.value.copy(done = done)
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 _ui.value = _ui.value.copy(downloadError = "${e.javaClass.simpleName}: ${e.message}")
             } finally {
-                _ui.value = _ui.value.copy(
-                    downloading = false,
-                    cached = repo.cachedPositions(bookId),
-                )
+                _ui.value = _ui.value.copy(downloading = false)
             }
         }
     }

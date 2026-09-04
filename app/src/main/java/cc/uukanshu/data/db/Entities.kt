@@ -6,6 +6,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
+import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "books")
 data class BookEntity(
@@ -55,6 +56,10 @@ interface BookDao {
 interface ChapterDao {
     @Query("SELECT * FROM chapters WHERE bookId = :bookId ORDER BY position")
     suspend fun chapters(bookId: String): List<ChapterEntity>
+
+    /** Positions with downloaded content, as a live stream for badges. */
+    @Query("SELECT position FROM chapters WHERE bookId = :bookId AND content != ''")
+    fun cachedPositionsFlow(bookId: String): Flow<List<Int>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(chapters: List<ChapterEntity>)

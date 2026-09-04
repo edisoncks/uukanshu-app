@@ -6,6 +6,8 @@ import cc.uukanshu.data.db.ChapterEntity
 import cc.uukanshu.data.net.SiteApi
 import cc.uukanshu.data.parse.Parser
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlin.random.Random
 
@@ -62,13 +64,9 @@ class BookRepo(
         db.chapters().chapters(bookId).firstOrNull { it.position == position }
             ?.content?.takeIf { it.isNotEmpty() }
 
-    /** Positions with downloaded content — drives cached badges in the chapter list. */
-    suspend fun cachedPositions(bookId: String): Set<Int> = withContext(Dispatchers.IO) {
-        db.chapters().chapters(bookId)
-            .filter { it.content.isNotEmpty() }
-            .map { it.position }
-            .toSet()
-    }
+    /** Positions with downloaded content — live stream driving chapter-list badges. */
+    fun cachedPositionsFlow(bookId: String): Flow<Set<Int>> =
+        db.chapters().cachedPositionsFlow(bookId).map { it.toSet() }
 
     suspend fun saveChapterContent(bookId: String, position: Int, content: String) {
         val list = db.chapters().chapters(bookId)
