@@ -107,14 +107,14 @@ fun LibraryScreen(onBook: (String) -> Unit) {
 
     Column(Modifier.fillMaxSize().padding(12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("已緩存", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            Text(vm.display("已緩存"), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
             if (ui.books.isNotEmpty()) {
-                TextButton(onClick = { vm.clearAll() }) { Text("清空全部") }
+                TextButton(onClick = { vm.clearAll() }) { Text(vm.display("清空全部")) }
             }
         }
         val total = ui.books.sumOf { it.bytes }
         Text(
-            "${ui.books.size} 本 · ${formatBytes(total)}",
+            "${ui.books.size} ${vm.display("本")} · ${formatBytes(total)}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -124,7 +124,7 @@ fun LibraryScreen(onBook: (String) -> Unit) {
             }
         } else if (ui.books.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("尚無緩存 — 在書籍詳情頁下載整本", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(vm.display("尚無緩存 — 在書籍詳情頁下載整本"), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
             LazyColumn(Modifier.fillMaxSize()) {
@@ -133,11 +133,11 @@ fun LibraryScreen(onBook: (String) -> Unit) {
                         Column(Modifier.padding(12.dp)) {
                             Text(vm.display(b.title), style = MaterialTheme.typography.titleMedium)
                             Text(
-                                "${vm.display(b.author)} · ${b.cached}/${b.total} 章 · ${formatBytes(b.bytes)}",
+                                "${vm.display(b.author)} · ${b.cached}/${b.total} ${vm.display("章")} · ${formatBytes(b.bytes)}",
                                 style = MaterialTheme.typography.bodySmall,
                             )
                             Button({ vm.delete(b.id) }, Modifier.padding(top = 8.dp)) {
-                                Text("刪除緩存")
+                                Text(vm.display("刪除緩存"))
                             }
                         }
                     }

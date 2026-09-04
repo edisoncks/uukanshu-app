@@ -143,7 +143,7 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
         ui.error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(ui.error!!)
-                Button({ vm.refresh() }, Modifier.padding(top = 12.dp)) { Text("重試") }
+                Button({ vm.refresh() }, Modifier.padding(top = 12.dp)) { Text(vm.displayTitle("重試")) }
             }
         }
         else -> LazyColumn(Modifier.fillMaxSize().padding(12.dp)) {
@@ -172,11 +172,11 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
                         progress = { ui.done.toFloat() / ui.chapters.size.coerceAtLeast(1) },
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     )
-                    Text("下載中 ${ui.done}/${ui.chapters.size}", style = MaterialTheme.typography.bodySmall)
-                    Button({ vm.cancelDownload() }, Modifier.padding(top = 4.dp)) { Text("取消") }
+                    Text(vm.displayTitle("下載中") + " ${ui.done}/${ui.chapters.size}", style = MaterialTheme.typography.bodySmall)
+                    Button({ vm.cancelDownload() }, Modifier.padding(top = 4.dp)) { Text(vm.displayTitle("取消")) }
                 } else {
                     Button({ vm.downloadAll() }, Modifier.padding(top = 8.dp)) {
-                        Text(if (ui.done > 0 && ui.done >= ui.chapters.size) "重新下載整本" else "下載整本")
+                        Text(if (ui.done > 0 && ui.done >= ui.chapters.size) vm.displayTitle("重新下載整本") else vm.displayTitle("下載整本"))
                     }
                 }
                 ui.downloadError?.let { Text(it, color = MaterialTheme.colorScheme.error) }

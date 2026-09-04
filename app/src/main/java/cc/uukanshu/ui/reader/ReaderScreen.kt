@@ -154,6 +154,9 @@ class ReaderViewModel(
             _ui.value = _ui.value.copy(fontScale = next)
         }
     }
+
+    fun display(raw: String): String =
+        if (_ui.value.simplified) t2s.convert(raw) else raw
 }
 
 @Composable
@@ -175,7 +178,7 @@ fun ReaderScreen(bookId: String, position: Int) {
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(8.dp)) {
             Button(onClick = { vm.load(ui.position - 1) }, enabled = !ui.loading && ui.position > 1) {
-                Text("上一章")
+                Text(vm.display("上一章"))
             }
             TextButton(onClick = { vm.toggleSimplified() }) {
                 Text(if (ui.simplified) "简" else "繁")
@@ -190,7 +193,7 @@ fun ReaderScreen(bookId: String, position: Int) {
                 },
                 enabled = !ui.loading,
             ) {
-                Text("下一章")
+                Text(vm.display("下一章"))
             }
         }
         when {
@@ -200,7 +203,7 @@ fun ReaderScreen(bookId: String, position: Int) {
             ui.error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(ui.error!!)
-                    Button({ vm.load(ui.position) }, Modifier.padding(top = 12.dp)) { Text("重試") }
+                    Button({ vm.load(ui.position) }, Modifier.padding(top = 12.dp)) { Text(vm.display("重試")) }
                 }
             }
             else -> Column(
@@ -220,14 +223,14 @@ fun ReaderScreen(bookId: String, position: Int) {
                             else vm.load(ui.position - 1)
                         },
                         modifier = Modifier.weight(1f).padding(end = 4.dp),
-                    ) { Text("上一章") }
+                    ) { Text(vm.display("上一章")) }
                     Button(
                         onClick = {
                             if (ui.position >= ui.total) scope.launch { snacks.showSnackbar("已是最新一章 / end of book") }
                             else vm.load(ui.position + 1)
                         },
                         modifier = Modifier.weight(1f).padding(start = 4.dp),
-                    ) { Text("下一章") }
+                    ) { Text(vm.display("下一章")) }
                 }
             }
         }
