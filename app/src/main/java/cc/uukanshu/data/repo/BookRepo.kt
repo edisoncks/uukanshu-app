@@ -36,21 +36,36 @@ class BookRepo(
 
     data class Detail(val meta: Parser.BookMeta, val chapters: List<Parser.ChapterRef>)
 
+    companion object {
+        /**
+         * Merge a fresh TOC with already-downloaded content, keyed by the
+         * stable pageId (never by position, which can shift). Without this,
+         * re-opening a book would REPLACE cached rows with empty content
+         * and silently wipe downloads.
+         */
+        fun mergeToc(
+            bookId: String,
+            refs: List<Parser.ChapterRef>,
+            cachedByPageId: Map<Long, String>,
+        ): List<ChapterEntity> = refs.map {
+            ChapterEntity(bookId, it.position, it.pageId, it.title, it.url,
+                content = cachedByPageId[it.pageId].orEmpty())
+        }
+    }
+
     suspend fun detail(bookId: String): Detail = withContext(Dispatchers.IO) {
         val url = "${Parser.BASE}/book/$bookId/"
         val html = site.get(url)
         val meta = Parser.parseBookMeta(html, url)
         val chapters = Parser.parseToc(html, bookId)
-        // Cache meta + TOC skeleton (no content yet) for offline listing.
+        // Cache meta + TOC skeleton, preserving downloaded content.
         runCatching {
             db.books().upsert(
                 BookEntity(bookId, meta.title, meta.author, meta.intro, meta.category, meta.latestChapterTitle),
             )
-            db.chapters().upsertAll(
-                chapters.map {
-                    ChapterEntity(bookId, it.position, it.pageId, it.title, it.url)
-                },
-            )
+            val cached = db.chapters().chapters(bookId)
+                .associate { it.pageId to it.content }
+            db.chapters().upsertAll(mergeToc(bookId, chapters, cached))
         }
         Detail(meta, chapters)
     }
