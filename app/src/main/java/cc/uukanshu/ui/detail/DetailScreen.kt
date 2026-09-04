@@ -53,6 +53,7 @@ class DetailViewModel(
         val downloadError: String? = null,
         val simplified: Boolean = false,
         val cached: Set<Int> = emptySet(),
+        val offline: Boolean = false,
     )
 
     private val _ui = MutableStateFlow(Ui(loading = true))
@@ -77,9 +78,10 @@ class DetailViewModel(
         viewModelScope.launch {
             _ui.value = _ui.value.copy(loading = true, error = null)
             try {
-                val d = repo.detail(bookId)
+                val res = repo.detailOrCached(bookId)
                 _ui.value = _ui.value.copy(
-                    loading = false, meta = d.meta, chapters = d.chapters,
+                    loading = false, meta = res.detail.meta,
+                    chapters = res.detail.chapters, offline = res.offline,
                 )
             } catch (e: Exception) {
                 _ui.value = _ui.value.copy(
@@ -148,6 +150,13 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
             item {
                 val m = ui.meta!!
                 Text(vm.displayTitle(m.title), style = MaterialTheme.typography.headlineSmall)
+                if (ui.offline) {
+                    Text(
+                        vm.displayTitle("離線模式 · 緩存版本"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
                 Text(
                     "作者：${vm.displayTitle(m.author)}  ${vm.displayTitle(m.status)}  ${m.words}".trim(),
                     style = MaterialTheme.typography.bodySmall,

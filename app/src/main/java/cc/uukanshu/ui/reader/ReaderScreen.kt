@@ -80,8 +80,9 @@ class ReaderViewModel(
             _ui.value = _ui.value.copy(loading = true, error = null, position = position)
             try {
                 if (chapters.isEmpty()) {
-                    val d = repo.detail(bookId)
-                    chapters = d.chapters
+                    // Network-first, cached fallback: cached novels stay
+                    // readable in offline mode.
+                    chapters = repo.detailOrCached(bookId).detail.chapters
                 }
                 val total = chapters.size
                 if (position < 1 || position > total) {

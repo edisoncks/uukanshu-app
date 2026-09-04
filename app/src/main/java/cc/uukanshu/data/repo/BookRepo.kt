@@ -5,6 +5,7 @@ import cc.uukanshu.data.db.BookEntity
 import cc.uukanshu.data.db.ChapterEntity
 import cc.uukanshu.data.net.SiteApi
 import cc.uukanshu.data.parse.Parser
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -36,6 +37,8 @@ class BookRepo(
 
     data class Detail(val meta: Parser.BookMeta, val chapters: List<Parser.ChapterRef>)
 
+    data class DetailResult(val detail: Detail, val offline: Boolean)
+
     companion object {
         /**
          * Merge a fresh TOC with already-downloaded content, keyed by the
@@ -50,6 +53,43 @@ class BookRepo(
         ): List<ChapterEntity> = refs.map {
             ChapterEntity(bookId, it.position, it.pageId, it.title, it.url,
                 content = cachedByPageId[it.pageId].orEmpty())
+        }
+    }
+
+    /**
+     * Book + TOC reconstructed purely from cache. Null when the book was
+     * never opened/downloaded — offline reading depends on this.
+     */
+    suspend fun cachedDetail(bookId: String): Detail? = withContext(Dispatchers.IO) {
+        val book = db.books().book(bookId) ?: return@withContext null
+        val rows = db.chapters().chapters(bookId)
+        if (rows.isEmpty()) return@withContext null
+        Detail(
+            meta = Parser.BookMeta(
+                title = book.title,
+                author = book.author,
+                words = "",
+                category = book.category,
+                status = "",
+                intro = book.intro,
+                latestChapterTitle = book.lastChapterTitle,
+                latestChapterUrl = null,
+                updatedAt = "",
+            ),
+            chapters = rows.map { Parser.ChapterRef(it.position, it.pageId, it.title, it.url) },
+        )
+    }
+
+    /**
+     * Network-first, cached fallback: makes Detail/Reader work offline as
+     * long as the book was opened or downloaded before.
+     */
+    suspend fun detailOrCached(bookId: String): DetailResult {
+        return try {
+            DetailResult(detail(bookId), offline = false)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            DetailResult(cachedDetail(bookId) ?: throw e, offline = true)
         }
     }
 
