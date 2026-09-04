@@ -62,6 +62,14 @@ class BookRepo(
         db.chapters().chapters(bookId).firstOrNull { it.position == position }
             ?.content?.takeIf { it.isNotEmpty() }
 
+    /** Positions with downloaded content — drives cached badges in the chapter list. */
+    suspend fun cachedPositions(bookId: String): Set<Int> = withContext(Dispatchers.IO) {
+        db.chapters().chapters(bookId)
+            .filter { it.content.isNotEmpty() }
+            .map { it.position }
+            .toSet()
+    }
+
     suspend fun saveChapterContent(bookId: String, position: Int, content: String) {
         val list = db.chapters().chapters(bookId)
         val row = list.firstOrNull { it.position == position } ?: return

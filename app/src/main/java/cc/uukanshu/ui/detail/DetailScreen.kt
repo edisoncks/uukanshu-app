@@ -3,6 +3,7 @@ package cc.uukanshu.ui.detail
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -51,6 +52,7 @@ class DetailViewModel(
         val done: Int = 0,
         val downloadError: String? = null,
         val simplified: Boolean = false,
+        val cached: Set<Int> = emptySet(),
     )
 
     private val _ui = MutableStateFlow(Ui(loading = true))
@@ -71,6 +73,7 @@ class DetailViewModel(
                 val d = repo.detail(bookId)
                 _ui.value = _ui.value.copy(
                     loading = false, meta = d.meta, chapters = d.chapters,
+                    cached = repo.cachedPositions(bookId),
                 )
             } catch (e: Exception) {
                 _ui.value = _ui.value.copy(
@@ -90,13 +93,20 @@ class DetailViewModel(
             _ui.value = _ui.value.copy(downloading = true, done = 0, downloadError = null)
             try {
                 repo.downloadAll(bookId) { done, _ ->
-                    _ui.value = _ui.value.copy(done = done)
+                    val pos = _ui.value.chapters.getOrNull(done - 1)?.position
+                    _ui.value = _ui.value.copy(
+                        done = done,
+                        cached = if (pos != null) _ui.value.cached + pos else _ui.value.cached,
+                    )
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 _ui.value = _ui.value.copy(downloadError = "${e.javaClass.simpleName}: ${e.message}")
             } finally {
-                _ui.value = _ui.value.copy(downloading = false)
+                _ui.value = _ui.value.copy(
+                    downloading = false,
+                    cached = repo.cachedPositions(bookId),
+                )
             }
         }
     }
@@ -163,7 +173,7 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
                 }
                 ui.downloadError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Text(
-                    "共 ${ui.chapters.size} 章",
+                    "${vm.displayTitle("共")} ${ui.chapters.size} ${vm.displayTitle("章")} · ${vm.displayTitle("已緩存")} ${ui.cached.size} ${vm.displayTitle("章")}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
@@ -171,11 +181,23 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
                 HorizontalDivider()
             }
             items(ui.chapters, key = { it.position }) { c ->
-                Text(
-                    "${c.position}. ${vm.displayTitle(c.title)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.fillMaxWidth().clickable { onChapter(bookId, c.position) }.padding(vertical = 8.dp),
-                )
+                Row(
+                    Modifier.fillMaxWidth().clickable { onChapter(bookId, c.position) }.padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "${c.position}. ${vm.displayTitle(c.title)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (c.position in ui.cached) {
+                        Text(
+                            "✓ ${vm.displayTitle("已緩存")}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
                 HorizontalDivider()
             }
         }
