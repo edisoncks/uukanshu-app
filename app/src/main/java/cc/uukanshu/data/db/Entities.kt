@@ -67,3 +67,18 @@ interface ChapterDao {
     @Query("DELETE FROM chapters WHERE bookId = :bookId")
     suspend fun deleteBook(bookId: String)
 }
+
+@Dao
+interface ProgressDao {
+    @Query("SELECT * FROM progress WHERE bookId = :bookId")
+    suspend fun progress(bookId: String): ProgressEntity?
+
+    @Query("SELECT * FROM progress WHERE bookId = :bookId")
+    fun progressFlow(bookId: String): Flow<ProgressEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(progress: ProgressEntity)
+
+    @Query("DELETE FROM progress WHERE bookId = :bookId")
+    suspend fun deleteBook(bookId: String)
+}

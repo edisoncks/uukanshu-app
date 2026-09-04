@@ -3,6 +3,7 @@ package cc.uukanshu.data.repo
 import cc.uukanshu.data.db.AppDb
 import cc.uukanshu.data.db.BookEntity
 import cc.uukanshu.data.db.ChapterEntity
+import cc.uukanshu.data.db.ProgressEntity
 import cc.uukanshu.data.net.SiteApi
 import cc.uukanshu.data.parse.Parser
 import kotlinx.coroutines.CancellationException
@@ -133,6 +134,19 @@ class BookRepo(
         db.chapters().upsertAll(listOf(row.copy(content = content)))
     }
 
+    /** Silent auto-bookmark: overwrite on every successful chapter open. */
+    suspend fun saveProgress(bookId: String, position: Int) = withContext(Dispatchers.IO) {
+        db.progress().upsert(ProgressEntity(bookId, position, System.currentTimeMillis()))
+    }
+
+    /** Live bookmarked position for the continue-reading button. */
+    fun progressFlow(bookId: String): Flow<Int?> =
+        db.progress().progressFlow(bookId).map { it?.position }
+
+    suspend fun getProgress(bookId: String): Int? = withContext(Dispatchers.IO) {
+        db.progress().progress(bookId)?.position
+    }
+
     // -- offline library (milestone 7): sequential, no hard cap ------------
 
     data class CachedBook(
@@ -187,6 +201,7 @@ class BookRepo(
     suspend fun deleteBook(bookId: String) = withContext(Dispatchers.IO) {
         db.chapters().deleteBook(bookId)
         db.books().deleteBook(bookId)
+        db.progress().deleteBook(bookId)
     }
 
     suspend fun clearAll() = withContext(Dispatchers.IO) {

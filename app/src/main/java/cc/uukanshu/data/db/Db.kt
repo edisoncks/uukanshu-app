@@ -13,6 +13,7 @@ import androidx.room.RoomDatabase
 abstract class AppDb : RoomDatabase() {
     abstract fun books(): BookDao
     abstract fun chapters(): ChapterDao
+    abstract fun progress(): ProgressDao
 
     companion object {
         @Volatile private var instance: AppDb? = null

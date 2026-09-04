@@ -54,6 +54,7 @@ class DetailViewModel(
         val simplified: Boolean = false,
         val cached: Set<Int> = emptySet(),
         val offline: Boolean = false,
+        val bookmarkedPosition: Int? = null,
     )
 
     private val _ui = MutableStateFlow(Ui(loading = true))
@@ -69,6 +70,13 @@ class DetailViewModel(
         viewModelScope.launch {
             repo.cachedPositionsFlow(bookId).collect { positions ->
                 _ui.value = _ui.value.copy(cached = positions)
+            }
+        }
+        // Live bookmark: reader auto-saves on every successful open,
+        // so the continue button stays correct when navigating back.
+        viewModelScope.launch {
+            repo.progressFlow(bookId).collect { pos ->
+                _ui.value = _ui.value.copy(bookmarkedPosition = pos)
             }
         }
     }
@@ -180,6 +188,16 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
                     }
                 }
                 ui.downloadError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                val bookmarked = ui.bookmarkedPosition?.takeIf { it in 1..ui.chapters.size }
+                    ?.let { pos -> ui.chapters.firstOrNull { it.position == pos } }
+                if (bookmarked != null) {
+                    Button(
+                        onClick = { onChapter(bookId, bookmarked.position) },
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    ) {
+                        Text(vm.displayTitle("繼續閱讀：第 ${bookmarked.position} 章 ${bookmarked.title}"))
+                    }
+                }
                 Text(
                     "${vm.displayTitle("共")} ${ui.chapters.size} ${vm.displayTitle("章")} · ${vm.displayTitle("已緩存")} ${ui.cached.size} ${vm.displayTitle("章")}",
                     style = MaterialTheme.typography.bodySmall,
@@ -197,7 +215,17 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
                         "${c.position}. ${vm.displayTitle(c.title)}",
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.weight(1f),
+                        color = if (c.position == ui.bookmarkedPosition) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurface,
                     )
+                    if (c.position == ui.bookmarkedPosition) {
+                        Text(
+                            "▶ ${vm.displayTitle("繼續")}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(end = 4.dp),
+                        )
+                    }
                     if (c.position in ui.cached) {
                         Text(
                             "✓ ${vm.displayTitle("已緩存")}",

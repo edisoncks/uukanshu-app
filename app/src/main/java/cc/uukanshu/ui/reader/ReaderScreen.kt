@@ -119,6 +119,8 @@ class ReaderViewModel(
                     book = book, title = title, text = text,
                     total = total, loading = false,
                 )
+                // Silent auto-bookmark: never break reading on save failure.
+                runCatching { repo.saveProgress(bookId, position) }
                 prefetchNext5(position)
             } catch (e: Exception) {
                 _ui.value = _ui.value.copy(
