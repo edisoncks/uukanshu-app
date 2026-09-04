@@ -1,0 +1,36 @@
+[tools]
+java = "17"
+gradle = "8.10.2"
+kotlin = "2.0.20"
+
+[env]
+ANDROID_SDK_ROOT = "{{ config_root }}/.android-sdk"
+ANDROID_HOME = "{{ config_root }}/.android-sdk"
+# Gradle + Android SDK bins on PATH via mise shims/tasks (no global installs)
+
+[tasks.setup-android]
+description = "Install Android SDK packages project-local"
+run = """
+set -e
+SDK="$MISE_CONFIG_ROOT/.android-sdk"
+TOOLS="$SDK/cmdline-tools/latest/bin/sdkmanager"
+if [ ! -x "$TOOLS" ]; then
+  mkdir -p "$SDK/cmdline-tools"
+  curl -sSL -o /tmp/cmdtools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+  rm -rf "$SDK/cmdline-tools/latest"
+  unzip -q -o /tmp/cmdtools.zip -d "$SDK/cmdline-tools"
+  mv "$SDK/cmdline-tools/cmdline-tools" "$SDK/cmdline-tools/latest"
+fi
+yes | "$TOOLS" --sdk_root="$SDK" --licenses >/dev/null 2>&1 || true
+"$TOOLS" --sdk_root="$SDK" "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+"""
+
+[tasks.build]
+description = "Build uukanshu-{version}.apk (release)"
+run = "./gradlew assembleRelease"
+depends = []
+
+[tasks.test]
+description = "Unit tests (Parser fixtures, T2S)"
+run = "./gradlew testDebugUnitTest"
+

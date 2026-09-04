@@ -1,0 +1,18 @@
+# Android / Gradle
+.gradle/
+build/
+app/build/
+local.properties
+*.apk
+*.aab
+# Project-local SDK (bootstrapped via sdkmanager, see mise.toml tasks)
+.android-sdk/
+# cmdline-tools archive
+*.zip
+# Mise local state (keep mise.toml, ignore the rest)
+.mise/
+mise.local.toml
+# IDE
+.idea/
+*.iml
+.DS_Store
