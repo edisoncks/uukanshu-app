@@ -17,11 +17,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import cc.uukanshu.ui.DetailScreen
+import androidx.navigation.navArgument
+import cc.uukanshu.ui.detail.DetailScreen
 import cc.uukanshu.ui.home.HomeScreen
 import cc.uukanshu.ui.search.SearchScreen
 import cc.uukanshu.ui.LibraryScreen
@@ -68,9 +70,22 @@ fun UukanshuApp() {
                 composable("home") { HomeScreen(onBook = { id -> nav.navigate("detail/$id") }) }
                 composable("search") { SearchScreen(onBook = { id -> nav.navigate("detail/$id") }) }
                 composable("library") { LibraryScreen() }
-                composable("detail") { DetailScreen() }
-                composable("detail/{bookId}") { DetailScreen() }
-                composable("reader") { ReaderScreen() }
+                composable(
+                    "detail/{bookId}",
+                    arguments = listOf(navArgument("bookId") { type = NavType.StringType }),
+                ) { entry ->
+                    DetailScreen(
+                        bookId = entry.arguments?.getString("bookId").orEmpty(),
+                        onChapter = { id, pos -> nav.navigate("reader/$id/$pos") },
+                    )
+                }
+                composable(
+                    "reader/{bookId}/{position}",
+                    arguments = listOf(
+                        navArgument("bookId") { type = NavType.StringType },
+                        navArgument("position") { type = NavType.IntType },
+                    ),
+                ) { ReaderScreen() }
             }
         }
     }
