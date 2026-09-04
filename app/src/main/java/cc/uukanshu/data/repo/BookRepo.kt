@@ -66,4 +66,53 @@ class BookRepo(
         val row = list.firstOrNull { it.position == position } ?: return
         db.chapters().upsertAll(listOf(row.copy(content = content)))
     }
+
+    // -- offline library (milestone 7): sequential, no hard cap ------------
+
+    data class CachedBook(
+        val id: String,
+        val title: String,
+        val author: String,
+        val total: Int,
+        val cached: Int,
+        val bytes: Long,
+    )
+
+    suspend fun library(): List<CachedBook> = withContext(Dispatchers.IO) {
+        db.books().cachedBooks().map { b ->
+            val chapters = db.chapters().chapters(b.id)
+            CachedBook(
+                b.id, b.title, b.author,
+                total = chapters.size,
+                cached = chapters.count { it.content.isNotEmpty() },
+                bytes = chapters.sumOf { it.content.toByteArray().size.toLong() },
+            )
+        }
+    }
+
+    /** Sequential full download; [onProgress] gets (done, total). Throwing aborts. */
+    suspend fun downloadAll(bookId: String, onProgress: (Int, Int) -> Unit) {
+        val chapters = withContext(Dispatchers.IO) { detail(bookId).chapters }
+        chapters.forEachIndexed { idx, ref ->
+            val has = withContext(Dispatchers.IO) {
+                cachedChapterContent(bookId, ref.position) != null
+            }
+            if (!has) {
+                // Small breather: polite to the site / Cloudflare.
+                kotlinx.coroutines.delay(250)
+                val text = withContext(Dispatchers.IO) { chapter(ref.url).text }
+                saveChapterContent(bookId, ref.position, text)
+            }
+            onProgress(idx + 1, chapters.size)
+        }
+    }
+
+    suspend fun deleteBook(bookId: String) = withContext(Dispatchers.IO) {
+        db.chapters().deleteBook(bookId)
+        db.books().deleteBook(bookId)
+    }
+
+    suspend fun clearAll() = withContext(Dispatchers.IO) {
+        library().forEach { deleteBook(it.id) }
+    }
 }

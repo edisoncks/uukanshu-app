@@ -25,8 +25,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import cc.uukanshu.ui.detail.DetailScreen
 import cc.uukanshu.ui.home.HomeScreen
+import cc.uukanshu.ui.library.LibraryScreen
 import cc.uukanshu.ui.search.SearchScreen
-import cc.uukanshu.ui.LibraryScreen
 import cc.uukanshu.ui.reader.ReaderScreen
 
 class MainActivity : ComponentActivity() {
@@ -69,7 +69,7 @@ fun UukanshuApp() {
             NavHost(nav, startDestination = "home", Modifier.padding(inner)) {
                 composable("home") { HomeScreen(onBook = { id -> nav.navigate("detail/$id") }) }
                 composable("search") { SearchScreen(onBook = { id -> nav.navigate("detail/$id") }) }
-                composable("library") { LibraryScreen() }
+                composable("library") { LibraryScreen(onBook = { id -> nav.navigate("detail/$id") }) }
                 composable(
                     "detail/{bookId}",
                     arguments = listOf(navArgument("bookId") { type = NavType.StringType }),

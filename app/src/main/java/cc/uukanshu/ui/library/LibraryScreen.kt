@@ -1,0 +1,124 @@
+package cc.uukanshu.ui.library
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
+import cc.uukanshu.data.repo.BookRepo
+import cc.uukanshu.repo
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+
+class LibraryViewModel(private val repo: BookRepo) : ViewModel() {
+    data class Ui(
+        val books: List<BookRepo.CachedBook> = emptyList(),
+        val loading: Boolean = true,
+    )
+
+    private val _ui = MutableStateFlow(Ui())
+    val ui: StateFlow<Ui> = _ui
+
+    fun refresh() {
+        viewModelScope.launch {
+            _ui.value = Ui(loading = true)
+            _ui.value = Ui(books = repo.library())
+        }
+    }
+
+    fun delete(id: String) {
+        viewModelScope.launch {
+            repo.deleteBook(id)
+            refresh()
+        }
+    }
+
+    fun clearAll() {
+        viewModelScope.launch {
+            repo.clearAll()
+            refresh()
+        }
+    }
+}
+
+private fun formatBytes(b: Long): String = when {
+    b < 1024 -> "$b B"
+    b < 1024 * 1024 -> String.format("%.1f KB", b / 1024.0)
+    else -> String.format("%.1f MB", b / 1024.0 / 1024.0)
+}
+
+@Composable
+fun LibraryScreen(onBook: (String) -> Unit) {
+    val ctx = LocalContext.current
+    val vm: LibraryViewModel = viewModel(factory = object : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            LibraryViewModel(ctx.repo()) as T
+    })
+    val ui by vm.ui.collectAsState()
+    LaunchedEffect(Unit) { vm.refresh() }
+
+    Column(Modifier.fillMaxSize().padding(12.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("已緩存", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            if (ui.books.isNotEmpty()) {
+                TextButton(onClick = { vm.clearAll() }) { Text("清空全部") }
+            }
+        }
+        val total = ui.books.sumOf { it.bytes }
+        Text(
+            "${ui.books.size} 本 · ${formatBytes(total)}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (ui.loading) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else if (ui.books.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("尚無緩存 — 在書籍詳情頁下載整本", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else {
+            LazyColumn(Modifier.fillMaxSize()) {
+                items(ui.books, key = { it.id }) { b ->
+                    Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onBook(b.id) }) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text(b.title, style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "${b.author} · ${b.cached}/${b.total} 章 · ${formatBytes(b.bytes)}",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Button({ vm.delete(b.id) }, Modifier.padding(top = 8.dp)) {
+                                Text("刪除緩存")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,6 +41,9 @@ class DetailViewModel(
         val chapters: List<Parser.ChapterRef> = emptyList(),
         val loading: Boolean = true,
         val error: String? = null,
+        val downloading: Boolean = false,
+        val done: Int = 0,
+        val downloadError: String? = null,
     )
 
     private val _ui = MutableStateFlow(Ui())
@@ -48,6 +52,7 @@ class DetailViewModel(
     init { refresh() }
 
     fun refresh() {
+        downloadJob?.cancel()
         viewModelScope.launch {
             _ui.value = Ui(loading = true)
             try {
@@ -57,6 +62,32 @@ class DetailViewModel(
                 _ui.value = Ui(loading = false, error = "${e.javaClass.simpleName}: ${e.message}")
             }
         }
+    }
+
+    private var downloadJob: kotlinx.coroutines.Job? = null
+
+    /** Manual full-novel download: sequential 1-at-a-time, cancelable. */
+    fun downloadAll() {
+        if (_ui.value.downloading) return
+        downloadJob = viewModelScope.launch {
+            _ui.value = _ui.value.copy(downloading = true, done = 0, downloadError = null)
+            try {
+                repo.downloadAll(bookId) { done, _ ->
+                    _ui.value = _ui.value.copy(done = done)
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                _ui.value = _ui.value.copy(downloadError = "${e.javaClass.simpleName}: ${e.message}")
+            } finally {
+                _ui.value = _ui.value.copy(downloading = false)
+            }
+        }
+    }
+
+    fun cancelDownload() {
+        downloadJob?.cancel()
+        downloadJob = null
+        _ui.value = _ui.value.copy(downloading = false)
     }
 }
 
@@ -91,6 +122,19 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
                 Text("作者：${m.author}  ${m.status}  ${m.words}".trim(), style = MaterialTheme.typography.bodySmall)
                 if (m.category.isNotEmpty()) Text(m.category, style = MaterialTheme.typography.bodySmall)
                 if (m.intro.isNotEmpty()) Text(m.intro, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp))
+                if (ui.downloading) {
+                    LinearProgressIndicator(
+                        progress = { ui.done.toFloat() / ui.chapters.size.coerceAtLeast(1) },
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    )
+                    Text("下載中 ${ui.done}/${ui.chapters.size}", style = MaterialTheme.typography.bodySmall)
+                    Button({ vm.cancelDownload() }, Modifier.padding(top = 4.dp)) { Text("取消") }
+                } else {
+                    Button({ vm.downloadAll() }, Modifier.padding(top = 8.dp)) {
+                        Text(if (ui.done > 0 && ui.done >= ui.chapters.size) "重新下載整本" else "下載整本")
+                    }
+                }
+                ui.downloadError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Text(
                     "共 ${ui.chapters.size} 章",
                     style = MaterialTheme.typography.bodySmall,
