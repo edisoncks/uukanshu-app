@@ -27,7 +27,7 @@ import cc.uukanshu.ui.detail.DetailScreen
 import cc.uukanshu.ui.home.HomeScreen
 import cc.uukanshu.ui.search.SearchScreen
 import cc.uukanshu.ui.LibraryScreen
-import cc.uukanshu.ui.ReaderScreen
+import cc.uukanshu.ui.reader.ReaderScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -85,7 +85,12 @@ fun UukanshuApp() {
                         navArgument("bookId") { type = NavType.StringType },
                         navArgument("position") { type = NavType.IntType },
                     ),
-                ) { ReaderScreen() }
+                ) { entry ->
+                    ReaderScreen(
+                        bookId = entry.arguments?.getString("bookId").orEmpty(),
+                        position = entry.arguments?.getInt("position") ?: 1,
+                    )
+                }
             }
         }
     }

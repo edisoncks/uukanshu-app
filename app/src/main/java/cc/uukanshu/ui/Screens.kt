@@ -18,4 +18,3 @@ fun PlaceholderScreen(label: String) {
 }
 
 @Composable fun LibraryScreen() = PlaceholderScreen("書架 / Library — cached novels (milestone 7)")
-@Composable fun ReaderScreen() = PlaceholderScreen("閱讀 / Reader (milestone 6)")

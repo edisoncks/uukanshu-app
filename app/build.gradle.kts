@@ -77,6 +77,7 @@ dependencies {
     implementation(libs.androidx.workmanager)
     implementation(libs.okhttp)
     implementation(libs.jsoup)
+    implementation(libs.opencc4j)
 
     ksp(libs.androidx.room.compiler)
 

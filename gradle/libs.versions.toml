@@ -11,6 +11,7 @@ datastore = "1.1.1"
 workmanager = "2.9.0"
 okhttp = "4.12.0"
 jsoup = "1.17.2"
+opencc4j = "1.14.0"
 junit = "4.13.2"
 
 [libraries]
@@ -30,6 +31,7 @@ androidx-datastore = { group = "androidx.datastore", name = "datastore-preferenc
 androidx-workmanager = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workmanager" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
+opencc4j = { group = "com.github.houbb", name = "opencc4j", version.ref = "opencc4j" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 
 [plugins]
