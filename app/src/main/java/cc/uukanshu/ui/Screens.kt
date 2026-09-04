@@ -17,7 +17,6 @@ fun PlaceholderScreen(label: String) {
     }
 }
 
-@Composable fun HomeScreen() = PlaceholderScreen("首頁 / Home — recent + categories (milestone 3)")
 @Composable fun SearchScreen() = PlaceholderScreen("搜索 / Search (milestone 4)")
 @Composable fun LibraryScreen() = PlaceholderScreen("書架 / Library — cached novels (milestone 7)")
 @Composable fun DetailScreen() = PlaceholderScreen("書籍詳情 / Detail + chapters (milestone 5)")
