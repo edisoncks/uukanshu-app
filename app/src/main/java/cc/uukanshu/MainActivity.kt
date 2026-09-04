@@ -23,9 +23,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import cc.uukanshu.ui.DetailScreen
 import cc.uukanshu.ui.home.HomeScreen
+import cc.uukanshu.ui.search.SearchScreen
 import cc.uukanshu.ui.LibraryScreen
 import cc.uukanshu.ui.ReaderScreen
-import cc.uukanshu.ui.SearchScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -66,7 +66,7 @@ fun UukanshuApp() {
         ) { inner ->
             NavHost(nav, startDestination = "home", Modifier.padding(inner)) {
                 composable("home") { HomeScreen(onBook = { id -> nav.navigate("detail/$id") }) }
-                composable("search") { SearchScreen() }
+                composable("search") { SearchScreen(onBook = { id -> nav.navigate("detail/$id") }) }
                 composable("library") { LibraryScreen() }
                 composable("detail") { DetailScreen() }
                 composable("detail/{bookId}") { DetailScreen() }
