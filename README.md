@@ -66,6 +66,7 @@ The bottom of the screen has four tabs:
 ### 書架 — Library (your saved books)
 
 - Shows every book saved on your phone, with how many chapters are saved (… 章) and how much space it uses.
+- Books being downloaded show live progress (下載中 done/total) and can be cancelled (取消) here; tapping one opens its detail page.
 - The top line shows the total (e.g. `3 本 · 12.5 MB`).
 - Tap a book to open it. Tap **刪除緩存** ("Delete") to remove one book, or **清空全部** ("Clear all") to remove everything. Deleted books need to be downloaded again, so you'll be asked to confirm before clearing everything.
 

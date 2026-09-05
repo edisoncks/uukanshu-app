@@ -1,6 +1,7 @@
 package cc.uukanshu.ui.library
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,6 +15,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -34,6 +36,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cc.uukanshu.data.convert.T2S
+import cc.uukanshu.data.db.BookEntity
+import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.data.repo.BookRepo
 import cc.uukanshu.repo
@@ -41,12 +45,14 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class LibraryViewModel(
     private val repo: BookRepo,
     private val prefs: Prefs,
     private val t2s: T2S,
+    private val downloads: BookDownloadManager,
 ) : ViewModel() {
     data class Ui(
         // No default on purpose: every construction must state loading
@@ -54,6 +60,9 @@ class LibraryViewModel(
         val loading: Boolean,
         val books: List<BookRepo.CachedBook> = emptyList(),
         val simplified: Boolean = false,
+        val downloading: Map<String, BookDownloadManager.State> = emptyMap(),
+        // Titles for fresh downloads not yet qualified for library().
+        val pendingTitles: Map<String, BookEntity> = emptyMap(),
     )
 
     private val _ui = MutableStateFlow(Ui(loading = true))
@@ -62,6 +71,38 @@ class LibraryViewModel(
     init {
         viewModelScope.launch {
             _ui.value = _ui.value.copy(simplified = prefs.simplified.first())
+        }
+        // Live download progress: update rows directly from done/total
+        // (no DB hit per chapter); refresh library stats only when a job
+        // appears or finishes so cached/total/bytes catch up.
+        viewModelScope.launch {
+            downloads.states.collect { states ->
+                val prevActive = _ui.value.downloading.filterValues { it.downloading }.keys
+                val nextActive = states.filterValues { it.downloading }.keys
+                val newActive = nextActive - prevActive
+                val justFinished = prevActive - nextActive
+                _ui.update { it.copy(downloading = states) }
+                if (newActive.isNotEmpty()) {
+                    viewModelScope.launch {
+                        val titles = newActive.mapNotNull { id ->
+                            try {
+                                repo.bookEntry(id)?.let { id to it }
+                            } catch (_: Exception) {
+                                null
+                            }
+                        }.toMap()
+                        if (titles.isNotEmpty()) {
+                            _ui.update { cur ->
+                                cur.copy(pendingTitles = cur.pendingTitles + titles)
+                            }
+                        }
+                    }
+                    refresh()
+                }
+                if (justFinished.isNotEmpty()) {
+                    refresh()
+                }
+            }
         }
     }
 
@@ -75,6 +116,10 @@ class LibraryViewModel(
                 _ui.value.copy(loading = false, books = emptyList())
             }
         }
+    }
+
+    fun cancelDownload(id: String) {
+        downloads.cancel(id)
     }
 
     fun delete(id: String) {
@@ -108,7 +153,7 @@ fun LibraryScreen(onBook: (String) -> Unit) {
     val vm: LibraryViewModel = viewModel(factory = object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            LibraryViewModel(ctx.repo(), Prefs(app), T2S(app)) as T
+            LibraryViewModel(ctx.repo(), Prefs(app), T2S(app), app.downloadManager) as T
     })
     val ui by vm.ui.collectAsState()
     LaunchedEffect(Unit) { vm.refresh() }
@@ -151,26 +196,79 @@ fun LibraryScreen(onBook: (String) -> Unit) {
         // Stale-while-revalidate: keep the old list visible during
         // return-refresh so the saveable scroll position isn't lost to a
         // full-screen spinner; spinner only for the initial empty load.
-        if (ui.loading && ui.books.isEmpty()) {
+        // Fresh downloads (0 cached) still show as progress rows below.
+        val bookIds = ui.books.map { it.id }.toSet()
+        val extraIds = ui.downloading.keys.filter { it !in bookIds && (ui.downloading[it]?.downloading == true || ui.downloading[it]?.error != null) }
+        val hasContent = ui.books.isNotEmpty() || extraIds.isNotEmpty()
+        if (ui.loading && !hasContent) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
-        } else if (ui.books.isEmpty()) {
+        } else if (!hasContent) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(vm.display("尚無緩存 — 在書籍詳情頁下載整本"), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                // Fresh downloads not yet qualified for library(): title from
+                // the cached TOC skeleton, progress live from the manager.
+                items(extraIds, key = { "dl-$it" }) { id ->
+                    val st = ui.downloading[id]
+                    val meta = ui.pendingTitles[id]
+                    Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onBook(id) }) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(vm.display(meta?.title ?: id), style = MaterialTheme.typography.titleMedium)
+                            if (st?.downloading == true) {
+                                LinearProgressIndicator(
+                                    progress = { st.done.toFloat() / st.total.coerceAtLeast(1) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                Text(
+                                    vm.display("下載中") + " ${st.done}/${st.total}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Button({ vm.cancelDownload(id) }) { Text(vm.display("取消")) }
+                                    TextButton({ vm.delete(id) }) { Text(vm.display("刪除緩存")) }
+                                }
+                            }
+                            st?.error?.let {
+                                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+                }
                 items(ui.books, key = { it.id }) { b ->
+                    val st = ui.downloading[b.id]
                     Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onBook(b.id) }) {
-                        Column(Modifier.padding(12.dp)) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(vm.display(b.title), style = MaterialTheme.typography.titleMedium)
                             Text(
                                 "${vm.display(b.author)} · ${b.cached}/${b.total} ${vm.display("章")} · ${formatBytes(b.bytes)}",
                                 style = MaterialTheme.typography.bodySmall,
                             )
-                            Button({ vm.delete(b.id) }, Modifier.padding(top = 8.dp)) {
-                                Text(vm.display("刪除緩存"))
+                            if (st?.downloading == true) {
+                                LinearProgressIndicator(
+                                    progress = { st.done.toFloat() / st.total.coerceAtLeast(1) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                Text(
+                                    vm.display("下載中") + " ${st.done}/${st.total}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                            st?.error?.let {
+                                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (st?.downloading == true) {
+                                    Button({ vm.cancelDownload(b.id) }) { Text(vm.display("取消")) }
+                                }
+                                Button({ vm.delete(b.id) }) {
+                                    Text(vm.display("刪除緩存"))
+                                }
                             }
                         }
                     }

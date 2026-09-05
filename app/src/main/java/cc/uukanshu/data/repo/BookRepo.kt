@@ -207,6 +207,11 @@ class BookRepo(
         db.progress().progress(bookId)?.position
     }
 
+    /** Cached book meta (TOC skeleton) for shelf rows of fresh downloads. */
+    suspend fun bookEntry(bookId: String): BookEntity? = withContext(Dispatchers.IO) {
+        db.books().book(bookId)
+    }
+
     // -- offline library (milestone 7): sequential, no hard cap ------------
 
     data class CachedBook(
