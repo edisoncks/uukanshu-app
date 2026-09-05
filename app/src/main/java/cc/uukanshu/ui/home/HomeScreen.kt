@@ -40,6 +40,7 @@ import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.app
+import cc.uukanshu.core.Errors
 import cc.uukanshu.ui.vmFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -125,7 +126,7 @@ class HomeViewModel(
                 if (e is CancellationException) throw e
                 _ui.update { cur ->
                     if (cur.tab != s.tab || cur.categoryId != s.categoryId) cur
-                    else cur.copy(loading = false, error = "${e.javaClass.simpleName}: ${e.message}")
+                    else cur.copy(loading = false, error = Errors.message(e))
                 }
             }
         }
@@ -166,7 +167,7 @@ class HomeViewModel(
                     if (cur.tab != s.tab || cur.categoryId != s.categoryId ||
                         cur.page != s.page || cur.loading
                     ) cur
-                    else cur.copy(loadingMore = false, error = "${e.javaClass.simpleName}: ${e.message}")
+                    else cur.copy(loadingMore = false, error = Errors.message(e))
                 }
             }
         }

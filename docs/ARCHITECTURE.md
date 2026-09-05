@@ -86,6 +86,9 @@ UI (ViewModels)
 - `data/db/`: Room entities + DAOs (`BookDao`, `ChapterDao`, `ProgressDao`).
   `room.schemaDirectory("$projectDir/schemas")` exports schemas; keep them
   in version control.
+- `core/Errors.kt`: single error-formatting policy (`Errors.message`).
+  ViewModels/managers must not inline `"${e.javaClass...}"`; cancellation
+  always propagates via `messageOrThrow` (unit-tested in `ErrorsTest`).
 - `data/prefs/Prefs.kt` (DataStore `uukanshu`): `simplified: Boolean`
   (default false), `fontScale: Float` (default 1.0, clamped 0.8–1.6),
   `theme: String` (`system`/`light`/`dark`), `lastUpdateCheck: Long`,

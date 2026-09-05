@@ -1,5 +1,6 @@
 package cc.uukanshu.data.download
 
+import cc.uukanshu.core.Errors
 import cc.uukanshu.data.repo.BookRepo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -106,7 +107,7 @@ class BookDownloadManager(
                         downloading = false,
                         done = prev?.done ?: 0,
                         total = prev?.total ?: 0,
-                        error = "${e.javaClass.simpleName}: ${e.message}",
+                        error = Errors.message(e),
                     ))
                 }
             } finally {

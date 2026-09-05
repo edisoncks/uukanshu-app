@@ -40,6 +40,7 @@ import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.data.repo.BookRepo
 import cc.uukanshu.app
+import cc.uukanshu.core.Errors
 import cc.uukanshu.ui.vmFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -118,7 +119,7 @@ class LibraryViewModel(
                 if (e is CancellationException) throw e
                 _ui.value.copy(
                     loading = false,
-                    error = "${e.javaClass.simpleName}: ${e.message}",
+                    error = Errors.message(e),
                 )
             }
         }

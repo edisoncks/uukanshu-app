@@ -31,6 +31,7 @@ import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.app
+import cc.uukanshu.core.Errors
 import cc.uukanshu.ui.vmFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -98,7 +99,7 @@ class SearchViewModel(
                 if (q.trim() != activeQuery) return@launch
                 _ui.value = _ui.value.copy(
                     loading = false,
-                    error = "${e.javaClass.simpleName}: ${e.message}", searched = true,
+                    error = Errors.message(e), searched = true,
                 )
             }
         }

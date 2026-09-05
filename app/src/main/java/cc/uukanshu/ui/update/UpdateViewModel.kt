@@ -1,5 +1,6 @@
 package cc.uukanshu.ui.update
 
+import cc.uukanshu.core.Errors
 import android.app.Application
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -106,7 +107,7 @@ class UpdateViewModel(
             if (manual) {
                 _ui.update {
                     it.copy(checking = false, visible = true,
-                        error = "${e.javaClass.simpleName}: ${e.message}")
+                        error = Errors.message(e))
                 }
             } else {
                 // Auto-check is best-effort: stay silent offline / rate-limited.
@@ -168,7 +169,7 @@ class UpdateViewModel(
                     _ui.update {
                         it.copy(
                             downloading = false,
-                            error = "${e.javaClass.simpleName}: ${e.message}",
+                            error = Errors.message(e),
                             downloadId = null,
                         )
                     }
@@ -202,7 +203,7 @@ class UpdateViewModel(
                             _ui.update {
                                 it.copy(
                                     downloading = false,
-                                    error = "${e.javaClass.simpleName}: ${e.message}",
+                                    error = Errors.message(e),
                                     downloadId = null,
                                 )
                             }

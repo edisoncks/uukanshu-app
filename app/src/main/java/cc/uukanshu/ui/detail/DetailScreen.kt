@@ -32,6 +32,7 @@ import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.app
+import cc.uukanshu.core.Errors
 import cc.uukanshu.ui.vmFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -166,7 +167,7 @@ class DetailViewModel(
                 } else {
                     _ui.value = _ui.value.copy(
                         loading = false, refreshing = false,
-                        error = "${e.javaClass.simpleName}: ${e.message}",
+                        error = Errors.message(e),
                     )
                 }
             }
