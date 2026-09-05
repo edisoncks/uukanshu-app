@@ -4,7 +4,9 @@ import cc.uukanshu.data.db.BookEntity
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.repo.BookRepo
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.random.Random
 
 class BookRepoTest {
     @Test fun tocRefreshPreservesDownloadedContent() {
@@ -66,6 +68,19 @@ class BookRepoTest {
         )
         // b has activity; a/c untouched keep their relative order behind it.
         assertEquals(listOf("b", "a", "c"), ordered.map { it.id })
+    }
+
+    @Test fun crawlDelayBoundsAre1to3s() {
+        assertEquals(1000L, BookRepo.CRAWL_DELAY_MIN_MS)
+        assertEquals(3000L, BookRepo.CRAWL_DELAY_MAX_MS)
+    }
+
+    @Test fun nextCrawlDelayStaysInRange() {
+        val random = Random(0)
+        repeat(1000) {
+            val d = BookRepo.nextCrawlDelayMs(random)
+            assertTrue("delay $d out of 1000..3000", d in 1000L..3000L)
+        }
     }
 
     @Test fun detailRefreshPreservesShelfTimestamp() {

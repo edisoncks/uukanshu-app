@@ -60,7 +60,7 @@ rules below look odd — they encode real site quirks. **Do not "simplify".**
 ## Politeness / rate limiting
 
 - Bulk chapter fetching (full-novel download, next-5 prefetch) pauses
-  **`crawlDelay()` ≈ 3s + random 0–1s** between requests to avoid rate
+  **`crawlDelay()` random 1–3s** between requests to avoid rate
   limiting. Single chapter opens and TOC/search fetches have no delay.
 - Prefetch is sequential (1-at-a-time), silent-fail: a failed chapter neither
   breaks reading nor forces a delay on the next one.

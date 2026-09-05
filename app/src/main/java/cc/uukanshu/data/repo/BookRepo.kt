@@ -90,6 +90,14 @@ class BookRepo(
             progressAt: Map<String, Long>,
         ): List<CachedBook> =
             books.sortedByDescending { lastActivity(bookAt[it.id] ?: 0L, progressAt[it.id]) }
+
+        /** Polite crawl delay bounds (ms): random 1-3s between chapter fetches. */
+        const val CRAWL_DELAY_MIN_MS = 1000L
+        const val CRAWL_DELAY_MAX_MS = 3000L
+
+        /** Pure helper for [crawlDelay], testable without sleeping. */
+        fun nextCrawlDelayMs(random: Random = Random): Long =
+            random.nextLong(CRAWL_DELAY_MIN_MS, CRAWL_DELAY_MAX_MS + 1)
     }
 
     /**
@@ -210,13 +218,13 @@ class BookRepo(
     }
 
     /**
-     * Polite crawl delay between chapter fetches: 3s + random 0-1s jitter,
+     * Polite crawl delay between chapter fetches: random 1-3s,
      * so bulk downloading looks less like a bot to rate limiting.
      * Only for multi-chapter loops (full download, prefetch) — single
      * interactive chapter taps stay immediate (already user-paced).
      */
     suspend fun crawlDelay() {
-        kotlinx.coroutines.delay(3000L + Random.nextLong(0, 1001))
+        kotlinx.coroutines.delay(nextCrawlDelayMs())
     }
 
     /**
