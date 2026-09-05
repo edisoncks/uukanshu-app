@@ -135,6 +135,47 @@ class ParserTest {
         assertEquals("流雲香菇", books[0].author)
     }
 
+    @Test fun searchExactMatchBookPageYieldsSingleResult() {
+        // POST /search with an exact title returns the book detail page
+        // (no .bookbox cards); parseSearch must synthesize the one result.
+        val html = """
+            <html><head><title>天魔降臨最新章節</title>
+            <meta property="og:type" content="novel">
+            <meta property="og:book_id" content="18957">
+            <meta property="og:novel:read_url" content="https://uukanshu.cc/book/18957/">
+            </head><body>
+            <h1 class="booktitle">天魔降臨</h1>
+            <p class="booktag"><a class="red" href="/x" title="作者：佚名">佚名</a>
+            <span class="blue">1139054字</span> <span class="blue">玄幻奇幻</span>
+            <span class="red">連載</span></p>
+            <p class="bookintro">穿越者成了魔教教主。</p>
+            <a class="bookchapter" href="/book/18957/11326074.html">200，夜訪</a>
+            </body></html>
+        """.trimIndent()
+        val res = Parser.parseSearch(html)
+        assertEquals(1, res.total)
+        assertEquals(1, res.books.size)
+        assertEquals("18957", res.books[0].id)
+        assertEquals("天魔降臨", res.books[0].title)
+        assertEquals("佚名", res.books[0].author)
+    }
+
+    @Test fun searchBookPageWithoutIdStaysEmpty() {
+        val html = "<html><body><h1 class=\"booktitle\">孤書</h1></body></html>"
+        val res = Parser.parseSearch(html)
+        assertEquals(0, res.books.size)
+    }
+
+    @Test fun searchTotalWithHottextTagParses() {
+        // Live markup: 共有<b class="hottext"> 4 </b>條.
+        val html = """共有<b class="hottext"> 4 </b>條
+            <div class="bookbox"><div class="bookinfo"><div class="bookname">
+            <a href="/book/26841/">X</a></div></div></div>""".trimIndent()
+        val res = Parser.parseSearch(html)
+        assertEquals(4, res.total)
+        assertEquals(1, res.books.size)
+    }
+
     @Test fun lastupdateCardVariant() {
         // /top/lastupdate_N.html uses <h4 class="bookname"> (categories and
         // search use <div>); the same parser must handle it, with intro.

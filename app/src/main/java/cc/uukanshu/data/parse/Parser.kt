@@ -112,7 +112,42 @@ object Parser {
     data class SearchResult(val total: Int?, val books: List<BookItem>)
 
     fun parseSearch(html: String): SearchResult {
-        val total = Regex("""共有\s*(\d+)\s*條""").find(html)
+        // Exact single match: the server returns the book detail page
+        // instead of results (no .bookbox cards). Synthesize the single
+        // result so an exact-title search doesn't report "no results".
+        val doc: Document = Jsoup.parse(html)
+        if (doc.selectFirst("h1.booktitle") != null ||
+            doc.selectFirst("meta[property=og:type]")?.attr("content") == "novel"
+        ) {
+            val id = doc.selectFirst("meta[property=og:book_id]")?.attr("content")?.trim()
+                ?.takeIf { it.toIntOrNull() != null }
+                ?: doc.selectFirst("meta[property=og:novel:read_url]")?.attr("content")
+                    ?.let { bookIdOrNull(it) }
+            val normId = id?.let { runCatching { it.trim().toInt().toString() }.getOrNull() }
+            if (normId != null) {
+                val meta = parseBookMeta(html, "$BASE/book/$normId/")
+                return SearchResult(
+                    1,
+                    listOf(
+                        BookItem(
+                            id = normId,
+                            title = meta.title,
+                            author = meta.author,
+                            words = meta.words,
+                            latestChapterTitle = meta.latestChapterTitle,
+                            latestChapterUrl = meta.latestChapterUrl,
+                            intro = meta.intro,
+                            category = meta.category,
+                        ),
+                    ),
+                )
+            }
+            return SearchResult(null, emptyList())
+        }
+        // Count markup wraps the digits in a tag:
+        // 共有<b class="hottext"> 4 </b>條 — strip tags before matching.
+        val total = Regex("""共有\s*(\d+)\s*條""")
+            .find(html.replace(Regex("<[^>]+>"), " "))
             ?.groupValues?.getOrNull(1)?.toIntOrNull()
         return SearchResult(total, parseBookBoxes(html))
     }
