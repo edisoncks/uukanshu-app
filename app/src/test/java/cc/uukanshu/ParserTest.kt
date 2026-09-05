@@ -13,6 +13,27 @@ class ParserTest {
         assertNull(Parser.bookUrlOrNull("https://uukanshu.cc/book/18957/11326074.html"))
     }
 
+    @Test fun bookUrlOverflowReturnsNullInsteadOfThrowing() {
+        assertNull(Parser.bookUrlOrNull("https://uukanshu.cc/book/99999999999999999999/"))
+    }
+
+    @Test fun bookIdAcceptsMissingTrailingSlash() {
+        assertEquals("23674", Parser.bookIdOrNull("https://uukanshu.cc/book/23674"))
+        assertEquals("23674", Parser.bookIdOrNull("/book/23674"))
+        assertEquals("23674", Parser.bookIdOrNull("/book/23674/"))
+    }
+
+    @Test fun categoryAcceptsSlashlessHref() {
+        val html = """
+            <div class="bookbox"><div class="bookinfo"><div class="bookname">
+            <a href="/book/23674">Slashless</a></div>
+            </div></div>
+        """.trimIndent()
+        val books = Parser.parseCategory(html)
+        assertEquals(1, books.size)
+        assertEquals("23674", books[0].id)
+    }
+
     @Test fun tocKeepsLastOccurrenceAndFiltersBook() {
         val html = """
             <a href="/book/18957/11326074.html">200，夜訪</a>

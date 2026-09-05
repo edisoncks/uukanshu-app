@@ -67,11 +67,13 @@ object Parser {
     fun bookUrlOrNull(url: String): String? {
         val m = Regex("""https?://(?:www\.)?uukanshu\.cc/book/(\d+)/?(?:index\.html)?""")
             .matchEntire(url.trim()) ?: return null
-        return "$BASE/book/${m.groupValues[1].toInt()}/"
+        // Huge digit runs match \d+ but overflow Int: null, never throw.
+        val id = m.groupValues[1].toIntOrNull() ?: return null
+        return "$BASE/book/$id/"
     }
 
     fun bookIdOrNull(url: String): String? =
-        Regex("""/book/(\d+)/""").find(url)?.groupValues?.getOrNull(1)
+        Regex("""/book/(\d+)/?""").find(url)?.groupValues?.getOrNull(1)
             ?.let { runCatching { it.toInt().toString() }.getOrNull() }
 
     fun chapterPageIdOrNull(url: String): Long? =
