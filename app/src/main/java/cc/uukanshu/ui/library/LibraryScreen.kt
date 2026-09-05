@@ -63,6 +63,9 @@ class LibraryViewModel(
         val downloading: Map<String, BookDownloadManager.State> = emptyMap(),
         // Titles for fresh downloads not yet qualified for library().
         val pendingTitles: Map<String, BookEntity> = emptyMap(),
+        // DB failure is a failure, not an empty shelf: surfaced, never
+        // silently substituted with an empty list.
+        val error: String? = null,
     )
 
     private val _ui = MutableStateFlow(Ui(loading = true))
@@ -108,12 +111,15 @@ class LibraryViewModel(
 
     fun refresh() {
         viewModelScope.launch {
-            _ui.value = _ui.value.copy(loading = true)
+            _ui.value = _ui.value.copy(loading = true, error = null)
             _ui.value = try {
-                _ui.value.copy(loading = false, books = repo.library())
+                _ui.value.copy(loading = false, books = repo.library(), error = null)
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                _ui.value.copy(loading = false, books = emptyList())
+                _ui.value.copy(
+                    loading = false,
+                    error = "${e.javaClass.simpleName}: ${e.message}",
+                )
             }
         }
     }
@@ -210,6 +216,17 @@ fun LibraryScreen(onBook: (String) -> Unit) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
+        } else if (!hasContent && ui.error != null) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        ui.error!!,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Button({ vm.refresh() }, Modifier.padding(top = 12.dp)) { Text(vm.display("重試")) }
+                }
+            }
         } else if (!hasContent) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(vm.display("尚無緩存 — 在書籍詳情頁下載整本"), color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -275,6 +292,25 @@ fun LibraryScreen(onBook: (String) -> Unit) {
                                 Button({ vm.delete(b.id) }) {
                                     Text(vm.display("刪除緩存"))
                                 }
+                            }
+                        }
+                    }
+                }
+                // Refresh failure with a stale list on screen: footer error +
+                // retry instead of silently keeping the old rows.
+                if (ui.error != null && !ui.loading) {
+                    item {
+                        Column(
+                            Modifier.fillMaxWidth().padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(
+                                ui.error!!,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                            Button({ vm.refresh() }, Modifier.padding(top = 8.dp)) {
+                                Text(vm.display("重試"))
                             }
                         }
                     }
