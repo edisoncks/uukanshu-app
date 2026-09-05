@@ -57,6 +57,9 @@ class SearchViewModel(
     private val _ui = MutableStateFlow(Ui())
     val ui: StateFlow<Ui> = _ui
     private var job: Job? = null
+    // Latest submitted query, written synchronously on Main: a response for
+    // a superseded query (cleared mid-fetch) must not paint over fresh state.
+    private var activeQuery: String = ""
 
     init {
         viewModelScope.launch {
@@ -75,6 +78,7 @@ class SearchViewModel(
 
     fun query(q: String) {
         job?.cancel()
+        activeQuery = q.trim()
         if (q.isBlank()) {
             _ui.value = _ui.value.copy(books = emptyList(), total = null, loading = false, searched = false)
             return
@@ -84,9 +88,14 @@ class SearchViewModel(
             _ui.value = _ui.value.copy(loading = true, searched = true, error = null)
             try {
                 val res = repo.search(q.trim())
+                // Superseded (cleared/retyped) while fetching: drop instead
+                // of painting stale results — cancellation only bites at
+                // suspend points, and nothing suspends past this point.
+                if (q.trim() != activeQuery) return@launch
                 _ui.value = _ui.value.copy(books = dedupBooks(res.books), total = res.total, loading = false, searched = true)
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
+                if (q.trim() != activeQuery) return@launch
                 _ui.value = _ui.value.copy(
                     loading = false,
                     error = "${e.javaClass.simpleName}: ${e.message}", searched = true,
