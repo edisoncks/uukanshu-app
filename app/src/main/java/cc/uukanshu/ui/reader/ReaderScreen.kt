@@ -158,6 +158,10 @@ class ReaderViewModel(
                         // preserves downloads by pageId).
                         revalidateJob = viewModelScope.launch {
                             runCatching { repo.detail(bookId) }.onSuccess { fresh ->
+                                // Empty TOC is a failed parse, never a real book:
+                                // accepting it would zero `total` mid-read and turn
+                                // the next tap into a bogus "out of range".
+                                if (fresh.chapters.isEmpty()) return@onSuccess
                                 chapters = fresh.chapters
                                 if (fresh.meta.title.isNotEmpty()) bookTitleRaw = fresh.meta.title
                                 _ui.value = _ui.value.copy(total = chapters.size)

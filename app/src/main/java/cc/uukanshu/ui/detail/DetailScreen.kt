@@ -103,6 +103,16 @@ class DetailViewModel(
         }
     }
 
+    companion object {
+        /**
+         * An empty fresh TOC is never a book with zero chapters — it's a
+         * failed parse (block page / captive portal / layout change) and
+         * must not overwrite painted cache. Accept only non-empty TOCs.
+         */
+        fun shouldAcceptFresh(freshChapters: List<Parser.ChapterRef>): Boolean =
+            freshChapters.isNotEmpty()
+    }
+
     fun refresh() {
         // Never cancel the download here: refresh (init/retry) and the
         // manual full download are independent jobs. Killing the download
@@ -128,11 +138,26 @@ class DetailViewModel(
             }
             try {
                 val fresh = repo.detail(bookId)
-                _ui.value = _ui.value.copy(
-                    loading = false, error = null,
-                    meta = fresh.meta, chapters = fresh.chapters,
-                    offline = false, refreshing = false,
-                )
+                if (!shouldAcceptFresh(fresh.chapters)) {
+                    // Empty TOC: keep stale content visible, flag offline
+                    // when we have something; error only when we have nothing.
+                    if (_ui.value.meta != null) {
+                        _ui.value = _ui.value.copy(
+                            loading = false, refreshing = false, offline = true,
+                        )
+                    } else {
+                        _ui.value = _ui.value.copy(
+                            loading = false, refreshing = false,
+                            error = "empty chapter list — try again later",
+                        )
+                    }
+                } else {
+                    _ui.value = _ui.value.copy(
+                        loading = false, error = null,
+                        meta = fresh.meta, chapters = fresh.chapters,
+                        offline = false, refreshing = false,
+                    )
+                }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 if (_ui.value.meta != null) {
