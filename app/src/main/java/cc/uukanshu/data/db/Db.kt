@@ -33,7 +33,7 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
 /**
  * v2 -> v3: rekey `chapters` from `(bookId, position)` to stable
  * `(bookId, pageId)`. `position` becomes a plain order column (indexed).
- * Content-preserving dedup: rows are copied non-empty-first with
+ * Content-preserving dedup: rows are copied empty-first with
  * `INSERT OR REPLACE`, so a duplicate pageId keeps its download instead
  * of being wiped by an empty skeleton row. Next `detail()` refresh
  * repairs positions from the live TOC.
@@ -50,7 +50,7 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
             "INSERT OR REPLACE INTO chapters_new " +
                 "(bookId, position, pageId, title, url, content) " +
                 "SELECT bookId, position, pageId, title, url, content FROM chapters " +
-                "ORDER BY (content = '')",
+                "ORDER BY (content != ''), position",
         )
         db.execSQL("DROP TABLE chapters")
         db.execSQL("ALTER TABLE chapters_new RENAME TO chapters")
