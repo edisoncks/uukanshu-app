@@ -30,6 +30,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.data.parse.Parser
+import cc.uukanshu.data.repo.BookRepo
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.app
 import cc.uukanshu.core.Errors
@@ -42,7 +43,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class DetailViewModel(
-    private val repo: cc.uukanshu.data.repo.BookRepo,
+    private val repo: BookRepo,
     private val prefs: Prefs,
     private val t2s: T2S,
     private val bookId: String,
@@ -74,7 +75,7 @@ class DetailViewModel(
         val downloadError: String? = null,
         val simplified: Boolean = false,
         val cached: Set<Int> = emptySet(),
-        val bookmark: cc.uukanshu.data.repo.BookRepo.Bookmark? = null,
+        val bookmark: BookRepo.Bookmark? = null,
     )
 
     private val _ui = MutableStateFlow(Ui())
@@ -211,7 +212,7 @@ class DetailViewModel(
 
     /** Continue target resolved against the live TOC (pageId first). */
     fun continueChapter(chapters: List<Parser.ChapterRef>): Parser.ChapterRef? =
-        cc.uukanshu.data.repo.BookRepo.resolveBookmark(chapters, _ui.value.bookmark)
+        BookRepo.resolveBookmark(chapters, _ui.value.bookmark)
 
     fun isBookmarked(c: Parser.ChapterRef): Boolean {
         val bm = _ui.value.bookmark ?: return false

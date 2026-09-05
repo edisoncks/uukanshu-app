@@ -45,6 +45,7 @@ import cc.uukanshu.core.Errors
 import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.paging.BookPagingSource
 import cc.uukanshu.data.parse.Parser
+import cc.uukanshu.data.repo.BookRepo
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.ui.vmFactory
 import kotlinx.coroutines.flow.Flow
@@ -55,7 +56,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class HomeViewModel(
-    private val repo: cc.uukanshu.data.repo.BookRepo,
+    private val repo: BookRepo,
     private val prefs: Prefs,
     private val t2s: T2S,
 ) : ViewModel() {

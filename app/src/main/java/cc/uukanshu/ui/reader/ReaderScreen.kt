@@ -40,6 +40,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.prefs.Prefs
+import cc.uukanshu.data.repo.BookRepo
 import cc.uukanshu.app
 import cc.uukanshu.core.Errors
 import cc.uukanshu.ui.ThemeIconButton
@@ -53,7 +54,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class ReaderViewModel(
-    private val repo: cc.uukanshu.data.repo.BookRepo,
+    private val repo: BookRepo,
     private val t2s: T2S,
     private val prefs: Prefs,
     private val bookId: String,
