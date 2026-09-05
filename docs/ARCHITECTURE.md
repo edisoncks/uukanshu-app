@@ -72,6 +72,9 @@ UI (ViewModels)
   TOC revalidation merges without wiping downloads (by `pageId`); the
   wholesale TOC replace and single-row content writes serialize on one
   Mutex so concurrent download/refresh never loses a committed chapter.
+  Clear-all is one transaction wiping all three tables (bulk deletes),
+  so cancellation can't strand a half-cleared library and orphan progress
+  rows can't survive it.
   Network fetches (`recent`/`category`/`search`/`detail`/`chapter`) are
   serialized through `UukanshuGate`; only the HTTP fetch holds the permit,
   parse + Room merge run outside.

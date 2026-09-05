@@ -61,7 +61,10 @@ interface BookDao {
     /** Bump shelf order without touching meta; no-op when the row is missing. */
     @Query("UPDATE books SET updatedAt = :now WHERE id = :id")
     suspend fun touch(id: String, now: Long)
-}
+
+    /** Bulk wipe for clear-all (single statement, runs inside a transaction). */
+    @Query("DELETE FROM books")
+    suspend fun clearAll()
 
 @Dao
 interface ChapterDao {
@@ -77,6 +80,10 @@ interface ChapterDao {
 
     @Query("DELETE FROM chapters WHERE bookId = :bookId")
     suspend fun deleteBook(bookId: String)
+
+    /** Bulk wipe for clear-all (single statement, runs inside a transaction). */
+    @Query("DELETE FROM chapters")
+    suspend fun clearAll()
 
     /** Single-row content read: no full-table scan to render one chapter. */
     @Query("SELECT content FROM chapters WHERE bookId = :bookId AND position = :position")
@@ -124,4 +131,12 @@ interface ProgressDao {
 
     @Query("DELETE FROM progress WHERE bookId = :bookId")
     suspend fun deleteBook(bookId: String)
+
+    /**
+     * Bulk wipe for clear-all. Unconditional by design: progress rows with
+     * no book row (saveProgress upserts progress while touch() no-ops on a
+     * missing book) would otherwise survive "clear all" forever.
+     */
+    @Query("DELETE FROM progress")
+    suspend fun clearAll()
 }

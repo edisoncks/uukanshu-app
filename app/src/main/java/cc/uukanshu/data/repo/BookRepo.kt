@@ -322,8 +322,18 @@ class BookRepo(
         }
     }
 
+    /**
+     * Atomic wipe of every table in one transaction: the old per-book loop
+     * could strand a half-cleared library on cancellation, and could never
+     * reach progress rows with no book row (see [ProgressDao.clearAll]).
+     */
     suspend fun clearAll() = withContext(Dispatchers.IO) {
-        // Bypass the shelf filter: must wipe zero-cached orphans too.
-        db.books().cachedBooks().forEach { deleteBook(it.id) }
+        dbWrite.withLock {
+            db.withTransaction {
+                db.chapters().clearAll()
+                db.books().clearAll()
+                db.progress().clearAll()
+            }
+        }
     }
 }
