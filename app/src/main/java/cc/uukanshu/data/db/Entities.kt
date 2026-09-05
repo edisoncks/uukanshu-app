@@ -37,6 +37,14 @@ data class ProgressEntity(
     val updatedAt: Long = 0L,
 )
 
+/** Shelf stats per book, computed in SQL (see [ChapterDao.statsByBook]). */
+data class ChapterStats(
+    val bookId: String,
+    val total: Int,
+    val cached: Int,
+    val bytes: Long,
+)
+
 @Dao
 interface BookDao {
     @Query("SELECT * FROM books WHERE id = :id")
@@ -87,9 +95,18 @@ interface ChapterDao {
     @Query("SELECT COUNT(*) FROM chapters WHERE bookId = :bookId AND content != ''")
     suspend fun cachedCount(bookId: String): Int
 
-    /** Whole shelf stats in one round trip; callers group by bookId. */
-    @Query("SELECT * FROM chapters")
-    suspend fun allChapters(): List<ChapterEntity>
+    /**
+     * Shelf stats in one round trip, without loading chapter contents.
+     * LENGTH(CAST(content AS BLOB)) counts stored UTF-8 bytes, matching
+     * the previous Kotlin-side accounting.
+     */
+    @Query(
+        "SELECT bookId, COUNT(*) AS total, " +
+            "SUM(CASE WHEN content != '' THEN 1 ELSE 0 END) AS cached, " +
+            "COALESCE(SUM(LENGTH(CAST(content AS BLOB))), 0) AS bytes " +
+            "FROM chapters GROUP BY bookId",
+    )
+    suspend fun statsByBook(): List<ChapterStats>
 }
 
 @Dao

@@ -194,17 +194,15 @@ class BookRepo(
         val rows = db.books().cachedBooks()
         val bookAt = rows.associate { it.id to it.updatedAt }
         val progressAt = db.progress().all().associate { it.bookId to it.updatedAt }
-        // Two round trips total (was N+1); bytes use explicit UTF-8.
-        val byBook = db.chapters().allChapters().groupBy { it.bookId }
-        rows.map { b ->
-            val chapters = byBook[b.id].orEmpty()
-            CachedBook(
-                b.id, b.title, b.author,
-                total = chapters.size,
-                cached = chapters.count { it.content.isNotEmpty() },
-                bytes = chapters.sumOf { it.content.toByteArray(Charsets.UTF_8).size.toLong() },
-            )
-        }.filter { it.cached > 0 }.let { sortShelf(it, bookAt, progressAt) }
+        // Three round trips total, zero content strings loaded (was N+1
+        // queries plus every cached byte). Books without chapter rows or
+        // without cached content stay off the shelf, as before.
+        val stats = db.chapters().statsByBook().associateBy { it.bookId }
+        rows.mapNotNull { b ->
+            val s = stats[b.id] ?: return@mapNotNull null
+            if (s.cached == 0) return@mapNotNull null
+            CachedBook(b.id, b.title, b.author, total = s.total, cached = s.cached, bytes = s.bytes)
+        }.let { sortShelf(it, bookAt, progressAt) }
     }
 
     /**
