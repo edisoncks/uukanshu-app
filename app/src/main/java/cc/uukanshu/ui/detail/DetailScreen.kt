@@ -38,6 +38,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class DetailViewModel(
@@ -47,24 +48,35 @@ class DetailViewModel(
     private val bookId: String,
     private val downloads: BookDownloadManager,
 ) : ViewModel() {
+    /**
+     * Load state, split from live overlays. Content is loading, failed, or
+     * ready — never loading+failed, never a null-meta success (the old
+     * `meta!!` crash site). Download progress, cache badges, bookmarks and
+     * display prefs compose orthogonally on [Ui] and keep updating no
+     * matter which load state is showing.
+     */
+    sealed interface Load {
+        data object Loading : Load
+        data class Failed(val message: String) : Load
+        data class Ready(
+            val meta: Parser.BookMeta,
+            val chapters: List<Parser.ChapterRef>,
+            val offline: Boolean = false,
+            val refreshing: Boolean = false,
+        ) : Load
+    }
+
     data class Ui(
-        // No default on purpose: every construction must state loading
-        // explicitly, so success paths can never leave the spinner stuck.
-        val loading: Boolean,
-        val meta: Parser.BookMeta? = null,
-        val chapters: List<Parser.ChapterRef> = emptyList(),
-        val error: String? = null,
+        val load: Load = Load.Loading,
         val downloading: Boolean = false,
         val done: Int = 0,
         val downloadError: String? = null,
         val simplified: Boolean = false,
         val cached: Set<Int> = emptySet(),
-        val offline: Boolean = false,
-        val refreshing: Boolean = false,
         val bookmarkedPosition: Int? = null,
     )
 
-    private val _ui = MutableStateFlow(Ui(loading = true))
+    private val _ui = MutableStateFlow(Ui())
     val ui: StateFlow<Ui> = _ui
     // Serialized refresh: rapid retry taps cancel the previous fetch so two
     // wholesale TOC replaces never run concurrently (last-tapped wins).
@@ -129,46 +141,50 @@ class DetailViewModel(
                 null
             }
             if (cached != null) {
-                _ui.value = _ui.value.copy(
-                    loading = false, error = null,
-                    meta = cached.meta, chapters = cached.chapters,
-                    offline = false, refreshing = true,
-                )
+                _ui.update {
+                    it.copy(
+                        load = Load.Ready(
+                            meta = cached.meta, chapters = cached.chapters,
+                            offline = false, refreshing = true,
+                        ),
+                    )
+                }
             } else {
-                _ui.value = _ui.value.copy(loading = true, error = null, refreshing = false)
+                _ui.update { it.copy(load = Load.Loading) }
             }
             try {
                 val fresh = repo.detail(bookId)
                 if (!shouldAcceptFresh(fresh.chapters)) {
                     // Empty TOC: keep stale content visible, flag offline
                     // when we have something; error only when we have nothing.
-                    if (_ui.value.meta != null) {
-                        _ui.value = _ui.value.copy(
-                            loading = false, refreshing = false, offline = true,
-                        )
-                    } else {
-                        _ui.value = _ui.value.copy(
-                            loading = false, refreshing = false,
-                            error = "empty chapter list — try again later",
-                        )
+                    _ui.update { cur ->
+                        when (val l = cur.load) {
+                            is Load.Ready -> cur.copy(
+                                load = l.copy(refreshing = false, offline = true),
+                            )
+                            else -> cur.copy(
+                                load = Load.Failed("empty chapter list — try again later"),
+                            )
+                        }
                     }
                 } else {
-                    _ui.value = _ui.value.copy(
-                        loading = false, error = null,
-                        meta = fresh.meta, chapters = fresh.chapters,
-                        offline = false, refreshing = false,
-                    )
+                    _ui.update {
+                        it.copy(
+                            load = Load.Ready(
+                                meta = fresh.meta, chapters = fresh.chapters,
+                                offline = false, refreshing = false,
+                            ),
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                if (_ui.value.meta != null) {
-                    // Keep stale content visible, flag offline.
-                    _ui.value = _ui.value.copy(loading = false, refreshing = false, offline = true)
-                } else {
-                    _ui.value = _ui.value.copy(
-                        loading = false, refreshing = false,
-                        error = Errors.message(e),
-                    )
+                _ui.update { cur ->
+                    when (val l = cur.load) {
+                        // Keep stale content visible, flag offline.
+                        is Load.Ready -> cur.copy(load = l.copy(refreshing = false, offline = true))
+                        else -> cur.copy(load = Load.Failed(Errors.message(e)))
+                    }
                 }
             }
         }
@@ -203,24 +219,24 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
     )
     val ui by vm.ui.collectAsState()
 
-    when {
-        ui.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    when (val load = ui.load) {
+        is DetailViewModel.Load.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
         }
-        ui.error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        is DetailViewModel.Load.Failed -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(ui.error!!)
+                Text(load.message)
                 Button({ vm.refresh() }, Modifier.padding(top = 12.dp)) { Text(vm.displayTitle("重試")) }
             }
         }
-        else -> LazyColumn(Modifier.fillMaxSize().padding(12.dp)) {
+        is DetailViewModel.Load.Ready -> LazyColumn(Modifier.fillMaxSize().padding(12.dp)) {
             item {
-                val m = ui.meta!!
-                if (ui.refreshing) {
+                val m = load.meta
+                if (load.refreshing) {
                     LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 4.dp))
                 }
                 Text(vm.displayTitle(m.title), style = MaterialTheme.typography.headlineSmall)
-                if (ui.offline) {
+                if (load.offline) {
                     Text(
                         vm.displayTitle("離線模式 · 緩存版本"),
                         style = MaterialTheme.typography.bodySmall,
@@ -237,8 +253,8 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(top = 8.dp),
                 )
-                val bookmarked = ui.bookmarkedPosition?.takeIf { it in 1..ui.chapters.size }
-                    ?.let { pos -> ui.chapters.firstOrNull { it.position == pos } }
+                val bookmarked = ui.bookmarkedPosition?.takeIf { it in 1..load.chapters.size }
+                    ?.let { pos -> load.chapters.firstOrNull { it.position == pos } }
                 if (ui.downloading) {
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -257,10 +273,10 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
                             }
                         }
                         LinearProgressIndicator(
-                            progress = { ui.done.toFloat() / ui.chapters.size.coerceAtLeast(1) },
+                            progress = { ui.done.toFloat() / load.chapters.size.coerceAtLeast(1) },
                             modifier = Modifier.fillMaxWidth(),
                         )
-                        Text(vm.displayTitle("下載中") + " ${ui.done}/${ui.chapters.size}", style = MaterialTheme.typography.bodySmall)
+                        Text(vm.displayTitle("下載中") + " ${ui.done}/${load.chapters.size}", style = MaterialTheme.typography.bodySmall)
                         Button({ vm.cancelDownload() }, Modifier.fillMaxWidth()) { Text(vm.displayTitle("取消")) }
                     }
                 } else {
@@ -282,22 +298,22 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
                         }
                         // fullyCached survives process restart (manager done/total
                         // don't); the 已緩存 count line below shows the same source.
-                        val fullyCached = ui.chapters.isNotEmpty() && ui.cached.size >= ui.chapters.size
+                        val fullyCached = load.chapters.isNotEmpty() && ui.cached.size >= load.chapters.size
                         Button({ vm.downloadAll() }, Modifier.fillMaxWidth()) {
-                            Text(if (fullyCached || (ui.done > 0 && ui.done >= ui.chapters.size)) vm.displayTitle("重新下載整本") else vm.displayTitle("下載整本"))
+                            Text(if (fullyCached || (ui.done > 0 && ui.done >= load.chapters.size)) vm.displayTitle("重新下載整本") else vm.displayTitle("下載整本"))
                         }
                     }
                 }
                 ui.downloadError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Text(
-                    "${vm.displayTitle("共")} ${ui.chapters.size} ${vm.displayTitle("章")} · ${vm.displayTitle("已緩存")} ${ui.cached.size} ${vm.displayTitle("章")}",
+                    "${vm.displayTitle("共")} ${load.chapters.size} ${vm.displayTitle("章")} · ${vm.displayTitle("已緩存")} ${ui.cached.size} ${vm.displayTitle("章")}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
                 )
                 HorizontalDivider()
             }
-            items(ui.chapters, key = { it.position }) { c ->
+            items(load.chapters, key = { it.position }) { c ->
                 Row(
                     Modifier.fillMaxWidth().clickable { onChapter(bookId, c.position) }.padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
