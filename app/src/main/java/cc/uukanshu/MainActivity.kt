@@ -35,6 +35,10 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import cc.uukanshu.data.prefs.Prefs
+import cc.uukanshu.ui.Routes
+import cc.uukanshu.ui.navigateToBook
+import cc.uukanshu.ui.navigateToChapter
+import cc.uukanshu.ui.navigateToTab
 import cc.uukanshu.ui.vmFactory
 import cc.uukanshu.ui.detail.DetailScreen
 import cc.uukanshu.ui.home.HomeScreen
@@ -79,10 +83,10 @@ fun UukanshuApp() {
     ) {
         val nav = rememberNavController()
         val tabs = listOf(
-            Tab("home", display("首頁")) { Icon(Icons.Filled.Home, contentDescription = null) },
-            Tab("search", display("搜索")) { Icon(Icons.Filled.Search, contentDescription = null) },
-            Tab("library", display("書架")) { Icon(Icons.Filled.List, contentDescription = null) },
-            Tab("settings", display("設定")) { Icon(Icons.Filled.Settings, contentDescription = null) },
+            Tab(Routes.HOME, display("首頁")) { Icon(Icons.Filled.Home, contentDescription = null) },
+            Tab(Routes.SEARCH, display("搜索")) { Icon(Icons.Filled.Search, contentDescription = null) },
+            Tab(Routes.LIBRARY, display("書架")) { Icon(Icons.Filled.List, contentDescription = null) },
+            Tab(Routes.SETTINGS, display("設定")) { Icon(Icons.Filled.Settings, contentDescription = null) },
         )
         // Shared update state: auto-check fires once per day whatever tab is open;
         // the manual check button lives in Settings, the dialog overlays any tab.
@@ -101,13 +105,7 @@ fun UukanshuApp() {
                         tabs.forEach { tab ->
                             NavigationBarItem(
                                 selected = route == tab.route,
-                                // Single-top + state restore: double-taps never stack
-                                // duplicate tab destinations.
-                                onClick = { nav.navigate(tab.route) {
-                                    launchSingleTop = true
-                                    popUpTo(nav.graph.startDestinationId) { saveState = true }
-                                    restoreState = true
-                                } },
+                                onClick = { nav.navigateToTab(tab.route) },
                                 icon = tab.icon,
                                 label = { Text(tab.label) },
                             )
@@ -116,49 +114,24 @@ fun UukanshuApp() {
                 }
             },
         ) { inner ->
-            NavHost(nav, startDestination = "home", Modifier.padding(inner)) {
-                // launchSingleTop: rapid double-taps on the same book must
-                // not push duplicate detail destinations.
-                composable("home") { HomeScreen(onBook = { id -> nav.navigate("detail/$id") { launchSingleTop = true } }) }
-                composable("search") { SearchScreen(onBook = { id -> nav.navigate("detail/$id") { launchSingleTop = true } }) }
-                composable("library") { LibraryScreen(onBook = { id -> nav.navigate("detail/$id") { launchSingleTop = true } }) }
-                composable("settings") { SettingsScreen(updateVm) }
+            NavHost(nav, startDestination = Routes.HOME, Modifier.padding(inner)) {
+                composable(Routes.HOME) { HomeScreen(onBook = { id -> nav.navigateToBook(id) }) }
+                composable(Routes.SEARCH) { SearchScreen(onBook = { id -> nav.navigateToBook(id) }) }
+                composable(Routes.LIBRARY) { LibraryScreen(onBook = { id -> nav.navigateToBook(id) }) }
+                composable(Routes.SETTINGS) { SettingsScreen(updateVm) }
                 composable(
-                    "detail/{bookId}",
+                    Routes.DETAIL_PATTERN,
                     arguments = listOf(navArgument("bookId") { type = NavType.StringType }),
                 ) { entry ->
                     DetailScreen(
                         bookId = entry.arguments?.getString("bookId").orEmpty(),
-                        // One reader per book: opening another chapter pops the
-                        // previous reader above this detail (launchSingleTop
-                        // alone only dedups the identical route, so ch.1 then
-                        // ch.5 would stack). Paging within the reader reuses
-                        // the ViewModel via load(), not navigation. The reader
-                        // is only ever opened from here, so the popUpTo target
-                        // always exists.
-                        // Identical double-tap: skip entirely instead of
-                        // pop-then-repush (a redundant destroy/reload flash).
-                        // Reads the controller property directly — the collected
-                        // bottom-bar entry lags a frame and would reintroduce
-                        // the race. Clicks serialize on Main and navigate()
-                        // commits synchronously, so check-then-navigate here
-                        // is atomic w.r.t. any other tap.
-                        onChapter = { id, pos ->
-                            val top = nav.currentBackStackEntry
-                            val same = top?.destination?.route == "reader/{bookId}/{position}" &&
-                                top.arguments?.getString("bookId") == id &&
-                                top.arguments?.getInt("position") == pos
-                            if (!same) {
-                                nav.navigate("reader/$id/$pos") {
-                                    launchSingleTop = true
-                                    popUpTo("detail/$id") { inclusive = false }
-                                }
-                            }
-                        },
+                        // Paging within the reader reuses the ViewModel via load(),
+                        // not navigation (see Nav.kt for the dedup/pop rules).
+                        onChapter = { id, pos -> nav.navigateToChapter(id, pos) },
                     )
                 }
                 composable(
-                    "reader/{bookId}/{position}",
+                    Routes.READER_PATTERN,
                     arguments = listOf(
                         navArgument("bookId") { type = NavType.StringType },
                         navArgument("position") { type = NavType.IntType },

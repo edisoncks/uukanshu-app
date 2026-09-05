@@ -13,13 +13,11 @@ default with a global Simplified toggle (see below).
     the bottom bar.
   - Hosts one shared `UpdateViewModel` (auto-check once per day) and overlays
     `UpdateDialog` on any tab.
-  - Navigation uses `launchSingleTop` + state restore so double-taps never
-    stack duplicate tab destinations. Detail opens one reader per book:
-    opening another chapter pops the previous reader via
-    `popUpTo("detail/{bookId}")` (the reader is only reachable from Detail),
-    and an identical double-tap is skipped by comparing the top entry's
-    args (read off the controller directly — serialized Main clicks +
-    synchronous commit make the check atomic).
+  - Navigation uses `ui/Nav.kt` (`Routes` + `navigateToTab` /
+    `navigateToBook` / `navigateToChapter`): route strings are constants
+    so typos fail at compile time, not runtime. Tabs are single-top +
+    state restore; books are single-top; chapters enforce one reader per
+    book (`popUpTo(detail)`) and skip identical double-taps.
 - `App.kt`: `Application` subclass holding the shared singletons:
   `UukanshuGate` + `BookRepo` + app-scoped `BookDownloadManager` +
   `Prefs` + `T2S` (accessed via `ctx.app()`, e.g. `app.repo`).
