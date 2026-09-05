@@ -51,7 +51,7 @@ layers (no device/emulator needed):
 
 - `ParserTest` — HTML fixtures for home/category/search/detail/chapter parsing
 - `T2STest` — Traditional → Simplified conversion
-- `HomeMergeTest`, `SearchDedupTest` — list merge/dedup by stable book id
+- `BookPagingSourceTest`, `SearchDedupTest` — paging dedup / list dedup by stable book id
 - `ReaderTitleTest`, `ReaderSaveGuardTest`, `BookRepoTest` — reader title
   resolution, TOC-shift save guard, repo behaviour
 - `UpdateCheckTest`, `ApkCompleteTest`, `SiteApiRetryTest` — updater version

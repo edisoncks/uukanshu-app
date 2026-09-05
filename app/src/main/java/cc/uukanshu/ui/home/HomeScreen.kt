@@ -27,7 +27,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -35,18 +34,27 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemKey
 import cc.uukanshu.CATEGORIES
-import cc.uukanshu.data.convert.T2S
-import cc.uukanshu.data.parse.Parser
-import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.app
 import cc.uukanshu.core.Errors
+import cc.uukanshu.data.convert.T2S
+import cc.uukanshu.data.paging.BookPagingSource
+import cc.uukanshu.data.parse.Parser
+import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.ui.vmFactory
-import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -55,20 +63,21 @@ class HomeViewModel(
     private val prefs: Prefs,
     private val t2s: T2S,
 ) : ViewModel() {
+    /**
+     * Chrome state only (tab, category, display prefs). Page bookkeeping
+     * (page index, loading flags, stale-drop guards, merge dedup) used to
+     * live here as six cooperating fields — every one a chance to double-
+     * fetch or paint stale pages. Paging 3 owns all of that now; this flow
+     * just selects which list to show.
+     */
     data class Ui(
         val tab: Int = 0, // 0 recent, 1 category
         val categoryId: Int = 1,
-        val page: Int = 1,
-        val books: List<Parser.BookItem> = emptyList(),
-        val loading: Boolean = false,
-        val loadingMore: Boolean = false,
-        val error: String? = null,
-        val endOfList: Boolean = false,
         val simplified: Boolean = false,
         val theme: String = Prefs.SYSTEM,
     )
 
-    private val _ui = MutableStateFlow(Ui(loading = true))
+    private val _ui = MutableStateFlow(Ui())
     val ui: StateFlow<Ui> = _ui
 
     init {
@@ -77,7 +86,6 @@ class HomeViewModel(
                 simplified = prefs.simplified.first(),
                 theme = prefs.theme.first(),
             )
-            refresh()
         }
         // Settings tab owns the toggles now: follow DataStore so the list
         // re-renders when the user flips Simplified/Theme there.
@@ -94,92 +102,30 @@ class HomeViewModel(
 
     fun selectTab(tab: Int) {
         if (_ui.value.tab == tab) return
-        val cur = _ui.value
-        _ui.value = Ui(tab = tab, categoryId = cur.categoryId, loading = true,
-            simplified = cur.simplified, theme = cur.theme)
-        refresh()
+        _ui.update { it.copy(tab = tab) }
     }
 
     fun selectCategory(id: Int) {
-        _ui.value = _ui.value.copy(tab = 1, categoryId = id, page = 1, books = emptyList(),
-            loading = true, loadingMore = false, endOfList = false, error = null)
-        refresh()
+        _ui.update { it.copy(tab = 1, categoryId = id) }
     }
 
-    fun refresh() {
-        val s = _ui.value
-        // Set loading synchronously so a concurrent loadMore() sees it and stands down.
-        _ui.value = s.copy(loading = true, loadingMore = false, error = null)
-        viewModelScope.launch {
-            try {
-                val books = if (s.tab == 0) repo.recent(1) else repo.category(s.categoryId, 1)
-                val distinct = books.distinctBy { it.id }
-                _ui.update { cur ->
-                    // Tab/category changed while fetching: drop this stale page-1.
-                    if (cur.tab != s.tab || cur.categoryId != s.categoryId) cur
-                    else cur.copy(
-                        books = distinct, loading = false, error = null,
-                        page = 1, endOfList = books.isEmpty(),
-                    )
+    /**
+     * One Pager per tab/category: switching lists invalidates the old
+     * PagingSource (and its seen-ids set), so ids never leak across lists.
+     * Retries, prefetch and refresh-load-states come from Paging — the old
+     * hand-rolled loadMore/refresh/stale-drop methods are gone.
+     */
+    val pagingData: Flow<PagingData<Parser.BookItem>> = _ui
+        .map { it.tab to it.categoryId }
+        .distinctUntilChanged()
+        .flatMapLatest { (tab, categoryId) ->
+            Pager(PagingConfig(pageSize = 20, enablePlaceholders = false)) {
+                BookPagingSource { page ->
+                    if (tab == 0) repo.recent(page)
+                    else repo.category(categoryId, page)
                 }
-            } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                _ui.update { cur ->
-                    if (cur.tab != s.tab || cur.categoryId != s.categoryId) cur
-                    else cur.copy(loading = false, error = Errors.message(e))
-                }
-            }
+            }.flow.cachedIn(viewModelScope)
         }
-    }
-
-    fun loadMore() {
-        val s = _ui.value
-        if (s.loading || s.loadingMore || s.endOfList) return
-        // Set the flag synchronously on the caller (Main) thread. Setting it
-        // inside launch{} lets two rapid scroll events both pass the guard
-        // before either flag is visible, double-fetching the same page.
-        _ui.value = s.copy(loadingMore = true, error = null)
-        viewModelScope.launch {
-            try {
-                val next = if (s.tab == 0) repo.recent(s.page + 1)
-                else repo.category(s.categoryId, s.page + 1)
-                _ui.update { cur ->
-                    // Tab/category switched, or a refresh() started while we were
-                    // fetching: drop this stale page instead of overwriting fresh state.
-                    // (Fresh Ui already has loadingMore=false, so just return it.)
-                    if (cur.tab != s.tab || cur.categoryId != s.categoryId ||
-                        cur.page != s.page || cur.loading
-                    ) cur
-                    else {
-                        // Live-shifted recent feed overlaps pages (verified: id 25745
-                        // on both page 1 and 2): dedup by stable id so LazyColumn
-                        // keys never collide and crash.
-                        val merged = mergeBooks(cur.books, next)
-                        cur.copy(
-                            books = merged, page = cur.page + 1, error = null,
-                            loadingMore = false, endOfList = next.isEmpty(),
-                        )
-                    }
-                }
-            } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                _ui.update { cur ->
-                    if (cur.tab != s.tab || cur.categoryId != s.categoryId ||
-                        cur.page != s.page || cur.loading
-                    ) cur
-                    else cur.copy(loadingMore = false, error = Errors.message(e))
-                }
-            }
-        }
-    }
-
-    companion object {
-        /** Append a page, dropping overlap by stable book id (feed shifts live). */
-        fun mergeBooks(
-            old: List<Parser.BookItem>,
-            next: List<Parser.BookItem>,
-        ): List<Parser.BookItem> = (old + next).distinctBy { it.id }
-    }
 }
 
 @Composable
@@ -190,6 +136,7 @@ fun HomeScreen(onBook: (String) -> Unit) {
         HomeViewModel(app.repo, app.prefs, app.t2s)
     })
     val ui by vm.ui.collectAsState()
+    val books = vm.pagingData.collectAsLazyPagingItems()
 
     Column(Modifier.fillMaxSize()) {
         Text(
@@ -229,45 +176,49 @@ fun HomeScreen(onBook: (String) -> Unit) {
             }
             lastResetKey = key
         }
+        val refresh = books.loadState.refresh
+        val append = books.loadState.append
         when {
-            ui.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-            ui.error != null && ui.books.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(ui.error!!, style = MaterialTheme.typography.bodyMedium)
-                    Button({ vm.refresh()}, Modifier.padding(top = 12.dp)) { Text(vm.display("重試 / Retry")) }
+            refresh is androidx.paging.LoadState.Loading && books.itemCount == 0 ->
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
                 }
-            }
+            refresh is androidx.paging.LoadState.Error && books.itemCount == 0 ->
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            Errors.message(refresh.error),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Button({ books.retry() }, Modifier.padding(top = 12.dp)) {
+                            Text(vm.display("重試 / Retry"))
+                        }
+                    }
+                }
             // Empty list with no error (empty category / parse miss with HTTP
             // 200): say so with a retry instead of a blank screen.
-            ui.books.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            books.itemCount == 0 -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         vm.display("暫無更新"),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Button({ vm.refresh() }, Modifier.padding(top = 12.dp)) { Text(vm.display("重試 / Retry")) }
+                    Button({ books.refresh() }, Modifier.padding(top = 12.dp)) {
+                        Text(vm.display("重試 / Retry"))
+                    }
                 }
             }
             else -> {
-                LaunchedEffect(listState, ui.tab, ui.categoryId) {
-                    // Observe live totalItemsCount, not a stale ui.books.size capture:
-                    // the old threshold never advanced after appends, refiring
-                    // loadMore() for pages 3,4,5... without further scrolling.
-                    snapshotFlow {
-                        val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index
-                        val total = listState.layoutInfo.totalItemsCount
-                        last to total
-                    }.distinctUntilChanged().collect { (idx, total) ->
-                        if (idx != null && total > 0 && idx >= total - 3) vm.loadMore()
-                    }
-                }
                 LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(8.dp)) {
-                    // Stable id key: recent feed shifts live (same id across pages),
-                    // and id+title duplicates crash LazyColumn. Dedup happens in VM.
-                    items(ui.books, key = { it.id }) { b ->
+                    // Stable id keys via peek (no load trigger); cross-page
+                    // duplicates are already filtered in BookPagingSource, so
+                    // keys can never collide and crash.
+                    items(
+                        count = books.itemCount,
+                        key = books.itemKey { it.id },
+                    ) { i ->
+                        val b = books[i] ?: return@items
                         Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onBook(b.id) }) {
                             Column(Modifier.padding(12.dp)) {
                                 Text(vm.display(b.title), style = MaterialTheme.typography.titleMedium)
@@ -288,7 +239,7 @@ fun HomeScreen(onBook: (String) -> Unit) {
                             }
                         }
                     }
-                    if (ui.loadingMore) {
+                    if (append is androidx.paging.LoadState.Loading) {
                         item {
                             Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator()
@@ -297,18 +248,18 @@ fun HomeScreen(onBook: (String) -> Unit) {
                     }
                     // Page-N failure with earlier pages visible: footer error + retry
                     // instead of silently swallowing (was invisible when books non-empty).
-                    if (ui.error != null && ui.books.isNotEmpty() && !ui.loadingMore) {
+                    if (append is androidx.paging.LoadState.Error) {
                         item {
                             Column(
                                 Modifier.fillMaxWidth().padding(16.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                             ) {
                                 Text(
-                                    ui.error!!,
+                                    Errors.message(append.error),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.error,
                                 )
-                                Button({ vm.loadMore() }, Modifier.padding(top = 8.dp)) {
+                                Button({ books.retry() }, Modifier.padding(top = 8.dp)) {
                                     Text(vm.display("重試 / Retry"))
                                 }
                             }
