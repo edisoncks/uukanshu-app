@@ -66,6 +66,8 @@ rules below look odd — they encode real site quirks. **Do not "simplify".**
   limiting. Single chapter opens and TOC/search fetches have no delay.
 - Prefetch is sequential (1-at-a-time), silent-fail: a failed chapter neither
   breaks reading nor forces a delay on the next one.
+- Full-book downloads run one at a time (a second tapped book queues), so
+  request pacing is always the single-book 1–3s profile.
 
 ## Platform constraints
 

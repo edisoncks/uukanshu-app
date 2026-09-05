@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -23,6 +25,9 @@ import java.util.concurrent.ConcurrentHashMap
  * application-scope so navigating away (home/library/search, another book)
  * never aborts them; re-opening the detail re-attaches via [observe].
  *
+ * Full-book downloads run one at a time: a second tapped book queues
+ * behind the running one instead of interleaving chapter fetches, so
+ * request pacing is always the single-book 1-3s `crawlDelay` profile.
  * Network stays single-flight: [BookRepo.downloadAll] funnels each chapter
  * fetch through `UukanshuGate`, so a background download and foreground
  * browsing serialize per HTTP request instead of overlapping.
@@ -30,9 +35,17 @@ import java.util.concurrent.ConcurrentHashMap
  * per-chapter rather than blocking behind a whole book.
  */
 class BookDownloadManager(
-    private val repo: BookRepo,
+    private val downloadFn: suspend (String, (Int, Int) -> Unit) -> Unit,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
+    constructor(
+        repo: BookRepo,
+        scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    ) : this(
+        downloadFn = { id, cb -> repo.downloadAll(id, cb) },
+        scope = scope,
+    )
+
     data class State(
         val downloading: Boolean = false,
         val done: Int = 0,
@@ -44,6 +57,9 @@ class BookDownloadManager(
     val states: StateFlow<Map<String, State>> = _states
 
     private val jobs = ConcurrentHashMap<String, Job>()
+
+    /** Bulk slot: whole-book downloads queue here, one at a time. */
+    private val slot = Mutex()
 
     fun observe(bookId: String): Flow<State?> =
         _states.map { it[bookId] }.distinctUntilChanged()
@@ -58,13 +74,15 @@ class BookDownloadManager(
         _states.update { it + (bookId to State(downloading = true, done = 0, total = 0, error = null)) }
         val job = scope.launch {
             try {
-                repo.downloadAll(bookId) { done, total ->
-                    // A dying job's in-flight callback must not resurrect
-                    // downloading=true after cancel() published false: drop
-                    // publishes once this id no longer has a live job.
-                    if (jobs[bookId]?.isActive == true) {
-                        _states.update { cur ->
-                            cur + (bookId to State(downloading = true, done = done, total = total, error = null))
+                slot.withLock {
+                    downloadFn(bookId) { done, total ->
+                        // A dying job's in-flight callback must not resurrect
+                        // downloading=true after cancel() published false: drop
+                        // publishes once this id no longer has a live job.
+                        if (jobs[bookId]?.isActive == true) {
+                            _states.update { cur ->
+                                cur + (bookId to State(downloading = true, done = done, total = total, error = null))
+                            }
                         }
                     }
                 }
