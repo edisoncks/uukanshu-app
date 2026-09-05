@@ -128,6 +128,11 @@ class LibraryViewModel(
         downloads.cancel(id)
     }
 
+    /** Restart a failed download from the shelf (idempotent start). */
+    fun retryDownload(id: String) {
+        downloads.start(id)
+    }
+
     fun delete(id: String) {
         viewModelScope.launch {
             repo.deleteBook(id)
@@ -258,6 +263,11 @@ fun LibraryScreen(onBook: (String) -> Unit) {
                             }
                             st?.error?.let {
                                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                                // Failed fresh download: retry here instead of
+                                // forcing a trip to the detail page.
+                                if (st.downloading != true) {
+                                    Button({ vm.retryDownload(id) }) { Text(vm.display("重試")) }
+                                }
                             }
                         }
                     }
@@ -288,6 +298,8 @@ fun LibraryScreen(onBook: (String) -> Unit) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 if (st?.downloading == true) {
                                     Button({ vm.cancelDownload(b.id) }) { Text(vm.display("取消")) }
+                                } else if (st?.error != null) {
+                                    Button({ vm.retryDownload(b.id) }) { Text(vm.display("重試")) }
                                 }
                                 Button({ vm.delete(b.id) }) {
                                     Text(vm.display("刪除緩存"))
