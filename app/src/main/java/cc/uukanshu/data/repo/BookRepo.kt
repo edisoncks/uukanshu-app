@@ -238,6 +238,14 @@ class BookRepo(
         try {
             var fetchedAny = false
             chapters.forEachIndexed { idx, ref ->
+                // The library entry may be deleted mid-download (per-book
+                // delete / clear-all from another screen). Chapter writes are
+                // UPDATE-only no-ops on missing rows, so without this the
+                // loop would burn bandwidth and report success with zero
+                // bytes cached. Abort loudly instead.
+                if (withContext(Dispatchers.IO) { db.books().book(bookId) } == null) {
+                    throw java.io.IOException("book was deleted during download")
+                }
                 val has = withContext(Dispatchers.IO) {
                     cachedChapterContent(bookId, ref.position) != null
                 }
