@@ -240,6 +240,18 @@ fun HomeScreen(onBook: (String) -> Unit) {
                     Button({ vm.refresh()}, Modifier.padding(top = 12.dp)) { Text(vm.display("重試 / Retry")) }
                 }
             }
+            // Empty list with no error (empty category / parse miss with HTTP
+            // 200): say so with a retry instead of a blank screen.
+            ui.books.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        vm.display("暫無更新"),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button({ vm.refresh() }, Modifier.padding(top = 12.dp)) { Text(vm.display("重試 / Retry")) }
+                }
+            }
             else -> {
                 LaunchedEffect(listState, ui.tab, ui.categoryId) {
                     // Observe live totalItemsCount, not a stale ui.books.size capture:
