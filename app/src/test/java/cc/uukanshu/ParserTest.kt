@@ -58,6 +58,30 @@ class ParserTest {
         assertTrue("footer noise must be cut", !c.text.contains("mulu-box"))
     }
 
+    @Test fun chapterNavAcceptsHttpAndWwwHosts() {
+        // bookUrlOrNull treats http+www as valid; nav validation must agree,
+        // or mid-book links read as end-of-book (null).
+        val html = """
+            <a href="http://uukanshu.cc/book/18957/10921502.html">上一章</a>
+            <a href="https://www.uukanshu.cc/book/18957/10921508.html">下一章</a>
+        """.trimIndent()
+        val c = Parser.parseChapter(
+            "<h1>T</h1><div class=\"readcotent\">正文。<br></div>$html",
+            "https://uukanshu.cc/book/18957/10921505.html",
+        )
+        assertEquals("http://uukanshu.cc/book/18957/10921502.html", c.prevUrl)
+        assertEquals("https://www.uukanshu.cc/book/18957/10921508.html", c.nextUrl)
+    }
+
+    @Test fun tocAcceptsHttpAndWwwHosts() {
+        val html = """
+            <dd><a href="http://uukanshu.cc/book/100/101.html">001</a></dd>
+            <dd><a href="https://www.uukanshu.cc/book/100/102.html">002</a></dd>
+        """.trimIndent()
+        val toc = Parser.parseToc(html, "100")
+        assertEquals(listOf("001", "002"), toc.map { it.title })
+    }
+
     @Test fun chapterNavValidation() {
         val html = """
             <a href="/book/18957/10921502.html">上一章</a>

@@ -75,7 +75,7 @@ object Parser {
             ?.let { runCatching { it.toInt().toString() }.getOrNull() }
 
     fun chapterPageIdOrNull(url: String): Long? =
-        Regex("""/book/\d+/(\d+)\.html""").find(url ?: "")?.groupValues?.getOrNull(1)?.toLongOrNull()
+        Regex("""/book/\d+/(\d+)\.html""").find(url)?.groupValues?.getOrNull(1)?.toLongOrNull()
 
     // -- category / search cards ----------------------------------------
 
@@ -85,9 +85,7 @@ object Parser {
             // Title anchor: .bookname a (search wraps hot spans; category is plain).
             val nameAnchor = box.selectFirst(".bookname a") ?: return@mapNotNull null
             val href = nameAnchor.attr("href")
-            val id = Regex("""/book/(\d+)/""").find(href)?.groupValues?.getOrNull(1)
-                ?.let { runCatching { it.toInt().toString() }.getOrNull() }
-                ?: return@mapNotNull null
+            val id = bookIdOrNull(href) ?: return@mapNotNull null
             val title = nameAnchor.text().trim()
             if (title.isEmpty()) return@mapNotNull null
             // Authors appear as `作者：X` plain text or `作者：<a>X</a>`.
@@ -120,7 +118,7 @@ object Parser {
     // -- TOC ------------------------------------------------------------
 
     private val tocLink = Regex(
-        """href=["'](?:https://uukanshu\.cc)?(/book/(\d+)/(\d+)\.html)["'][^>]*>\s*([^<]+?)\s*</a>""",
+        """href=["'](?:https?://(?:www\.)?uukanshu\.cc)?(/book/(\d+)/(\d+)\.html)["'][^>]*>\s*([^<]+?)\s*</a>""",
         RegexOption.IGNORE_CASE,
     )
 
@@ -143,10 +141,11 @@ object Parser {
             if (wanted != null && m.groupValues[2].toIntOrNull() != wanted) return@forEachIndexed
             val key = m.groupValues[2] to m.groupValues[3]
             if (key in seen || lastIdx[key] != i) return@forEachIndexed
+            val pageId = m.groupValues[3].toLongOrNull() ?: return@forEachIndexed
             seen += key
             out += ChapterRef(
                 position = out.size + 1,
-                pageId = m.groupValues[3].toLong(),
+                pageId = pageId,
                 title = unescape(m.groupValues[4].trim()),
                 url = BASE + m.groupValues[1],
             )
@@ -192,7 +191,10 @@ object Parser {
 
     // -- chapter ----------------------------------------------------------
 
-    private val chapterHref = Regex("""(?:https://uukanshu\.cc)?/book/\d+/\d+\.html""")
+    // Accept http/https, with/without www, or root-relative. bookUrlOrNull
+    // already treats http+www as valid book URLs; nav validation must agree
+    // or mid-book prev/next links read as end-of-book (null).
+    private val chapterHref = Regex("""(?:https?://(?:www\.)?uukanshu\.cc)?/book/\d+/\d+\.html""")
 
     private fun absolutize(href: String, base: String): String {
         if (href.startsWith("http://") || href.startsWith("https://")) return href
@@ -221,7 +223,7 @@ object Parser {
 
         // Book name: prefer breadcrumb anchor for THIS book id.
         var book = ""
-        val ownId = Regex("""/book/(\d+)/""").find(pageUrl)?.groupValues?.getOrNull(1)
+        val ownId = bookIdOrNull(pageUrl)
         if (ownId != null) {
             book = Regex(
                 """<a href=["'](?:https?://[^"']*)?/book/$ownId/["'][^>]*>([^<]+)</a>""",
