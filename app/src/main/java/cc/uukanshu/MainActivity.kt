@@ -140,10 +140,23 @@ fun UukanshuApp() {
                         // the ViewModel via load(), not navigation. The reader
                         // is only ever opened from here, so the popUpTo target
                         // always exists.
+                        // Identical double-tap: skip entirely instead of
+                        // pop-then-repush (a redundant destroy/reload flash).
+                        // Reads the controller property directly — the collected
+                        // bottom-bar entry lags a frame and would reintroduce
+                        // the race. Clicks serialize on Main and navigate()
+                        // commits synchronously, so check-then-navigate here
+                        // is atomic w.r.t. any other tap.
                         onChapter = { id, pos ->
-                            nav.navigate("reader/$id/$pos") {
-                                launchSingleTop = true
-                                popUpTo("detail/$id") { inclusive = false }
+                            val top = nav.currentBackStackEntry
+                            val same = top?.destination?.route == "reader/{bookId}/{position}" &&
+                                top.arguments?.getString("bookId") == id &&
+                                top.arguments?.getInt("position") == pos
+                            if (!same) {
+                                nav.navigate("reader/$id/$pos") {
+                                    launchSingleTop = true
+                                    popUpTo("detail/$id") { inclusive = false }
+                                }
                             }
                         },
                     )
