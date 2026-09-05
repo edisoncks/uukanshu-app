@@ -31,6 +31,7 @@ import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.data.repo.BookRepo
 import cc.uukanshu.repo
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -64,6 +65,7 @@ class LibraryViewModel(
             _ui.value = try {
                 _ui.value.copy(loading = false, books = repo.library())
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 _ui.value.copy(loading = false, books = emptyList())
             }
         }

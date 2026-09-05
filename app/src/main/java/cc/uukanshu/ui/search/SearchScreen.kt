@@ -32,6 +32,7 @@ import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.repo
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -85,6 +86,7 @@ class SearchViewModel(
                 val res = repo.search(q.trim())
                 _ui.value = _ui.value.copy(books = dedupBooks(res.books), total = res.total, loading = false, searched = true)
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 _ui.value = _ui.value.copy(
                     loading = false,
                     error = "${e.javaClass.simpleName}: ${e.message}", searched = true,

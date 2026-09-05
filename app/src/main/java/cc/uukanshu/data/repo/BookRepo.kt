@@ -141,7 +141,7 @@ class BookRepo(
                 db.chapters().deleteBook(bookId)
                 db.chapters().upsertAll(mergeToc(bookId, chapters, cached))
             }
-        }
+        }.onFailure { if (it is CancellationException) throw it }
         Detail(meta, chapters)
     }
 

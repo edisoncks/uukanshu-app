@@ -112,7 +112,13 @@ class ReaderViewModel(
                     // Stale-while-revalidate for TOC: paint cached TOC instantly
                     // so cached chapters render without waiting for network,
                     // then refresh silently in the background.
-                    val cachedToc = runCatching { repo.cachedDetail(bookId) }.getOrNull()
+                    val cachedToc = try {
+                        repo.cachedDetail(bookId)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        null
+                    }
                     if (cachedToc != null) {
                         chapters = cachedToc.chapters
                         if (cachedToc.meta.title.isNotEmpty()) bookTitleRaw = cachedToc.meta.title
@@ -183,8 +189,14 @@ class ReaderViewModel(
                     book = book, title = title, text = text,
                     total = total, loading = false,
                 )
-                // Silent auto-bookmark: never break reading on save failure.
-                runCatching { repo.saveProgress(bookId, position) }
+                // Silent auto-bookmark: never break reading on save failure
+                // (cancellation still propagates).
+                try {
+                    repo.saveProgress(bookId, position)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                }
                 prefetchNext5(position)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e

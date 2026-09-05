@@ -32,6 +32,7 @@ import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.repo
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -92,7 +93,13 @@ class DetailViewModel(
         // on any refresh would silently abort user-requested work.
         viewModelScope.launch {
             // Stale-while-revalidate: paint cache instantly, refresh silently.
-            val cached = runCatching { repo.cachedDetail(bookId) }.getOrNull()
+            val cached = try {
+                repo.cachedDetail(bookId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
             if (cached != null) {
                 _ui.value = _ui.value.copy(
                     loading = false, error = null,

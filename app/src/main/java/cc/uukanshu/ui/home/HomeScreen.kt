@@ -40,6 +40,7 @@ import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.repo
 import cc.uukanshu.ui.ThemeIconButton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -128,6 +129,7 @@ class HomeViewModel(
                     )
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 _ui.update { cur ->
                     if (cur.tab != s.tab || cur.categoryId != s.categoryId) cur
                     else cur.copy(loading = false, error = "${e.javaClass.simpleName}: ${e.message}")
@@ -166,6 +168,7 @@ class HomeViewModel(
                     }
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 _ui.update { cur ->
                     if (cur.tab != s.tab || cur.categoryId != s.categoryId ||
                         cur.page != s.page || cur.loading
