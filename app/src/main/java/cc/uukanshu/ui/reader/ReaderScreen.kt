@@ -57,6 +57,20 @@ class ReaderViewModel(
     private val bookId: String,
     startPosition: Int,
 ) : ViewModel() {
+    companion object {
+        /**
+         * Guard against TOC-shift aliasing: only save fetched text when the
+         * live TOC still maps [position] to [expectedPageId]. A background
+         * revalidate may have swapped the list mid-fetch; writing by bare
+         * position would then file text under the wrong chapter.
+         */
+        fun shouldSaveChapter(
+            current: List<Parser.ChapterRef>,
+            position: Int,
+            expectedPageId: Long,
+        ): Boolean = current.getOrNull(position - 1)?.pageId == expectedPageId
+    }
+
     data class Ui(
         val position: Int = 1,
         val total: Int = 0,
@@ -179,9 +193,13 @@ class ReaderViewModel(
                     val withBook = if (fetched.book.isEmpty() && bookTitleRaw.isNotEmpty()) {
                         fetched.copy(book = bookTitleRaw)
                     } else fetched
-                    withBook.also {
-                        repo.saveChapterContent(bookId, position, it.text)
-                    }
+                    // Skip the write when a background revalidate shifted the TOC
+                    // mid-fetch (position now names a different pageId).
+                    if (shouldSaveChapter(chapters, position, ref.pageId)) {
+                        withBook.also {
+                            repo.saveChapterContent(bookId, position, it.text)
+                        }
+                    } else withBook
                 }
                 currentRaw = raw
                 val (book, title, text) = render(raw, _ui.value.simplified)
@@ -220,7 +238,11 @@ class ReaderViewModel(
                 if (fetchedAny) repo.crawlDelay()
                 try {
                     val ref = snapshot[pos - 1]
-                    repo.saveChapterContent(bookId, pos, repo.chapter(ref.url).text)
+                    val text = repo.chapter(ref.url).text
+                    // Live TOC moved under us: skip instead of filing text
+                    // under the wrong chapter (self-heals on next open).
+                    if (!shouldSaveChapter(chapters, pos, ref.pageId)) continue
+                    repo.saveChapterContent(bookId, pos, text)
                     fetchedAny = true
                 } catch (e: CancellationException) {
                     throw e
@@ -367,10 +389,7 @@ fun ReaderScreen(bookId: String, position: Int) {
                         }
                     }
                     Button(
-                        onClick = {
-                            if (ui.position <= 1) scope.launch { snacks.showSnackbar("已是第一章 / start of book") }
-                            else vm.load(ui.position - 1)
-                        },
+                        onClick = { vm.load(ui.position - 1) },
                         enabled = !ui.loading && ui.position > 1,
                         modifier = Modifier.weight(1f),
                     ) {
