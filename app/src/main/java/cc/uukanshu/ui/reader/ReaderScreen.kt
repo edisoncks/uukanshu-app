@@ -49,6 +49,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class ReaderViewModel(
@@ -59,20 +60,87 @@ class ReaderViewModel(
     startPosition: Int,
 ) : ViewModel() {
 
-    data class Ui(
-        val position: Int = 1,
-        val total: Int = 0,
-        val book: String = "",
-        val title: String = "",
-        val text: String = "",
-        val loading: Boolean = true,
-        val error: String? = null,
-        val simplified: Boolean = false,
-        val fontScale: Float = 1f,
-        val theme: String = Prefs.SYSTEM,
-    )
+    /**
+     * Sealed states: a chapter is either loading, shown, or failed — never
+     * loading+failed, never content+spinner. Every `when` over Ui is
+     * compiler-checked as exhaustive. Position/total/display prefs ride on
+     * the interface so the sticky bottom bar reads them uniformly in any
+     * state.
+     */
+    sealed interface Ui {
+        val position: Int
+        val total: Int
+        val simplified: Boolean
+        val fontScale: Float
+        val theme: String
+        val isLoading: Boolean
 
-    private val _ui = MutableStateFlow(Ui())
+        data class Loading(
+            override val position: Int,
+            override val total: Int = 0,
+            override val simplified: Boolean = false,
+            override val fontScale: Float = 1f,
+            override val theme: String = Prefs.SYSTEM,
+        ) : Ui {
+            override val isLoading: Boolean = true
+        }
+
+        data class Content(
+            override val position: Int,
+            override val total: Int,
+            val book: String,
+            val title: String,
+            val text: String,
+            override val simplified: Boolean,
+            override val fontScale: Float,
+            override val theme: String,
+        ) : Ui {
+            override val isLoading: Boolean = false
+        }
+
+        data class Error(
+            override val position: Int,
+            override val total: Int = 0,
+            val message: String,
+            override val simplified: Boolean = false,
+            override val fontScale: Float = 1f,
+            override val theme: String = Prefs.SYSTEM,
+        ) : Ui {
+            override val isLoading: Boolean = false
+        }
+    }
+
+    private fun Ui.withPrefs(simplified: Boolean, fontScale: Float, theme: String): Ui = when (this) {
+        is Ui.Loading -> copy(simplified = simplified, fontScale = fontScale, theme = theme)
+        is Ui.Content -> copy(simplified = simplified, fontScale = fontScale, theme = theme)
+        is Ui.Error -> copy(simplified = simplified, fontScale = fontScale, theme = theme)
+    }
+
+    private fun Ui.withTotal(total: Int): Ui = when (this) {
+        is Ui.Loading -> copy(total = total)
+        is Ui.Content -> copy(total = total)
+        is Ui.Error -> copy(total = total)
+    }
+
+    private fun Ui.withSimplified(v: Boolean): Ui = when (this) {
+        is Ui.Loading -> copy(simplified = v)
+        is Ui.Content -> copy(simplified = v)
+        is Ui.Error -> copy(simplified = v)
+    }
+
+    private fun Ui.withFontScale(v: Float): Ui = when (this) {
+        is Ui.Loading -> copy(fontScale = v)
+        is Ui.Content -> copy(fontScale = v)
+        is Ui.Error -> copy(fontScale = v)
+    }
+
+    private fun Ui.withTheme(v: String): Ui = when (this) {
+        is Ui.Loading -> copy(theme = v)
+        is Ui.Content -> copy(theme = v)
+        is Ui.Error -> copy(theme = v)
+    }
+
+    private val _ui = MutableStateFlow<Ui>(Ui.Loading(position = startPosition))
     val ui: StateFlow<Ui> = _ui
     private var chapters: List<Parser.ChapterRef> = emptyList()
     private var bookTitleRaw: String = ""
@@ -90,11 +158,13 @@ class ReaderViewModel(
 
     init {
         viewModelScope.launch {
-            _ui.value = _ui.value.copy(
-                simplified = prefs.simplified.first(),
-                fontScale = prefs.fontScale.first(),
-                theme = prefs.theme.first(),
-            )
+            _ui.update {
+                it.withPrefs(
+                    simplified = prefs.simplified.first(),
+                    fontScale = prefs.fontScale.first(),
+                    theme = prefs.theme.first(),
+                )
+            }
             load(startPosition)
         }
     }
@@ -108,7 +178,14 @@ class ReaderViewModel(
         prefetchJob?.cancel()
         revalidateJob?.cancel()
         loadJob = viewModelScope.launch {
-            _ui.value = _ui.value.copy(loading = true, error = null, position = position)
+            val cur = _ui.value
+            _ui.value = Ui.Loading(
+                position = position,
+                total = cur.total,
+                simplified = cur.simplified,
+                fontScale = cur.fontScale,
+                theme = cur.theme,
+            )
             try {
                 if (chapters.isEmpty()) {
                     // Stale-while-revalidate for TOC: paint cached TOC instantly
@@ -134,7 +211,7 @@ class ReaderViewModel(
                             val fresh = repo.detail(bookId)
                             chapters = fresh.chapters
                             if (fresh.meta.title.isNotEmpty()) bookTitleRaw = fresh.meta.title
-                            _ui.value = _ui.value.copy(total = chapters.size)
+                            _ui.update { it.withTotal(chapters.size) }
                         } catch (e: Exception) {
                             if (e is kotlinx.coroutines.CancellationException) throw e
                             // Offline with cache: keep stale TOC if we have it.
@@ -152,14 +229,22 @@ class ReaderViewModel(
                                 if (fresh.chapters.isEmpty()) return@onSuccess
                                 chapters = fresh.chapters
                                 if (fresh.meta.title.isNotEmpty()) bookTitleRaw = fresh.meta.title
-                                _ui.value = _ui.value.copy(total = chapters.size)
+                                _ui.update { it.withTotal(chapters.size) }
                             }
                         }
                     }
                 }
                 val total = chapters.size
                 if (position < 1 || position > total) {
-                    _ui.value = _ui.value.copy(loading = false, total = total, error = "out of range")
+                    val cur = _ui.value
+                    _ui.value = Ui.Error(
+                        position = position,
+                        total = total,
+                        message = "out of range",
+                        simplified = cur.simplified,
+                        fontScale = cur.fontScale,
+                        theme = cur.theme,
+                    )
                     return@launch
                 }
                 val ref = chapters[position - 1]
@@ -169,7 +254,7 @@ class ReaderViewModel(
                     // Reconstruct nav from TOC positions (shape-validated chapter URLs only).
                     // Book comes from TOC meta via [ReaderTitle]: never ref.title.
                     Parser.ChapterContent(
-                        book = ReaderTitle.resolve(bookTitleRaw, "", _ui.value.book),
+                        book = ReaderTitle.resolve(bookTitleRaw, "", (_ui.value as? Ui.Content)?.book.orEmpty()),
                         title = ref.title, text = cached,
                         prevUrl = chapters.getOrNull(position - 2)?.url,
                         tocUrl = null,
@@ -192,10 +277,15 @@ class ReaderViewModel(
                     }
                 }
                 currentRaw = raw
-                val (book, title, text) = render(raw, _ui.value.simplified)
-                _ui.value = _ui.value.copy(
+                val cur = _ui.value
+                val (book, title, text) = render(raw, cur.simplified)
+                _ui.value = Ui.Content(
+                    position = position,
+                    total = total,
                     book = book, title = title, text = text,
-                    total = total, loading = false,
+                    simplified = cur.simplified,
+                    fontScale = cur.fontScale,
+                    theme = cur.theme,
                 )
                 // Silent auto-bookmark: never break reading on save failure
                 // (cancellation still propagates).
@@ -208,9 +298,14 @@ class ReaderViewModel(
                 prefetchNext5(position)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                _ui.value = _ui.value.copy(
-                    loading = false,
-                    error = Errors.message(e),
+                val cur = _ui.value
+                _ui.value = Ui.Error(
+                    position = cur.position,
+                    total = cur.total,
+                    message = Errors.message(e),
+                    simplified = cur.simplified,
+                    fontScale = cur.fontScale,
+                    theme = cur.theme,
                 )
             }
         }
@@ -247,12 +342,13 @@ class ReaderViewModel(
         // two rapid taps must toggle twice, never read the same stale value.
         val next = !_ui.value.simplified
         val raw = currentRaw
-        if (raw != null) {
-            // Re-render current chapter without refetch or reload.
+        // Re-render current chapter without refetch or reload.
+        val cur = _ui.value
+        _ui.value = if (raw != null && cur is Ui.Content) {
             val (book, title, text) = render(raw, next)
-            _ui.value = _ui.value.copy(simplified = next, book = book, title = title, text = text)
+            cur.copy(simplified = next, book = book, title = title, text = text)
         } else {
-            _ui.value = _ui.value.copy(simplified = next)
+            cur.withSimplified(next)
         }
         viewModelScope.launch {
             prefs.setSimplified(next)
@@ -265,7 +361,7 @@ class ReaderViewModel(
         // suspends, so reading inside the coroutine would let two rapid
         // taps both read the old scale and lose one step.
         val next = (_ui.value.fontScale + delta).coerceIn(0.8f, 1.6f)
-        _ui.value = _ui.value.copy(fontScale = next)
+        _ui.update { it.withFontScale(next) }
         viewModelScope.launch { prefs.setFontScale(next) }
     }
 
@@ -282,7 +378,7 @@ class ReaderViewModel(
     /** Cycle system → light → dark theme. Applied app-wide via prefs. */
     fun cycleTheme() {
         val next = Prefs.next(_ui.value.theme)
-        _ui.value = _ui.value.copy(theme = next)
+        _ui.update { it.withTheme(next) }
         viewModelScope.launch { prefs.setTheme(next) }
     }
 }
@@ -309,30 +405,30 @@ fun ReaderScreen(bookId: String, position: Int) {
         // Reading content flexes; single sticky bottom bar (Option C:
         // [⋯ | prev | next]) stays pinned so no duplicate nav row is needed.
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            when {
-                ui.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            when (val s = ui) {
+                is ReaderViewModel.Ui.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
-                ui.error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                is ReaderViewModel.Ui.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(ui.error!!)
-                        Button({ vm.load(ui.position) }, Modifier.padding(top = 12.dp)) { Text(vm.display("重試")) }
+                        Text(s.message)
+                        Button({ vm.load(s.position) }, Modifier.padding(top = 12.dp)) { Text(vm.display("重試")) }
                     }
                 }
-                else -> {
+                is ReaderViewModel.Ui.Content -> {
                     val scroll = rememberScrollState()
                     // Paging chapters reuses this composition: jump to top.
-                    LaunchedEffect(ui.position) { runCatching { scroll.scrollTo(0) } }
+                    LaunchedEffect(s.position) { runCatching { scroll.scrollTo(0) } }
                     Column(
                         Modifier.fillMaxSize().verticalScroll(scroll).padding(16.dp),
                     ) {
-                        if (ui.book.isNotEmpty()) Text(ui.book, style = MaterialTheme.typography.titleSmall)
+                        if (s.book.isNotEmpty()) Text(s.book, style = MaterialTheme.typography.titleSmall)
                         Text(
-                            "${ui.position}/${ui.total} ${ui.title}",
+                            "${s.position}/${s.total} ${s.title}",
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.padding(bottom = 12.dp),
                         )
-                        Text(ui.text, fontSize = (17 * ui.fontScale).sp, lineHeight = (28 * ui.fontScale).sp)
+                        Text(s.text, fontSize = (17 * s.fontScale).sp, lineHeight = (28 * s.fontScale).sp)
                     }
                 }
             }
@@ -379,7 +475,7 @@ fun ReaderScreen(bookId: String, position: Int) {
                     }
                     Button(
                         onClick = { vm.load(ui.position - 1) },
-                        enabled = !ui.loading && ui.position > 1,
+                        enabled = !ui.isLoading && ui.position > 1,
                         modifier = Modifier.weight(1f),
                     ) {
                         Text(vm.display("上一章"))
@@ -390,7 +486,7 @@ fun ReaderScreen(bookId: String, position: Int) {
                                 scope.launch { snacks.showSnackbar("已是最新一章 / end of book") }
                             } else vm.load(ui.position + 1)
                         },
-                        enabled = !ui.loading,
+                        enabled = !ui.isLoading,
                         modifier = Modifier.weight(1f),
                     ) {
                         Text(vm.display("下一章"))
