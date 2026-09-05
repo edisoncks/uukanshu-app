@@ -307,8 +307,11 @@ class ReaderViewModel(
 fun ReaderScreen(bookId: String, position: Int) {
     val ctx = LocalContext.current
     val app = ctx.applicationContext as cc.uukanshu.App
+    // Keyed on bookId only: paging reuses this VM via load(), and the nav
+    // graph holds at most one reader per book, so position is just the
+    // initial load argument, not an identity.
     val vm: ReaderViewModel = viewModel(
-        key = "$bookId-$position",
+        key = "reader-$bookId",
         factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
