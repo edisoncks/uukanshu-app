@@ -58,19 +58,6 @@ class ReaderViewModel(
     private val bookId: String,
     startPosition: Int,
 ) : ViewModel() {
-    companion object {
-        /**
-         * Guard against TOC-shift aliasing: only save fetched text when the
-         * live TOC still maps [position] to [expectedPageId]. A background
-         * revalidate may have swapped the list mid-fetch; writing by bare
-         * position would then file text under the wrong chapter.
-         */
-        fun shouldSaveChapter(
-            current: List<Parser.ChapterRef>,
-            position: Int,
-            expectedPageId: Long,
-        ): Boolean = current.getOrNull(position - 1)?.pageId == expectedPageId
-    }
 
     data class Ui(
         val position: Int = 1,
@@ -176,8 +163,8 @@ class ReaderViewModel(
                     return@launch
                 }
                 val ref = chapters[position - 1]
-                // Room cache first, else network (then save raw).
-                val cached = repo.cachedChapterContent(bookId, position)
+                // Room cache first (by stable pageId), else network (then save raw).
+                val cached = repo.cachedChapterContent(bookId, ref.pageId)
                 val raw = if (cached != null) {
                     // Reconstruct nav from TOC positions (shape-validated chapter URLs only).
                     // Book comes from TOC meta via [ReaderTitle]: never ref.title.
@@ -198,13 +185,11 @@ class ReaderViewModel(
                     val withBook = if (fetched.book.isEmpty() && bookTitleRaw.isNotEmpty()) {
                         fetched.copy(book = bookTitleRaw)
                     } else fetched
-                    // Skip the write when a background revalidate shifted the TOC
-                    // mid-fetch (position now names a different pageId).
-                    if (shouldSaveChapter(chapters, position, ref.pageId)) {
-                        withBook.also {
-                            repo.saveChapterContent(bookId, position, it.text)
-                        }
-                    } else withBook
+                    // PageId-keyed write: correct even if a background
+                    // revalidate shifted positions mid-fetch.
+                    withBook.also {
+                        repo.saveChapterContent(bookId, ref.pageId, it.text)
+                    }
                 }
                 currentRaw = raw
                 val (book, title, text) = render(raw, _ui.value.simplified)
@@ -239,15 +224,13 @@ class ReaderViewModel(
         prefetchJob = viewModelScope.launch {
             var fetchedAny = false
             for (pos in (from + 1)..minOf(from + 5, snapshot.size)) {
-                if (repo.cachedChapterContent(bookId, pos) != null) continue
+                val ref = snapshot[pos - 1]
+                if (repo.cachedChapterContent(bookId, ref.pageId) != null) continue
                 if (fetchedAny) repo.crawlDelay()
                 try {
-                    val ref = snapshot[pos - 1]
                     val text = repo.chapter(ref.url).text
-                    // Live TOC moved under us: skip instead of filing text
-                    // under the wrong chapter (self-heals on next open).
-                    if (!shouldSaveChapter(chapters, pos, ref.pageId)) continue
-                    repo.saveChapterContent(bookId, pos, text)
+                    // PageId-keyed write: safe even if the live TOC moved.
+                    repo.saveChapterContent(bookId, ref.pageId, text)
                     fetchedAny = true
                 } catch (e: CancellationException) {
                     throw e

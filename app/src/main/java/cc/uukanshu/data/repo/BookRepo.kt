@@ -190,16 +190,18 @@ class BookRepo(
             }
         }
 
-    suspend fun cachedChapterContent(bookId: String, position: Int): String? =
-        db.chapters().chapterContent(bookId, position)?.takeIf { it.isNotEmpty() }
+    /** Cached text by stable pageId — immune to TOC-shift aliasing. */
+    suspend fun cachedChapterContent(bookId: String, pageId: Long): String? =
+        db.chapters().chapterContent(bookId, pageId)?.takeIf { it.isNotEmpty() }
 
     /** Positions with downloaded content — live stream driving chapter-list badges. */
     fun cachedPositionsFlow(bookId: String): Flow<Set<Int>> =
         db.chapters().cachedPositionsFlow(bookId).map { it.toSet() }
 
-    suspend fun saveChapterContent(bookId: String, position: Int, content: String) {
+    /** Content write by stable pageId — a shifted TOC can never misfile text. */
+    suspend fun saveChapterContent(bookId: String, pageId: Long, content: String) {
         dbWrite.withLock {
-            db.chapters().updateContent(bookId, position, content)
+            db.chapters().updateContent(bookId, pageId, content)
         }
     }
 
@@ -290,12 +292,12 @@ class BookRepo(
                     throw java.io.IOException("book was deleted during download")
                 }
                 val has = withContext(Dispatchers.IO) {
-                    cachedChapterContent(bookId, ref.position) != null
+                    cachedChapterContent(bookId, ref.pageId) != null
                 }
                 if (!has) {
                     if (fetchedAny) crawlDelay()
                     val text = withContext(Dispatchers.IO) { chapter(ref.url).text }
-                    saveChapterContent(bookId, ref.position, text)
+                    saveChapterContent(bookId, ref.pageId, text)
                     fetchedAny = true
                 }
                 onProgress(idx + 1, chapters.size)

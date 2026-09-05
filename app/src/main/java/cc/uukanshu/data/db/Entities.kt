@@ -2,6 +2,7 @@ package cc.uukanshu.data.db
 
 import androidx.room.Dao
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
@@ -19,7 +20,17 @@ data class BookEntity(
     val updatedAt: Long = 0L,
 )
 
-@Entity(tableName = "chapters", primaryKeys = ["bookId", "position"])
+/**
+ * Chapters are keyed by stable `pageId` (never by `position`, which shifts
+ * when the site inserts chapters). `position` is display order only.
+ * Writes/reads by pageId stay correct across TOC revalidations; the
+ * old `(bookId, position)` key silently misfiled text after shifts.
+ */
+@Entity(
+    tableName = "chapters",
+    primaryKeys = ["bookId", "pageId"],
+    indices = [Index(value = ["bookId", "position"])],
+)
 data class ChapterEntity(
     val bookId: String,
     val position: Int,
@@ -86,18 +97,25 @@ interface ChapterDao {
     @Query("DELETE FROM chapters")
     suspend fun clearAll()
 
-    /** Single-row content read: no full-table scan to render one chapter. */
-    @Query("SELECT content FROM chapters WHERE bookId = :bookId AND position = :position")
-    suspend fun chapterContent(bookId: String, position: Int): String?
+    /**
+     * Single-row content read by stable pageId: no full-table scan to
+     * render one chapter, and immune to TOC-shift aliasing (position may
+     * already name a different chapter after a background revalidate).
+     */
+    @Query("SELECT content FROM chapters WHERE bookId = :bookId AND pageId = :pageId")
+    suspend fun chapterContent(bookId: String, pageId: Long): String?
 
     /**
-     * Atomic single-row content write. Never read-modify-write the whole
-     * table here: a background TOC revalidate does a wholesale upsert, and
-     * copying a stale row back over it loses fresh titles or content.
-     * No-op when the TOC row is missing.
+     * Atomic single-row content write by stable pageId. Never
+     * read-modify-write the whole table here: a background TOC revalidate
+     * does a wholesale upsert, and copying a stale row back over it loses
+     * fresh titles or content. No-op when the TOC row is missing.
+     * Keyed by pageId so a shifted TOC can never misfile text under the
+     * wrong chapter (the old position-keyed write needed a caller-side
+     * guard for the same hazard).
      */
-    @Query("UPDATE chapters SET content = :content WHERE bookId = :bookId AND position = :position")
-    suspend fun updateContent(bookId: String, position: Int, content: String)
+    @Query("UPDATE chapters SET content = :content WHERE bookId = :bookId AND pageId = :pageId")
+    suspend fun updateContent(bookId: String, pageId: Long, content: String)
 
     @Query("SELECT COUNT(*) FROM chapters WHERE bookId = :bookId AND content != ''")
     suspend fun cachedCount(bookId: String): Int

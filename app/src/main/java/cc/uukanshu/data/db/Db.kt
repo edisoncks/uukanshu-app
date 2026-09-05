@@ -30,9 +30,40 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
     }
 }
 
+/**
+ * v2 -> v3: rekey `chapters` from `(bookId, position)` to stable
+ * `(bookId, pageId)`. `position` becomes a plain order column (indexed).
+ * Content-preserving dedup: rows are copied non-empty-first with
+ * `INSERT OR REPLACE`, so a duplicate pageId keeps its download instead
+ * of being wiped by an empty skeleton row. Next `detail()` refresh
+ * repairs positions from the live TOC.
+ */
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE chapters_new (`bookId` TEXT NOT NULL, " +
+                "`position` INTEGER NOT NULL, `pageId` INTEGER NOT NULL, " +
+                "`title` TEXT NOT NULL, `url` TEXT NOT NULL, " +
+                "`content` TEXT NOT NULL, PRIMARY KEY(`bookId`, `pageId`))",
+        )
+        db.execSQL(
+            "INSERT OR REPLACE INTO chapters_new " +
+                "(bookId, position, pageId, title, url, content) " +
+                "SELECT bookId, position, pageId, title, url, content FROM chapters " +
+                "ORDER BY (content = '')",
+        )
+        db.execSQL("DROP TABLE chapters")
+        db.execSQL("ALTER TABLE chapters_new RENAME TO chapters")
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_chapters_bookId_position` " +
+                "ON `chapters` (`bookId`, `position`)",
+        )
+    }
+}
+
 @Database(
     entities = [BookEntity::class, ChapterEntity::class, ProgressEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class AppDb : RoomDatabase() {
@@ -48,7 +79,7 @@ abstract class AppDb : RoomDatabase() {
                 context.applicationContext,
                 AppDb::class.java,
                 "uukanshu.db",
-            ).addMigrations(MIGRATION_1_2).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
         }
     }
 }
