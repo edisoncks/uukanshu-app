@@ -159,8 +159,9 @@ class LibraryViewModel(
 
 private fun formatBytes(b: Long): String = when {
     b < 1024 -> "$b B"
-    b < 1024 * 1024 -> String.format("%.1f KB", b / 1024.0)
-    else -> String.format("%.1f MB", b / 1024.0 / 1024.0)
+    // Fixed locale: some locales render %.1f with a decimal comma.
+    b < 1024 * 1024 -> String.format(java.util.Locale.US, "%.1f KB", b / 1024.0)
+    else -> String.format(java.util.Locale.US, "%.1f MB", b / 1024.0 / 1024.0)
 }
 
 @Composable
