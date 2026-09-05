@@ -50,16 +50,41 @@ class SearchViewModel(
     private val prefs: Prefs,
     private val t2s: T2S,
 ) : ViewModel() {
-    data class Ui(
-        val books: List<Parser.BookItem> = emptyList(),
-        val total: Int? = null,
-        val loading: Boolean = false,
-        val error: String? = null,
-        val searched: Boolean = false,
-        val simplified: Boolean = false,
-    )
+    /**
+     * Sealed states: impossible combinations (loading + error, error +
+     * books, spinner-stuck defaults) are unrepresentable. Every `when`
+     * over Ui is compiler-checked as exhaustive — adding a state breaks
+     * the build until the UI handles it.
+     */
+    sealed interface Ui {
+        val simplified: Boolean
+        val totalOrNull: Int?
+        data class Idle(override val simplified: Boolean = false) : Ui {
+            override val totalOrNull: Int? = null
+        }
+        data class Loading(override val simplified: Boolean, override val totalOrNull: Int? = null) : Ui
+        data class Success(
+            val books: List<Parser.BookItem>,
+            val total: Int?,
+            override val simplified: Boolean,
+        ) : Ui {
+            override val totalOrNull: Int? = total
+        }
+        data class Error(
+            val message: String,
+            override val totalOrNull: Int? = null,
+            override val simplified: Boolean,
+        ) : Ui
+    }
 
-    private val _ui = MutableStateFlow(Ui())
+    private fun Ui.withSimplified(v: Boolean): Ui = when (this) {
+        is Ui.Idle -> copy(simplified = v)
+        is Ui.Loading -> copy(simplified = v)
+        is Ui.Success -> copy(simplified = v)
+        is Ui.Error -> copy(simplified = v)
+    }
+
+    private val _ui = MutableStateFlow<Ui>(Ui.Idle())
     val ui: StateFlow<Ui> = _ui
     // Raw keystrokes; the pipeline below debounces + cancels superseded
     // searches, so no manual Job/activeQuery guard can be forgotten.
@@ -67,27 +92,23 @@ class SearchViewModel(
 
     init {
         viewModelScope.launch {
-            _ui.value = _ui.value.copy(simplified = prefs.simplified.first())
+            _ui.update { it.withSimplified(prefs.simplified.first()) }
         }
         // Settings owns the toggle now: follow it live so results
         // re-render when the user flips Simplified/Traditional there.
         viewModelScope.launch {
-            prefs.simplified.collect { v -> _ui.update { it.copy(simplified = v) } }
+            prefs.simplified.collect { v -> _ui.update { it.withSimplified(v) } }
         }
         viewModelScope.launch {
             @OptIn(FlowPreview::class)
             queries.debounce(400).flatMapLatest { raw ->
                 val q = raw.trim()
                 if (q.isEmpty()) {
-                    flowOf(
-                        _ui.value.copy(
-                            books = emptyList(), total = null,
-                            loading = false, error = null, searched = false,
-                        ),
-                    )
+                    flowOf<Ui>(Ui.Idle(simplified = _ui.value.simplified))
                 } else {
-                    flow {
-                        emit(_ui.value.copy(loading = true, searched = true, error = null))
+                    flow<Ui> {
+                        val s = _ui.value
+                        emit(Ui.Loading(simplified = s.simplified, totalOrNull = s.totalOrNull))
                         try {
                             val res = repo.search(q)
                             // No stale-check needed: flatMapLatest cancels the
@@ -96,17 +117,18 @@ class SearchViewModel(
                             // cancellation only bites at suspend points and
                             // nothing suspended past this point).
                             emit(
-                                _ui.value.copy(
+                                Ui.Success(
                                     books = dedupBooks(res.books), total = res.total,
-                                    loading = false, error = null, searched = true,
+                                    simplified = _ui.value.simplified,
                                 ),
                             )
                         } catch (e: Exception) {
                             if (e is CancellationException) throw e
                             emit(
-                                _ui.value.copy(
-                                    loading = false,
-                                    error = Errors.message(e), searched = true,
+                                Ui.Error(
+                                    message = Errors.message(e),
+                                    totalOrNull = _ui.value.totalOrNull,
+                                    simplified = _ui.value.simplified,
                                 ),
                             )
                         }
@@ -130,10 +152,7 @@ class SearchViewModel(
         if (q.isBlank()) {
             // Clear instantly for snappy UX; the debounced pipeline re-emits
             // the same empty state idempotently.
-            _ui.value = _ui.value.copy(
-                books = emptyList(), total = null,
-                loading = false, error = null, searched = false,
-            )
+            _ui.value = Ui.Idle(simplified = _ui.value.simplified)
         }
     }
 }
@@ -156,28 +175,29 @@ fun SearchScreen(onBook: (String) -> Unit) {
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
-        if (ui.total != null) {
+        ui.totalOrNull?.let { total ->
             Text(
-                "${vm.display("共")} ${ui.total} ${vm.display("條結果")}",
+                "${vm.display("共")} $total ${vm.display("條結果")}",
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 8.dp),
             )
         }
-        when {
-            ui.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        when (val s = ui) {
+            is SearchViewModel.Ui.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
-            ui.error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            is SearchViewModel.Ui.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(ui.error!!)
+                    Text(s.message)
                     Button({ vm.query(text) }, Modifier.padding(top = 12.dp)) { Text(vm.display("重試")) }
                 }
             }
-            ui.searched && ui.books.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(vm.display("沒有結果"), color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            else -> LazyColumn(Modifier.fillMaxSize()) {
-                items(ui.books, key = { it.id }) { b ->
+            is SearchViewModel.Ui.Success -> if (s.books.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(vm.display("沒有結果"), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else LazyColumn(Modifier.fillMaxSize()) {
+                items(s.books, key = { it.id }) { b ->
                     Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onBook(b.id) }) {
                         Column(Modifier.padding(12.dp)) {
                             Text(vm.display(b.title), style = MaterialTheme.typography.titleMedium)
@@ -194,6 +214,8 @@ fun SearchScreen(onBook: (String) -> Unit) {
                     }
                 }
             }
+            // Never searched / cleared: blank, matching the old empty-list branch.
+            is SearchViewModel.Ui.Idle -> Box(Modifier.fillMaxSize()) {}
         }
     }
 }
