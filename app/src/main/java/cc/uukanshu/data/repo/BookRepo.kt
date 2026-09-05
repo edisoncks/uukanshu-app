@@ -6,7 +6,6 @@ import cc.uukanshu.data.db.ChapterEntity
 import cc.uukanshu.data.db.ProgressEntity
 import cc.uukanshu.data.net.SiteApi
 import cc.uukanshu.data.parse.Parser
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import androidx.room.withTransaction
@@ -43,8 +42,6 @@ class BookRepo(
         }
 
     data class Detail(val meta: Parser.BookMeta, val chapters: List<Parser.ChapterRef>)
-
-    data class DetailResult(val detail: Detail, val offline: Boolean)
 
     companion object {
         /**
@@ -116,19 +113,6 @@ class BookRepo(
             ),
             chapters = rows.map { Parser.ChapterRef(it.position, it.pageId, it.title, it.url) },
         )
-    }
-
-    /**
-     * Network-first, cached fallback: makes Detail/Reader work offline as
-     * long as the book was opened or downloaded before.
-     */
-    suspend fun detailOrCached(bookId: String): DetailResult {
-        return try {
-            DetailResult(detail(bookId), offline = false)
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            DetailResult(cachedDetail(bookId) ?: throw e, offline = true)
-        }
     }
 
     suspend fun detail(bookId: String): Detail = withContext(Dispatchers.IO) {
