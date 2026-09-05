@@ -43,6 +43,8 @@ import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.repo
 import cc.uukanshu.ui.ThemeIconButton
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -72,6 +74,14 @@ class ReaderViewModel(
     val ui: StateFlow<Ui> = _ui
     private var chapters: List<Parser.ChapterRef> = emptyList()
     private var bookTitleRaw: String = ""
+    // Serialized chapter loads: rapid prev/next taps must not overlap —
+    // last-tapped wins, never last-to-finish.
+    private var loadJob: Job? = null
+    private var prefetchJob: Job? = null
+    private var revalidateJob: Job? = null
+    // Last rendered raw chapter: language toggle re-renders from this with
+    // no network, no spinner, and no extra prefetch spawn.
+    private var currentRaw: Parser.ChapterContent? = null
     // Authoritative book name from TOC meta (raw Traditional, converted at
     // render). Cached chapters have no network payload, so they must use
     // this — never ref.title (chapter title) nor stale UI state.
@@ -92,7 +102,10 @@ class ReaderViewModel(
         else Triple(raw.book, raw.title, raw.text)
 
     fun load(position: Int) {
-        viewModelScope.launch {
+        loadJob?.cancel()
+        prefetchJob?.cancel()
+        revalidateJob?.cancel()
+        loadJob = viewModelScope.launch {
             _ui.value = _ui.value.copy(loading = true, error = null, position = position)
             try {
                 if (chapters.isEmpty()) {
@@ -123,7 +136,7 @@ class ReaderViewModel(
                         // Serving from stale TOC: revalidate silently.
                         // Never blocks reading, never wipes content (mergeToc
                         // preserves downloads by pageId).
-                        viewModelScope.launch {
+                        revalidateJob = viewModelScope.launch {
                             runCatching { repo.detail(bookId) }.onSuccess { fresh ->
                                 chapters = fresh.chapters
                                 if (fresh.meta.title.isNotEmpty()) bookTitleRaw = fresh.meta.title
@@ -164,6 +177,7 @@ class ReaderViewModel(
                         repo.saveChapterContent(bookId, position, it.text)
                     }
                 }
+                currentRaw = raw
                 val (book, title, text) = render(raw, _ui.value.simplified)
                 _ui.value = _ui.value.copy(
                     book = book, title = title, text = text,
@@ -184,16 +198,24 @@ class ReaderViewModel(
 
     /** Auto-cache the next 5 chapters, sequential with crawl delay, silent-fail. */
     private fun prefetchNext5(from: Int) {
-        viewModelScope.launch {
+        prefetchJob?.cancel()
+        // Snapshot: a background TOC revalidate may swap [chapters] mid-loop.
+        val snapshot = chapters.toList()
+        prefetchJob = viewModelScope.launch {
             var fetchedAny = false
-            for (pos in (from + 1)..minOf(from + 5, chapters.size)) {
+            for (pos in (from + 1)..minOf(from + 5, snapshot.size)) {
                 if (repo.cachedChapterContent(bookId, pos) != null) continue
                 if (fetchedAny) repo.crawlDelay()
-                runCatching {
-                    val ref = chapters[pos - 1]
+                try {
+                    val ref = snapshot[pos - 1]
                     repo.saveChapterContent(bookId, pos, repo.chapter(ref.url).text)
+                    fetchedAny = true
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // Silent: a failed prefetch must neither break reading
+                    // nor force a crawl delay on the next chapter.
                 }
-                fetchedAny = true
             }
         }
     }
@@ -202,9 +224,15 @@ class ReaderViewModel(
         viewModelScope.launch {
             val next = !_ui.value.simplified
             prefs.setSimplified(next)
-            _ui.value = _ui.value.copy(simplified = next)
-            // Re-render current chapter without refetch.
-            load(_ui.value.position)
+            val raw = currentRaw
+            if (raw != null) {
+                // Re-render current chapter without refetch or reload.
+                val (book, title, text) = render(raw, next)
+                _ui.value = _ui.value.copy(simplified = next, book = book, title = title, text = text)
+            } else {
+                _ui.value = _ui.value.copy(simplified = next)
+                load(_ui.value.position)
+            }
         }
     }
 
