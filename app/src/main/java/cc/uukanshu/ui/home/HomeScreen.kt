@@ -83,6 +83,10 @@ class HomeViewModel(
      * in the composable is the second layer for rotation / process death.
      * One entry per list (recent + each category) so lists never clobber
      * each other — the old single shared LazyListState did.
+     *
+     * Main-thread confined: plain `mutableMap` with all reads/writes from
+     * Main (composable `snapshotFlow` collectors, `selectTab`/`selectCategory`
+     * taps, `scrollFor`/`saveScroll`). Never touch from `Dispatchers.IO`.
      */
     private val scrolls = mutableMapOf<String, Pair<Int, Int>>()
 
@@ -93,6 +97,9 @@ class HomeViewModel(
      * process death (where the saveable position must win), so this
      * one-shot flag exists. detail->back never sets it, so back keeps
      * position.
+     *
+     * Main-thread confined like [scrolls]: mutated only by Main-thread
+     * `selectTab`/`selectCategory` and `consumePendingTop`.
      */
     private val pendingTop = mutableSetOf<String>()
 
@@ -169,6 +176,9 @@ class HomeViewModel(
      * never leak across lists. Retries, prefetch and refresh-load-states
      * come from Paging — the old hand-rolled loadMore/refresh/stale-drop
      * methods are gone.
+     *
+     * Main-thread confined like [scrolls]: `pagingFor` is called from the
+     * composable (`remember(key)`), never from background threads.
      */
     private val pagers = mutableMapOf<String, Flow<PagingData<Parser.BookItem>>>()
 
