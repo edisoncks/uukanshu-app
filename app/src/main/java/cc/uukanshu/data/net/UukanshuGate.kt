@@ -6,14 +6,17 @@ import kotlinx.coroutines.sync.withLock
 /**
  * Single-flight gate for uukanshu.cc HTTP.
  *
- * All [SiteApi] traffic funnels through [BookRepo], which wraps each HTTP
- * request in [withPermit]. Concurrent callers (home refresh/loadMore,
- * search, detail refresh, reader load/revalidate/prefetch, background
- * full-book downloads) suspend here so at most one request is in flight.
+ * All [SiteApi] traffic funnels through [withPermit], held per HTTP
+ * attempt inside `SiteApi.send` (never by callers — `BookRepo` must not
+ * wrap calls or nested Mutex acquisition would deadlock). Concurrent
+ * callers (home refresh/loadMore, search, detail refresh, reader
+ * load/revalidate/prefetch, background full-book downloads) suspend here
+ * so at most one request is in flight.
  *
- * Scope is one HTTP request, never a whole download loop or DB transaction:
- * bulk downloads hold the permit only per chapter fetch (network RTT +
- * retry backoff), releasing it during [cc.uukanshu.data.repo.BookRepo.crawlDelay]
+ * Scope is one HTTP attempt, never a whole download loop or DB transaction:
+ * bulk downloads hold the permit only per chapter fetch (blocking execute),
+ * releasing it during backoff delays and
+ * [cc.uukanshu.data.repo.BookRepo.crawlDelay]
  * so interactive taps interleave instead of head-of-line blocking.
  *
  * GitHub update traffic ([cc.uukanshu.data.update.UpdateApi]) is a different
