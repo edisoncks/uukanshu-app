@@ -70,10 +70,11 @@ class DetailViewModel(
         val load: Load = Load.Loading,
         val downloading: Boolean = false,
         val done: Int = 0,
+        val downloadTotal: Int = 0,
         val downloadError: String? = null,
         val simplified: Boolean = false,
         val cached: Set<Int> = emptySet(),
-        val bookmarkedPosition: Int? = null,
+        val bookmark: cc.uukanshu.data.repo.BookRepo.Bookmark? = null,
     )
 
     private val _ui = MutableStateFlow(Ui())
@@ -95,11 +96,12 @@ class DetailViewModel(
                 _ui.value = _ui.value.copy(cached = positions)
             }
         }
-        // Live bookmark: reader auto-saves on every successful open,
-        // so the continue button stays correct when navigating back.
+        // Live bookmark by stable pageId: reader auto-saves on every
+        // successful open, so the continue button stays correct across
+        // TOC shifts (position alone would misdirect after inserts).
         viewModelScope.launch {
-            repo.progressFlow(bookId).collect { pos ->
-                _ui.value = _ui.value.copy(bookmarkedPosition = pos)
+            repo.bookmarkFlow(bookId).collect { bm ->
+                _ui.value = _ui.value.copy(bookmark = bm)
             }
         }
         // App-scoped download: re-attach to an in-flight or finished job
@@ -110,6 +112,7 @@ class DetailViewModel(
                 _ui.value = _ui.value.copy(
                     downloading = st.downloading,
                     done = st.done,
+                    downloadTotal = st.total,
                     downloadError = st.error,
                 )
             }
@@ -193,7 +196,7 @@ class DetailViewModel(
     /** Manual full-novel download: app-scoped, survives leaving detail. */
     fun downloadAll() {
         if (_ui.value.downloading) return
-        _ui.value = _ui.value.copy(downloading = true, done = 0, downloadError = null)
+        _ui.value = _ui.value.copy(downloading = true, done = 0, downloadTotal = 0, downloadError = null)
         downloads.start(bookId)
     }
 
@@ -205,6 +208,23 @@ class DetailViewModel(
 
     fun displayTitle(raw: String): String =
         if (_ui.value.simplified) t2s.convert(raw) else raw
+
+    /** Continue target resolved against the live TOC (pageId first). */
+    fun continueChapter(chapters: List<Parser.ChapterRef>): Parser.ChapterRef? =
+        cc.uukanshu.data.repo.BookRepo.resolveBookmark(chapters, _ui.value.bookmark)
+
+    fun isBookmarked(c: Parser.ChapterRef): Boolean {
+        val bm = _ui.value.bookmark ?: return false
+        if (bm.pageId != 0L) return c.pageId == bm.pageId
+        return c.position == bm.position
+    }
+
+    /** Denominator for the live progress line: manager total when known. */
+    fun progressTotal(liveSize: Int): Int =
+        when {
+            _ui.value.downloadTotal > 0 -> _ui.value.downloadTotal
+            else -> liveSize
+        }
 }
 
 @Composable
@@ -253,8 +273,7 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(top = 8.dp),
                 )
-                val bookmarked = ui.bookmarkedPosition?.takeIf { it in 1..load.chapters.size }
-                    ?.let { pos -> load.chapters.firstOrNull { it.position == pos } }
+                val bookmarked = vm.continueChapter(load.chapters)
                 if (ui.downloading) {
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -273,10 +292,13 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
                             }
                         }
                         LinearProgressIndicator(
-                            progress = { ui.done.toFloat() / load.chapters.size.coerceAtLeast(1) },
+                            progress = {
+                                val total = vm.progressTotal(load.chapters.size).coerceAtLeast(1)
+                                (ui.done.toFloat() / total).coerceIn(0f, 1f)
+                            },
                             modifier = Modifier.fillMaxWidth(),
                         )
-                        Text(vm.displayTitle("下載中") + " ${ui.done}/${load.chapters.size}", style = MaterialTheme.typography.bodySmall)
+                        Text(vm.displayTitle("下載中") + " ${ui.done}/${vm.progressTotal(load.chapters.size)}", style = MaterialTheme.typography.bodySmall)
                         Button({ vm.cancelDownload() }, Modifier.fillMaxWidth()) { Text(vm.displayTitle("取消")) }
                     }
                 } else {
@@ -299,8 +321,9 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
                         // fullyCached survives process restart (manager done/total
                         // don't); the 已緩存 count line below shows the same source.
                         val fullyCached = load.chapters.isNotEmpty() && ui.cached.size >= load.chapters.size
+                        val progressTotal = vm.progressTotal(load.chapters.size)
                         Button({ vm.downloadAll() }, Modifier.fillMaxWidth()) {
-                            Text(if (fullyCached || (ui.done > 0 && ui.done >= load.chapters.size)) vm.displayTitle("重新下載整本") else vm.displayTitle("下載整本"))
+                            Text(if (fullyCached || (ui.done > 0 && progressTotal > 0 && ui.done >= progressTotal)) vm.displayTitle("重新下載整本") else vm.displayTitle("下載整本"))
                         }
                     }
                 }
@@ -313,7 +336,7 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
                 )
                 HorizontalDivider()
             }
-            items(load.chapters, key = { it.position }) { c ->
+            items(load.chapters, key = { it.pageId }) { c ->
                 Row(
                     Modifier.fillMaxWidth().clickable { onChapter(bookId, c.position) }.padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -322,10 +345,10 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
                         "${c.position}. ${vm.displayTitle(c.title)}",
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.weight(1f),
-                        color = if (c.position == ui.bookmarkedPosition) MaterialTheme.colorScheme.primary
+                        color = if (vm.isBookmarked(c)) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurface,
                     )
-                    if (c.position == ui.bookmarkedPosition) {
+                    if (vm.isBookmarked(c)) {
                         Text(
                             "▶ ${vm.displayTitle("繼續")}",
                             style = MaterialTheme.typography.bodySmall,

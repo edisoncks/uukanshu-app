@@ -281,7 +281,7 @@ fun LibraryScreen(onBook: (String) -> Unit) {
                             Text(vm.display(meta?.title ?: id), style = MaterialTheme.typography.titleMedium)
                             if (st?.downloading == true) {
                                 LinearProgressIndicator(
-                                    progress = { st.done.toFloat() / st.total.coerceAtLeast(1) },
+                                    progress = { (st.done.toFloat() / st.total.coerceAtLeast(1)).coerceIn(0f, 1f) },
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                                 Text(
@@ -324,7 +324,7 @@ fun LibraryScreen(onBook: (String) -> Unit) {
                             )
                             if (st?.downloading == true) {
                                 LinearProgressIndicator(
-                                    progress = { st.done.toFloat() / st.total.coerceAtLeast(1) },
+                                    progress = { (st.done.toFloat() / st.total.coerceAtLeast(1)).coerceIn(0f, 1f) },
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                                 Text(

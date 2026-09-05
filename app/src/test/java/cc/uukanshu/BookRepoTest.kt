@@ -91,4 +91,31 @@ class BookRepoTest {
         // First cache stamps now so a fresh download has an order key.
         assertEquals(999L, BookRepo.preserveBookUpdatedAt(null, fresh, now = 999L).updatedAt)
     }
+
+    private fun toc(vararg ids: Long): List<Parser.ChapterRef> =
+        ids.mapIndexed { i, id ->
+            Parser.ChapterRef(i + 1, id, "t-${i + 1}", "https://uukanshu.cc/book/1/$id.html")
+        }
+
+    @Test fun bookmarkPrefersPageIdAcrossShift() {
+        // TOC insert at front shifts positions: pageId still finds the chapter.
+        val shifted = toc(100L, 101L, 102L)
+        val bm = BookRepo.Bookmark(position = 1, pageId = 101L)
+        assertEquals(101L, BookRepo.resolveBookmark(shifted, bm)?.pageId)
+        assertEquals(2, BookRepo.resolveBookmark(shifted, bm)?.position)
+    }
+
+    @Test fun bookmarkFallsBackToPositionForPreV4() {
+        val chapters = toc(101L, 102L)
+        val preV4 = BookRepo.Bookmark(position = 2, pageId = 0L)
+        assertEquals(102L, BookRepo.resolveBookmark(chapters, preV4)?.pageId)
+    }
+
+    @Test fun bookmarkVanishedChapterHasNoTarget() {
+        val chapters = toc(101L, 102L)
+        // Page gone + position out of range: never a neighbor.
+        assertEquals(null, BookRepo.resolveBookmark(chapters, BookRepo.Bookmark(99, 999L)))
+        assertEquals(null, BookRepo.resolveBookmark(chapters, null))
+        assertEquals(null, BookRepo.resolveBookmark(emptyList(), BookRepo.Bookmark(1, 101L)))
+    }
 }

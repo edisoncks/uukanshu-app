@@ -193,8 +193,6 @@ class ParserTest {
     }
 
     @Test fun lastupdateCardVariant() {
-        // /top/lastupdate_N.html uses <h4 class="bookname"> (categories and
-        // search use <div>); the same parser must handle it, with intro.
         val html = """
             <div class="bookbox"><div class="p10"><span class="num">1</span>
             <div class="bookinfo"><h4 class="bookname"><a href="https://uukanshu.cc/book/26544/">獨守要塞三年，我成了長夜領主</a></h4>
@@ -208,5 +206,54 @@ class ParserTest {
         assertEquals("26544", books[0].id)
         assertEquals("獨守要塞三年，我成了長夜領主", books[0].title)
         assertEquals("黑暗入侵，全球崩潰。", books[0].intro)
+    }
+
+    @Test fun tocToleratesQueryAndFragment() {
+        val html = """
+            <dd><a href="/book/100/101.html?from=hot">001</a></dd>
+            <dd><a href="https://uukanshu.cc/book/100/102.html#toc">002</a></dd>
+        """.trimIndent()
+        val toc = Parser.parseToc(html, "100")
+        assertEquals(listOf("001", "002"), toc.map { it.title })
+        // Stored URLs stay canonical (no tracking params -> stable cache keys).
+        assertEquals("https://uukanshu.cc/book/100/101.html", toc[0].url)
+        assertEquals("https://uukanshu.cc/book/100/102.html", toc[1].url)
+    }
+
+    @Test fun chapterBodyAcceptsFixedSpellingAndExtraMuluClass() {
+        val html = """
+            <html><body>
+            <h1>T</h1>
+            <div class="readcontent">第一段。<br>第二段。<br>
+            <div class="mulu-box extra"><a href="/book/1/1.html">上一章</a></div>
+            </div></body></html>
+        """.trimIndent()
+        val c = Parser.parseChapter(html, "https://uukanshu.cc/book/1/2.html")
+        assertTrue(c.text.contains("第一段"))
+        assertTrue(!c.text.contains("mulu-box"))
+    }
+
+    @Test fun chapterNavStripsQueryBeforeValidation() {
+        val html = """
+            <a href="/book/18957/10921502.html?from=nav">上一章</a>
+            <a href="/book/18957/10921508.html#next">下一章</a>
+        """.trimIndent()
+        val c = Parser.parseChapter(
+            "<h1>T</h1><div class=\"readcotent\">正文。<br></div>$html",
+            "https://uukanshu.cc/book/18957/10921505.html",
+        )
+        assertEquals("https://uukanshu.cc/book/18957/10921502.html", c.prevUrl)
+        assertEquals("https://uukanshu.cc/book/18957/10921508.html", c.nextUrl)
+    }
+
+    @Test fun bookUrlToleratesQueryAndFragment() {
+        assertEquals(
+            "https://uukanshu.cc/book/18957/",
+            Parser.bookUrlOrNull("https://uukanshu.cc/book/18957/?from=search"),
+        )
+        assertEquals(
+            "https://uukanshu.cc/book/18957/",
+            Parser.bookUrlOrNull("https://uukanshu.cc/book/18957/#toc"),
+        )
     }
 }

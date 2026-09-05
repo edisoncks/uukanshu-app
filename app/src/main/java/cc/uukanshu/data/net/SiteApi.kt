@@ -1,11 +1,18 @@
 package cc.uukanshu.data.net
 
 import cc.uukanshu.BASE_URL
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.withContext
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.coroutineContext
 
 /**
  * Plain-HTTPS client for uukanshu.cc.
@@ -15,16 +22,18 @@ import java.util.concurrent.TimeUnit
  * Cloudflare interstitial sniff on <title>. No images are ever fetched:
  * callers only request HTML pages.
  *
- * GET and POST used to carry their own copies of the retry loop (backoff,
- * fail-fast, empty-body and final-failure messages) — any policy tweak had
- * to land twice identically. All requests now go through [send], with only
- * the per-endpoint message nouns parameterized.
+ * Concurrency: every HTTP attempt holds [UukanshuGate] only for the
+ * blocking execute itself. Retry backoff (`delay`) and HTML sniffing run
+ * outside the gate so one failing request never head-of-line blocks
+ * interactive taps for ~4.5s. Cancellation propagates immediately —
+ * `CancellationException` is never swallowed by the retry loop.
  */
 class SiteApi(
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build(),
+    private val gate: UukanshuGate = UukanshuGate(),
 ) {
     private val headers = mapOf(
         "User-Agent" to "Mozilla/5.0 (Linux; Android 12; Pixel 5) " +
@@ -38,8 +47,8 @@ class SiteApi(
     /** Marker for deterministic failures (404 and friends) that must fail fast. */
     private class NonRetryable(val failure: IOException) : IOException(failure.message)
 
-    @Throws(IOException::class)
-    fun get(url: String): String {
+    @Throws(IOException::class, CancellationException::class)
+    suspend fun get(url: String): String {
         val builder = request(url)
         headers.forEach { (k, v) -> builder.header(k, v) }
         return send(
@@ -50,8 +59,8 @@ class SiteApi(
         )
     }
 
-    @Throws(IOException::class)
-    fun search(keyword: String): String {
+    @Throws(IOException::class, CancellationException::class)
+    suspend fun search(keyword: String): String {
         val form = FormBody.Builder()
             .add("searchkey", keyword)
             .add("searchtype", "all")
@@ -70,37 +79,48 @@ class SiteApi(
         Request.Builder().url(url)
 
     /**
-     * Single retry policy for every request: 3x with backoff on 408/429/5xx
-     * + transport errors, fail fast on other 4xx, Cloudflare sniff on the
-     * body. Only the message nouns vary per endpoint.
+     * Single retry policy for every request: 3x with cancellable backoff on
+     * 408/429/5xx + transport errors, fail fast on other 4xx, Cloudflare
+     * sniff on the body. The gate is held per HTTP attempt only — backoff
+     * sleeps and body sniffing run outside so a retrying request never
+     * blocks the single-flight lane while doing no network I/O.
      */
-    @Throws(IOException::class)
-    private fun send(
+    @Throws(IOException::class, CancellationException::class)
+    private suspend fun send(
         label: String,
         emptyBodyMessage: String,
         failurePrefix: String,
         call: Request,
     ): String {
-        var last: Exception? = null
+        var last: IOException? = null
         repeat(3) { attempt ->
+            coroutineContext.ensureActive()
             try {
-                client.newCall(call).execute().use { res ->
-                    val code = res.code
-                    if (code == 408 || code == 429 || code >= 500) {
-                        throw IOException("HTTP $code for $label")
+                val body: String = gate.withPermit {
+                    withContext(Dispatchers.IO) {
+                        runInterruptible {
+                            client.newCall(call).execute().use { res ->
+                                val code = res.code
+                                if (code == 408 || code == 429 || code >= 500) {
+                                    throw IOException("HTTP $code for $label")
+                                }
+                                // Deterministic client errors never heal on retry: fail
+                                // fast instead of burning backoff delays.
+                                if (!res.isSuccessful) throw NonRetryable(IOException("HTTP $code for $label"))
+                                res.body?.string() ?: throw IOException(emptyBodyMessage)
+                            }
+                        }
                     }
-                    // Deterministic client errors never heal on retry: fail
-                    // fast instead of burning ~4.5s of backoff sleeps.
-                    if (!res.isSuccessful) throw NonRetryable(IOException("HTTP $code for $label"))
-                    val body = res.body?.string() ?: throw IOException(emptyBodyMessage)
-                    throwIfBlocked(body)
-                    return body
                 }
+                throwIfBlocked(body)
+                return body
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: NonRetryable) {
                 throw e.failure
-            } catch (e: Exception) {
+            } catch (e: IOException) {
                 last = e
-                if (attempt < 2) Thread.sleep(1500L * (attempt + 1))
+                if (attempt < 2) delay(1500L * (attempt + 1))
             }
         }
         throw IOException("$failurePrefix: $last")

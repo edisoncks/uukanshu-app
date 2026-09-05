@@ -104,4 +104,15 @@ class UpdateApiParseTest {
         assertNotNull(info)
         assertNull(info!!.size)
     }
+
+    @Test
+    fun `rejects version-mismatched apk asset`() {
+        // Tag v1.0.15 must ship exactly uukanshu-1.0.15.apk: a stale/second
+        // APK fails closed instead of offering the wrong binary.
+        assertNull(
+            UpdateApi.parse(
+                """{"tag_name":"v1.0.15","assets":[{"name":"uukanshu-1.0.14.apk","browser_download_url":"https://example.com/old.apk"}]}""",
+            ),
+        )
+    }
 }

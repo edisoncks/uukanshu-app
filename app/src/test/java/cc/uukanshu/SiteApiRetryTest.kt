@@ -2,6 +2,7 @@ package cc.uukanshu
 
 import cc.uukanshu.data.net.SiteApi
 import java.io.IOException
+import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
@@ -29,7 +30,7 @@ class SiteApiRetryTest {
         })
         .build()
 
-    @Test fun notFoundFailsFastWithoutRetry() {
+    @Test fun notFoundFailsFastWithoutRetry() = runBlocking {
         var attempts = 0
         try {
             SiteApi(clientFor(404) { attempts++ }).get("https://uukanshu.cc/book/1/")
@@ -40,7 +41,7 @@ class SiteApiRetryTest {
         assertEquals("404 must not be retried", 1, attempts)
     }
 
-    @Test fun serverErrorRetriesThreeTimes() {
+    @Test fun serverErrorRetriesThreeTimes() = runBlocking {
         var attempts = 0
         try {
             SiteApi(clientFor(500) { attempts++ }).get("https://uukanshu.cc/book/1/")
@@ -51,7 +52,7 @@ class SiteApiRetryTest {
         assertEquals(3, attempts)
     }
 
-    @Test fun searchNotFoundFailsFastWithoutRetry() {
+    @Test fun searchNotFoundFailsFastWithoutRetry() = runBlocking {
         var attempts = 0
         try {
             SiteApi(clientFor(404) { attempts++ }).search("whatever")

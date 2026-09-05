@@ -5,7 +5,6 @@ import cc.uukanshu.data.db.BookEntity
 import cc.uukanshu.data.db.ChapterEntity
 import cc.uukanshu.data.db.ProgressEntity
 import cc.uukanshu.data.net.SiteApi
-import cc.uukanshu.data.net.UukanshuGate
 import cc.uukanshu.data.parse.Parser
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -25,7 +24,6 @@ import kotlin.random.Random
 class BookRepo(
     private val site: SiteApi,
     private val db: AppDb,
-    private val gate: UukanshuGate = UukanshuGate(),
 ) {
     /**
      * Serializes the TOC wholesale replace in [detail] against single-row
@@ -36,10 +34,11 @@ class BookRepo(
      */
     private val dbWrite = Mutex()
     suspend fun category(categoryId: Int, page: Int): List<Parser.BookItem> =
-        gate.withPermit {
-            withContext(Dispatchers.IO) {
-                Parser.parseCategory(site.get("${Parser.BASE}/class_${categoryId}_${page}.html"))
-            }
+        withContext(Dispatchers.IO) {
+            // Single-flight lives inside SiteApi per HTTP attempt; parse runs
+            // outside the gate so Jsoup never blocks interactive requests.
+            val html = site.get("${Parser.BASE}/class_${categoryId}_${page}.html")
+            Parser.parseCategory(html)
         }
 
     /**
@@ -47,17 +46,15 @@ class BookRepo(
      * bookbox cards as categories (title/author/words/latest/intro).
      */
     suspend fun recent(page: Int): List<Parser.BookItem> =
-        gate.withPermit {
-            withContext(Dispatchers.IO) {
-                Parser.parseCategory(site.get("${Parser.BASE}/top/lastupdate_${page}.html"))
-            }
+        withContext(Dispatchers.IO) {
+            val html = site.get("${Parser.BASE}/top/lastupdate_${page}.html")
+            Parser.parseCategory(html)
         }
 
     suspend fun search(keyword: String): Parser.SearchResult =
-        gate.withPermit {
-            withContext(Dispatchers.IO) {
-                Parser.parseSearch(site.search(keyword))
-            }
+        withContext(Dispatchers.IO) {
+            val html = site.search(keyword)
+            Parser.parseSearch(html)
         }
 
     data class Detail(val meta: Parser.BookMeta, val chapters: List<Parser.ChapterRef>)
@@ -116,7 +113,27 @@ class BookRepo(
         /** Pure helper for [crawlDelay], testable without sleeping. */
         fun nextCrawlDelayMs(random: Random = Random): Long =
             random.nextLong(CRAWL_DELAY_MIN_MS, CRAWL_DELAY_MAX_MS + 1)
+
+        /**
+         * Resolve a stored bookmark against the live TOC: prefer stable pageId,
+         * fall back to position for pre-v4 rows (`pageId == 0`) or vanished
+         * chapters only when it still names a live chapter. Pure + unit-tested.
+         */
+        fun resolveBookmark(
+            chapters: List<Parser.ChapterRef>,
+            bookmark: Bookmark?,
+        ): Parser.ChapterRef? {
+            if (bookmark == null || chapters.isEmpty()) return null
+            if (bookmark.pageId != 0L) {
+                chapters.firstOrNull { it.pageId == bookmark.pageId }?.let { return it }
+            }
+            // Pre-v4 row or vanished chapter: position fallback only when it still
+            // names a live chapter, otherwise no continue target (never a neighbor).
+            return chapters.firstOrNull { it.position == bookmark.position }
+        }
     }
+
+    data class Bookmark(val position: Int, val pageId: Long)
 
     /**
      * Book + TOC reconstructed purely from cache. Null when the book was
@@ -144,11 +161,9 @@ class BookRepo(
 
     suspend fun detail(bookId: String): Detail {
         val url = "${Parser.BASE}/book/$bookId/"
-        // Single-flight: only the HTTP fetch holds the gate; parse + DB
-        // merge run outside so a slow transaction never blocks other screens.
-        val html = gate.withPermit {
-            withContext(Dispatchers.IO) { site.get(url) }
-        }
+        // Single-flight lives inside SiteApi per HTTP attempt; parse + DB
+        // merge run outside the gate so a slow transaction never blocks others.
+        val html = withContext(Dispatchers.IO) { site.get(url) }
         return withContext(Dispatchers.IO) {
             val meta = Parser.parseBookMeta(html, url)
             val chapters = Parser.parseToc(html, bookId)
@@ -184,10 +199,9 @@ class BookRepo(
     }
 
     suspend fun chapter(url: String): Parser.ChapterContent =
-        gate.withPermit {
-            withContext(Dispatchers.IO) {
-                Parser.parseChapter(site.get(url), url)
-            }
+        withContext(Dispatchers.IO) {
+            val html = site.get(url)
+            Parser.parseChapter(html, url)
         }
 
     /** Cached text by stable pageId — immune to TOC-shift aliasing. */
@@ -206,13 +220,24 @@ class BookRepo(
     }
 
     /**
-     * Silent auto-bookmark: overwrite on every successful chapter open.
-     * Also bumps the shelf (same clock for progress + book rows).
+     * Silent auto-bookmark by stable pageId (position is display order only
+     * and shifts when the site inserts chapters). `position` is kept as a
+     * fallback for pre-v4 rows (`pageId == 0`) and for clamping when the
+     * saved chapter vanished from the live TOC. Also bumps the shelf.
      */
-    suspend fun saveProgress(bookId: String, position: Int) = withContext(Dispatchers.IO) {
-        val now = System.currentTimeMillis()
-        db.progress().upsert(ProgressEntity(bookId, position, now))
-        runCatching { db.books().touch(bookId, now) }
+    suspend fun saveProgress(bookId: String, position: Int, pageId: Long = 0L) =
+        withContext(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            db.progress().upsert(ProgressEntity(bookId, position, pageId, now))
+            runCatching { db.books().touch(bookId, now) }
+        }
+
+    /** Live bookmark (position + stable pageId) for continue-reading. */
+    fun bookmarkFlow(bookId: String): Flow<Bookmark?> =
+        db.progress().progressFlow(bookId).map { it?.let { e -> Bookmark(e.position, e.pageId) } }
+
+    suspend fun getBookmark(bookId: String): Bookmark? = withContext(Dispatchers.IO) {
+        db.progress().progress(bookId)?.let { Bookmark(it.position, it.pageId) }
     }
 
     /** Live bookmarked position for the continue-reading button. */
@@ -272,14 +297,24 @@ class BookRepo(
     suspend fun downloadAll(bookId: String, onProgress: (Int, Int) -> Unit) {
         // Offline with a warm cache must still succeed: the loop below is a
         // local no-op when everything is already downloaded. Only throw when
-        // there is no cached TOC to work from either.
+        // there is no cached TOC to work from either. An empty fresh TOC is
+        // a block page / layout change, never a real empty book: fall back
+        // to cache, and fail loudly when neither has chapters (never report
+        // silent success with zero work).
         val chapters = try {
-            withContext(Dispatchers.IO) { detail(bookId).chapters }
+            val fresh = withContext(Dispatchers.IO) { detail(bookId).chapters }
+            if (fresh.isNotEmpty()) fresh
+            else {
+                withContext(Dispatchers.IO) { cachedDetail(bookId)?.chapters }
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: throw java.io.IOException("empty chapter list — try again later")
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             withContext(Dispatchers.IO) { cachedDetail(bookId)?.chapters } ?: throw e
         }
+        if (chapters.isEmpty()) throw java.io.IOException("empty chapter list — try again later")
         try {
             var fetchedAny = false
             chapters.forEachIndexed { idx, ref ->

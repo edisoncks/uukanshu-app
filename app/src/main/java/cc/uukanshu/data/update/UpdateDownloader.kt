@@ -121,10 +121,28 @@ class UpdateDownloader(private val context: Context) {
     }
 
     companion object {
-        /** Byte-exact completeness check shared by enqueue/alreadyHave/install. */
+        /** Byte-exact completeness check shared by enqueue/alreadyHave.
+         *
+         * Strict by design: unknown size never counts as complete, so a
+         * partial file left by a killed process can never skip re-download.
+         */
         fun isComplete(file: File, expectedSize: Long?): Boolean {
             if (!file.exists()) return false
             if (expectedSize == null) return false
+            return file.length() == expectedSize
+        }
+
+        /**
+         * Install gate: byte-exact when the release reports a size, otherwise
+         * any non-empty file that DownloadManager just reported SUCCESS for.
+         * The strict [isComplete] path stays for alreadyHave/enqueue (no DM
+         * receipt there); this lenient path only runs after a fresh Success
+         * or an explicit user tap, so a killed-process partial can never
+         * sneak through alreadyHave, but a sizeless release stays installable.
+         */
+        fun isInstallable(file: File, expectedSize: Long?): Boolean {
+            if (!file.exists() || file.length() <= 0) return false
+            if (expectedSize == null) return true
             return file.length() == expectedSize
         }
 

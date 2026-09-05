@@ -12,8 +12,10 @@ import cc.uukanshu.data.repo.BookRepo
 class App : Application() {
     val gate by lazy { UukanshuGate() }
     val db by lazy { AppDb.get(this) }
-    val site by lazy { SiteApi() }
-    val repo by lazy { BookRepo(site, db, gate) }
+    // Single-flight lives in SiteApi per HTTP attempt; BookRepo no longer
+    // wraps calls (nested Mutex acquisition would deadlock).
+    val site by lazy { SiteApi(gate = gate) }
+    val repo by lazy { BookRepo(site, db) }
     // App-scoped so full-book downloads survive popping detail.
     val downloadManager by lazy { BookDownloadManager(repo) }
     // Singletons: screens must use these, never `Prefs(app)` / `T2S(app)`

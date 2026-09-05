@@ -37,7 +37,7 @@ class Prefs(private val context: Context) {
     val simplified: Flow<Boolean> =
         context.store.data.map { it[PrefsKeys.SIMPLIFIED] ?: false }
     val fontScale: Flow<Float> =
-        context.store.data.map { it[PrefsKeys.FONT_SCALE] ?: 1f }
+        context.store.data.map { ((it[PrefsKeys.FONT_SCALE] ?: 1f).coerceIn(0.8f, 1.6f)) }
 
     suspend fun setSimplified(v: Boolean) {
         context.store.edit { it[PrefsKeys.SIMPLIFIED] = v }

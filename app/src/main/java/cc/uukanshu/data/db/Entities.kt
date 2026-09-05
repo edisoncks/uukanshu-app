@@ -44,6 +44,8 @@ data class ChapterEntity(
 data class ProgressEntity(
     val bookId: String,
     val position: Int,
+    /** Stable chapter id; 0 = written before v4 (position-only fallback). */
+    val pageId: Long = 0L,
     val updatedAt: Long = 0L,
 )
 

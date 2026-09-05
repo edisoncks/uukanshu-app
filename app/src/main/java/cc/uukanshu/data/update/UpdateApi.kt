@@ -107,6 +107,11 @@ class UpdateApi(
             val url = ((asset["browser_download_url"] as? String) ?: "").trim()
             val name = ((asset["name"] as? String) ?: "").trim()
             if (url.isEmpty() || name.isEmpty()) return null
+            // Strict contract: tag vX.Y.Z must ship exactly uukanshu-X.Y.Z.apk.
+            // A version-mismatched asset (stale upload, second APK) fails
+            // closed instead of offering the wrong binary to the installer.
+            val expectedName = "uukanshu-${VersionCompare.normalize(tag)}.apk"
+            if (name != expectedName) return null
             // GitHub reports asset size as a JSON number; absent on old payloads.
             val size = (asset["size"] as? Number)?.toLong()?.takeIf { it > 0 }
             UpdateInfo(

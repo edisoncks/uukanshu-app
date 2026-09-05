@@ -207,11 +207,18 @@ class ReaderViewModel(
                         // requested position: blocking fetch before rendering.
                         // This fetch doubles as the revalidation — no extra
                         // background request, so no concurrent double-fetch.
+                        // Empty fresh TOC is a failed parse, never a real book:
+                        // keep stale when we have it, fail loudly (not
+                        // "out of range") when we have nothing.
                         try {
                             val fresh = repo.detail(bookId)
-                            chapters = fresh.chapters
-                            if (fresh.meta.title.isNotEmpty()) bookTitleRaw = fresh.meta.title
-                            _ui.update { it.withTotal(chapters.size) }
+                            if (fresh.chapters.isNotEmpty()) {
+                                chapters = fresh.chapters
+                                if (fresh.meta.title.isNotEmpty()) bookTitleRaw = fresh.meta.title
+                                _ui.update { it.withTotal(chapters.size) }
+                            } else if (chapters.isEmpty()) {
+                                throw java.io.IOException("empty chapter list — try again later")
+                            }
                         } catch (e: Exception) {
                             if (e is kotlinx.coroutines.CancellationException) throw e
                             // Offline with cache: keep stale TOC if we have it.
@@ -287,10 +294,11 @@ class ReaderViewModel(
                     fontScale = cur.fontScale,
                     theme = cur.theme,
                 )
-                // Silent auto-bookmark: never break reading on save failure
+                // Silent auto-bookmark by stable pageId (position shifts on
+                // TOC inserts); never break reading on save failure
                 // (cancellation still propagates).
                 try {
-                    repo.saveProgress(bookId, position)
+                    repo.saveProgress(bookId, position, ref.pageId)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {

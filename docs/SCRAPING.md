@@ -25,8 +25,8 @@ Mirrors CLI `fetch()`:
   `Accept: text/html,…`, `Accept-Language: zh-TW,zh;q=0.9,en;q=0.8`,
   `Upgrade-Insecure-Requests: 1`. Gzip handled transparently by OkHttp.
 - Timeouts: connect 30s, read 30s.
-- Retry: **3 attempts** with backoff (`1500ms × attempt`) on transport
-  errors and HTTP `408 / 429 / 5xx`. Deterministic client errors (e.g. 404)
+- Retry: **3 attempts** with cancellable backoff (`1500ms × attempt`, `delay` outside
+  the single-flight gate) on transport errors and HTTP `408 / 429 / 5xx`. Deterministic client errors (e.g. 404)
   fail fast with no retry.
 - Cloudflare interstitial sniff: response bodies whose `<title>` indicates a
   challenge/block are treated as failures (surfaced, retried per above).
@@ -41,12 +41,15 @@ rules below look odd — they encode real site quirks. **Do not "simplify".**
   each (book, chapter) pair. Links pointing at *other* books (recommendation
   blocks) are dropped via a numeric bookId filter (ids compare numerically,
   so `/book/2/…` never matches `/book/20/…`).
-- **Chapter body cut:** cut at `<div class="mulu-box"` first, then at the
+- **Chapter body cut:** cut at `<div class="mulu-box"` (extra classes tolerated) first, then at the
   **LAST** standalone nav row (`上一章 … 下一章`), so in-body mentions of
-  "上一章/下一章" don't truncate text.
+  "上一章/下一章" don't truncate text. Body accepts both `readcotent` (live
+  misspelling) and `readcontent` spellings so a typo fix doesn't zero chapters.
 - **Prev/next resolution:** hrefs resolve with urljoin semantics **before**
-  shape validation. Non-chapter hrefs (TOC index, `lastchapter.php`, etc.)
-  mean end-of-book → `null`. Bare `position` is 1-based into the TOC;
+  shape validation, with `?query`/`#fragment` stripped to canonical chapter URLs
+  (tracking params never read as end-of-book, never fork cache keys). Non-chapter
+  hrefs (TOC index, `lastchapter.php`, etc.) mean end-of-book → `null`. TOC links
+  likewise tolerate query/fragment, storing canonical `/book/{id}/{page}.html`. Bare `position` is 1-based into the TOC;
   `pageId` (`/book/{id}/{page}.html`) is the stable identity used for the
   TOC-shift save guard.
 - **Search/category cards:** strip `<span class="hot">` highlight markup via

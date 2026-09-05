@@ -16,6 +16,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -59,20 +60,29 @@ class UpdateViewModel(
         viewModelScope.launch {
             val last = prefs.lastUpdateCheck.first()
             if (System.currentTimeMillis() - last < AUTO_CHECK_INTERVAL_MS) return@launch
-            check(manual = false)
+            if (!markChecking(manual = false)) return@launch
+            checkBody(manual = false)
         }
     }
 
     /** User-tapped check: always hits the network, reports "latest" too. */
     fun manualCheck() {
-        if (_ui.value.checking) return
-        viewModelScope.launch { check(manual = true) }
+        // Synchronous test-and-set on Main: two rapid taps must not launch
+        // two network checks (the old guard read async, so both passed).
+        if (!markChecking(manual = true)) return
+        viewModelScope.launch { checkBody(manual = true) }
     }
 
-    private suspend fun check(manual: Boolean) {
-        _ui.update {
-            it.copy(checking = true, manual = manual, error = null, upToDate = false)
+    /** Atomic false->true flip of `checking`; false when already in flight. */
+    private fun markChecking(manual: Boolean): Boolean {
+        val prev = _ui.getAndUpdate { cur ->
+            if (cur.checking) cur
+            else cur.copy(checking = true, manual = manual, error = null, upToDate = false)
         }
+        return !prev.checking
+    }
+
+    private suspend fun checkBody(manual: Boolean) {
         try {
             val info = withContext(Dispatchers.IO) { api.fetchLatest() }
             prefs.setLastUpdateCheck(System.currentTimeMillis())
@@ -242,7 +252,7 @@ class UpdateViewModel(
     fun install() {
         val info = _ui.value.info ?: return
         val file = downloader.apkFile(info)
-        if (!UpdateDownloader.isComplete(file, info.size)) {
+        if (!UpdateDownloader.isInstallable(file, info.size)) {
             _ui.update { it.copy(fileReady = false, error = "APK file missing or incomplete, please re-download") }
             return
         }

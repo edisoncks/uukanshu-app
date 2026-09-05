@@ -74,6 +74,8 @@ class BookDownloadManager(
         if (existing?.isActive == true) return
         _states.update { it + (bookId to State(downloading = true, done = 0, total = 0, error = null)) }
         val job = scope.launch {
+            // Identity for the forget-race guard below.
+            val self = coroutineContext[Job]!!
             try {
                 slot.withLock {
                     downloadFn(bookId) { done, total ->
@@ -87,6 +89,10 @@ class BookDownloadManager(
                         }
                     }
                 }
+                // A concurrent forget()/forgetAll() (delete/clear-all) wins over
+                // a late terminal publish: never resurrect stale done/total
+                // for zero cached bytes after the cache was deleted.
+                if (!self.isActive || jobs[bookId] !== self) return@launch
                 _states.update { cur ->
                     val prev = cur[bookId]
                     cur + (bookId to State(
@@ -97,10 +103,13 @@ class BookDownloadManager(
                     ))
                 }
             } catch (e: CancellationException) {
-                // cancel() already published downloading=false; keep done/total.
+                // cancel()/forget() already published downloading=false; keep done/total.
                 throw e
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
+                // Same forget-wins guard as the success path.
+                val self = coroutineContext[Job]
+                if (self != null && jobs[bookId] !== self) return@launch
                 _states.update { cur ->
                     val prev = cur[bookId]
                     cur + (bookId to State(
@@ -111,7 +120,10 @@ class BookDownloadManager(
                     ))
                 }
             } finally {
-                jobs.remove(bookId)
+                // Remove only our own entry: an old job finishing must never
+                // evict a new job started after forget()+re-download.
+                val self = coroutineContext[Job]
+                if (self != null) jobs.remove(bookId, self) else jobs.remove(bookId)
             }
         }
         jobs[bookId] = job

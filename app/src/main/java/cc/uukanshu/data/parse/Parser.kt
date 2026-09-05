@@ -65,8 +65,10 @@ object Parser {
 
     /** Canonical book URL, or null when `url` is not a book index page. */
     fun bookUrlOrNull(url: String): String? {
-        val m = Regex("""https?://(?:www\.)?uukanshu\.cc/book/(\d+)/?(?:index\.html)?""")
-            .matchEntire(url.trim()) ?: return null
+        // Tolerate trailing query/fragment (?from= / #toc): canonicalize away.
+        val clean = url.trim().substringBefore('?').substringBefore('#')
+        val m = Regex("""https?://(?:www\.)?uukanshu\.cc/book/(\d+)/?(?:index\.html)?/?""")
+            .matchEntire(clean) ?: return null
         // Huge digit runs match \d+ but overflow Int: null, never throw.
         val id = m.groupValues[1].toIntOrNull() ?: return null
         return "$BASE/book/$id/"
@@ -157,7 +159,9 @@ object Parser {
     // -- TOC ------------------------------------------------------------
 
     private val tocLink = Regex(
-        """href=["'](?:https?://(?:www\.)?uukanshu\.cc)?(/book/(\d+)/(\d+)\.html)["'][^>]*>\s*([^<]+?)\s*</a>""",
+        // Tolerate ?query / #fragment after .html (tracking params): capture the
+        // canonical path only so stored URLs stay stable across fetches.
+        """href=["'](?:https?://(?:www\.)?uukanshu\.cc)?(/book/(\d+)/(\d+)\.html)(?:[?#][^"']*)?["'][^>]*>\s*([^<]+?)\s*</a>""",
         RegexOption.IGNORE_CASE,
     )
 
@@ -228,10 +232,11 @@ object Parser {
 
     // -- chapter ----------------------------------------------------------
 
-    // Accept http/https, with/without www, or root-relative. bookUrlOrNull
-    // already treats http+www as valid book URLs; nav validation must agree
-    // or mid-book prev/next links read as end-of-book (null).
-    private val chapterHref = Regex("""(?:https?://(?:www\.)?uukanshu\.cc)?/book/\d+/\d+\.html""")
+    // Accept http/https, with/without www, or root-relative, plus optional
+    // ?query/#fragment (stripped before validation so tracking params never
+    // read as end-of-book). bookUrlOrNull already treats http+www as valid
+    // book URLs; nav validation must agree or mid-book links read as null.
+    private val chapterHref = Regex("""(?:https?://(?:www\.)?uukanshu\.cc)?/book/\d+/\d+\.html(?:[?#].*)?""")
 
     private fun absolutize(href: String, base: String): String {
         if (href.startsWith("http://") || href.startsWith("https://")) return href
@@ -248,7 +253,10 @@ object Parser {
             """<a\s[^>]*?href=["']([^"']+)["'][^>]*>\s*${label.pattern}\s*</a>""",
         ).find(page) ?: return null
         val abs = absolutize(m.groupValues[1], pageUrl)
-        return if (chapterHref.matchEntire(abs) != null) abs else null
+        // Strip query/fragment for shape validation + canonical return so the
+        // same chapter never yields two cache keys (?from=... variants).
+        val clean = abs.substringBefore('?').substringBefore('#')
+        return if (chapterHref.matchEntire(clean) != null) clean else null
     }
 
     fun parseChapter(page: String, pageUrl: String): ChapterContent {
@@ -273,13 +281,17 @@ object Parser {
         }
 
         val bodyRaw = Regex(
-            """<div\s+class=["']readcotent[^"']*["'][^>]*>(.*)""",
+            // Site spells it "readcotent" today; accept the corrected
+            // "readcontent" too so a typo fix doesn't zero every chapter.
+            """<div\s+class=["']readcon?tent[^"']*["'][^>]*>(.*)""",
             setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE),
         ).find(page)?.groupValues?.getOrNull(1)
             ?: throw IllegalArgumentException(
                 "could not find chapter content on the page (is this a chapter URL?)",
             )
-        var body = bodyRaw.split(Regex("""<div\s+class=["']mulu-box["']"""), limit = 2)[0]
+        // Tolerate extra classes on mulu-box (<div class="mulu-box extra">)
+        // so footer noise is still cut after a site restyle.
+        var body = bodyRaw.split(Regex("""<div\s+class=["']mulu-box[^"']*["']"""), limit = 2)[0]
         body = Regex("<script[^>]*>.*?</script>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
             .replace(body, "")
         body = Regex("<br\\s*/?>", RegexOption.IGNORE_CASE).replace(body, "\n")

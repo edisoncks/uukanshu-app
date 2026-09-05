@@ -61,9 +61,21 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
     }
 }
 
+/**
+ * v3 -> v4: bookmark by stable `pageId` (TOC shifts used to misdirect
+ * continue-reading when only `position` was stored). Adds non-null
+ * `pageId` defaulting to 0 = pre-v4 position-only row (callers fall back
+ * to `position` when 0 or unresolvable).
+ */
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE progress ADD COLUMN `pageId` INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
 @Database(
     entities = [BookEntity::class, ChapterEntity::class, ProgressEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class AppDb : RoomDatabase() {
@@ -79,7 +91,7 @@ abstract class AppDb : RoomDatabase() {
                 context.applicationContext,
                 AppDb::class.java,
                 "uukanshu.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
         }
     }
 }
