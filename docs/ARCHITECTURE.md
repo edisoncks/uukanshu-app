@@ -14,7 +14,9 @@ default with a global Simplified toggle (see below).
   - Hosts one shared `UpdateViewModel` (auto-check once per day) and overlays
     `UpdateDialog` on any tab.
   - Navigation uses `launchSingleTop` + state restore so double-taps never
-    stack duplicate tab destinations.
+    stack duplicate tab destinations. Detail opens one reader per book:
+    opening another chapter pops the previous reader via
+    `popUpTo("detail/{bookId}")` (the reader is only reachable from Detail).
 - `App.kt`: `Application` subclass holding the shared `UukanshuGate` +
   `BookRepo` + app-scoped `BookDownloadManager`
   (accessed via `ctx.repo()`).

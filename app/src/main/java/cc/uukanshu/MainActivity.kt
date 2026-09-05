@@ -133,11 +133,19 @@ fun UukanshuApp() {
                 ) { entry ->
                     DetailScreen(
                         bookId = entry.arguments?.getString("bookId").orEmpty(),
-                        // launchSingleTop: double-tapping a chapter never stacks
-                        // two identical reader destinations (back would show the
-                        // same chapter twice). Paging within the reader reuses
-                        // the ViewModel via load(), not navigation.
-                        onChapter = { id, pos -> nav.navigate("reader/$id/$pos") { launchSingleTop = true } },
+                        // One reader per book: opening another chapter pops the
+                        // previous reader above this detail (launchSingleTop
+                        // alone only dedups the identical route, so ch.1 then
+                        // ch.5 would stack). Paging within the reader reuses
+                        // the ViewModel via load(), not navigation. The reader
+                        // is only ever opened from here, so the popUpTo target
+                        // always exists.
+                        onChapter = { id, pos ->
+                            nav.navigate("reader/$id/$pos") {
+                                launchSingleTop = true
+                                popUpTo("detail/$id") { inclusive = false }
+                            }
+                        },
                     )
                 }
                 composable(
