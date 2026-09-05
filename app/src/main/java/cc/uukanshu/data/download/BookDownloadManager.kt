@@ -101,4 +101,22 @@ class BookDownloadManager(
             cur + (bookId to prev.copy(downloading = false))
         }
     }
+
+    /**
+     * Drop retained terminal state (finished/error/cancelled progress).
+     * Call when the book's cache is deleted so a re-opened detail can't
+     * replay a stale `done/total` (e.g. offering 重新下載整本 for zero
+     * cached bytes). Cancels any live job for the id first.
+     */
+    fun forget(bookId: String) {
+        jobs.remove(bookId)?.cancel()
+        _states.update { cur -> cur - bookId }
+    }
+
+    /** Drop all retained state (used by clear-all). */
+    fun forgetAll() {
+        jobs.values.forEach { runCatching { it.cancel() } }
+        jobs.clear()
+        _states.update { emptyMap() }
+    }
 }

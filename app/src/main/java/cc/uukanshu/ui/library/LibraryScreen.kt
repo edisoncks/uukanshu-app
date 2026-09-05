@@ -125,6 +125,10 @@ class LibraryViewModel(
     fun delete(id: String) {
         viewModelScope.launch {
             repo.deleteBook(id)
+            // Evict retained manager state so a re-opened detail can't
+            // replay stale done/total for zero cached bytes.
+            downloads.forget(id)
+            _ui.update { cur -> cur.copy(pendingTitles = cur.pendingTitles - id) }
             refresh()
         }
     }
@@ -132,6 +136,8 @@ class LibraryViewModel(
     fun clearAll() {
         viewModelScope.launch {
             repo.clearAll()
+            downloads.forgetAll()
+            _ui.update { cur -> cur.copy(pendingTitles = emptyMap()) }
             refresh()
         }
     }
