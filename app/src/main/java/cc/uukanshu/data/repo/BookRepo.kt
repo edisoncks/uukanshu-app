@@ -6,6 +6,7 @@ import cc.uukanshu.data.db.ChapterEntity
 import cc.uukanshu.data.db.ProgressEntity
 import cc.uukanshu.data.net.SiteApi
 import cc.uukanshu.data.parse.Parser
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import androidx.room.withTransaction
@@ -222,7 +223,16 @@ class BookRepo(
      * so the just-downloaded book is on top and easy to find.
      */
     suspend fun downloadAll(bookId: String, onProgress: (Int, Int) -> Unit) {
-        val chapters = withContext(Dispatchers.IO) { detail(bookId).chapters }
+        // Offline with a warm cache must still succeed: the loop below is a
+        // local no-op when everything is already downloaded. Only throw when
+        // there is no cached TOC to work from either.
+        val chapters = try {
+            withContext(Dispatchers.IO) { detail(bookId).chapters }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            withContext(Dispatchers.IO) { cachedDetail(bookId)?.chapters } ?: throw e
+        }
         try {
             var fetchedAny = false
             chapters.forEachIndexed { idx, ref ->
