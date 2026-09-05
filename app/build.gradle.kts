@@ -15,9 +15,9 @@ android {
         // Locked by plan Rev.4: Android 12+ floor.
         minSdk = 31
         targetSdk = 34
-        versionCode = 22
+        versionCode = 23
         // Single source of truth for `uukanshu-{version}.apk`.
-        versionName = "1.0.21"
+        versionName = "1.0.22"
     }
 
     // Release signing: local `release.keystore` (dev key, gitignored) by
