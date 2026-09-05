@@ -55,21 +55,32 @@ class LibraryViewModel(
     private val t2s: T2S,
     private val downloads: BookDownloadManager,
 ) : ViewModel() {
+    /**
+     * Load state, split from live overlays. The shelf is loading, failed,
+     * or showing rows — never loading+failed, never a stuck spinner (the
+     * sealed initial is Loading by construction). Download progress and
+     * fresh-download titles compose orthogonally on [Ui] and keep updating
+     * under any load state.
+     */
+    sealed interface Load {
+        data object Loading : Load
+        data class Failed(val message: String) : Load
+        data class Shelf(
+            val books: List<BookRepo.CachedBook>,
+            /** Refresh failure with a stale list on screen (footer retry). */
+            val error: String? = null,
+        ) : Load
+    }
+
     data class Ui(
-        // No default on purpose: every construction must state loading
-        // explicitly, so success paths can never leave the spinner stuck.
-        val loading: Boolean,
-        val books: List<BookRepo.CachedBook> = emptyList(),
+        val load: Load = Load.Loading,
         val simplified: Boolean = false,
         val downloading: Map<String, BookDownloadManager.State> = emptyMap(),
         // Titles for fresh downloads not yet qualified for library().
         val pendingTitles: Map<String, BookEntity> = emptyMap(),
-        // DB failure is a failure, not an empty shelf: surfaced, never
-        // silently substituted with an empty list.
-        val error: String? = null,
     )
 
-    private val _ui = MutableStateFlow(Ui(loading = true))
+    private val _ui = MutableStateFlow(Ui())
     val ui: StateFlow<Ui> = _ui
 
     init {
@@ -112,15 +123,27 @@ class LibraryViewModel(
 
     fun refresh() {
         viewModelScope.launch {
-            _ui.value = _ui.value.copy(loading = true, error = null)
-            _ui.value = try {
-                _ui.value.copy(loading = false, books = repo.library(), error = null)
+            // Clear a stale footer error at refresh start; the shelf stays
+            // visible (stale-while-revalidate), a fresh load shows Loading.
+            _ui.update { cur ->
+                when (val l = cur.load) {
+                    is Load.Shelf -> cur.copy(load = l.copy(error = null))
+                    else -> cur.copy(load = Load.Loading)
+                }
+            }
+            try {
+                val books = repo.library()
+                _ui.update { it.copy(load = Load.Shelf(books)) }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                _ui.value.copy(
-                    loading = false,
-                    error = Errors.message(e),
-                )
+                _ui.update { cur ->
+                    // DB failure is a failure, not an empty shelf: footer
+                    // when rows are on screen, full-screen when empty.
+                    when (val l = cur.load) {
+                        is Load.Shelf -> cur.copy(load = l.copy(error = Errors.message(e)))
+                        else -> cur.copy(load = Load.Failed(Errors.message(e)))
+                    }
+                }
             }
         }
     }
@@ -183,9 +206,11 @@ fun LibraryScreen(onBook: (String) -> Unit) {
     var confirmClear by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().padding(12.dp)) {
+        // Shelf rows only: fresh-download progress rows below don't gate this.
+        val shelfBooks = (ui.load as? LibraryViewModel.Load.Shelf)?.books.orEmpty()
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(vm.display("已緩存"), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-            if (ui.books.isNotEmpty()) {
+            if (shelfBooks.isNotEmpty()) {
                 TextButton(onClick = { confirmClear = true }) { Text(vm.display("清空全部")) }
             }
         }
@@ -204,9 +229,9 @@ fun LibraryScreen(onBook: (String) -> Unit) {
                 },
             )
         }
-        val total = ui.books.sumOf { it.bytes }
+        val total = shelfBooks.sumOf { it.bytes }
         Text(
-            "${ui.books.size} ${vm.display("本")} · ${formatBytes(total)}",
+            "${shelfBooks.size} ${vm.display("本")} · ${formatBytes(total)}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -214,18 +239,26 @@ fun LibraryScreen(onBook: (String) -> Unit) {
         // return-refresh so the saveable scroll position isn't lost to a
         // full-screen spinner; spinner only for the initial empty load.
         // Fresh downloads (0 cached) still show as progress rows below.
-        val bookIds = ui.books.map { it.id }.toSet()
+        val load = ui.load
+        val bookIds = shelfBooks.map { it.id }.toSet()
         val extraIds = ui.downloading.keys.filter { it !in bookIds && (ui.downloading[it]?.downloading == true || ui.downloading[it]?.error != null) }
-        val hasContent = ui.books.isNotEmpty() || extraIds.isNotEmpty()
-        if (ui.loading && !hasContent) {
+        val hasContent = shelfBooks.isNotEmpty() || extraIds.isNotEmpty()
+        // Footer error: stale-list refresh failure, or a DB failure kept
+        // off the error screen by in-flight fresh-download rows.
+        val footerError = when (load) {
+            is LibraryViewModel.Load.Shelf -> load.error
+            is LibraryViewModel.Load.Failed -> load.message
+            else -> null
+        }
+        if (load is LibraryViewModel.Load.Loading && !hasContent) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
-        } else if (!hasContent && ui.error != null) {
+        } else if (load is LibraryViewModel.Load.Failed && !hasContent) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        ui.error!!,
+                        load.message,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -272,7 +305,7 @@ fun LibraryScreen(onBook: (String) -> Unit) {
                         }
                     }
                 }
-                items(ui.books, key = { it.id }) { b ->
+                items(shelfBooks, key = { it.id }) { b ->
                     val st = ui.downloading[b.id]
                     val isDownloading = st?.downloading == true
                     Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onBook(b.id) }) {
@@ -318,14 +351,14 @@ fun LibraryScreen(onBook: (String) -> Unit) {
                 }
                 // Refresh failure with a stale list on screen: footer error +
                 // retry instead of silently keeping the old rows.
-                if (ui.error != null && !ui.loading) {
+                if (footerError != null) {
                     item {
                         Column(
                             Modifier.fillMaxWidth().padding(16.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
                             Text(
-                                ui.error!!,
+                                footerError,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.error,
                             )
