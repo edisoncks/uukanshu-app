@@ -20,9 +20,13 @@ default with a global Simplified toggle (see below).
     and an identical double-tap is skipped by comparing the top entry's
     args (read off the controller directly — serialized Main clicks +
     synchronous commit make the check atomic).
-- `App.kt`: `Application` subclass holding the shared `UukanshuGate` +
-  `BookRepo` + app-scoped `BookDownloadManager`
-  (accessed via `ctx.repo()`).
+- `App.kt`: `Application` subclass holding the shared singletons:
+  `UukanshuGate` + `BookRepo` + app-scoped `BookDownloadManager` +
+  `Prefs` + `T2S` (accessed via `ctx.app()`, e.g. `app.repo`).
+  Screens must use these singletons — never `Prefs(app)` / `T2S(app)`
+  per-composition — and must construct ViewModels via the single
+  `ui/vmFactory { ... }` helper (`ui/VmFactory.kt`), so wiring stays
+  uniform and greppable instead of six hand-written factories.
 - `Site.kt`: `BASE_URL = https://uukanshu.cc` + fixed `CATEGORIES` list
   (ids 1–10, `/class_{id}_{page}.html`).
 

@@ -32,7 +32,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cc.uukanshu.data.convert.T2S
@@ -40,7 +39,8 @@ import cc.uukanshu.data.db.BookEntity
 import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.data.repo.BookRepo
-import cc.uukanshu.repo
+import cc.uukanshu.app
+import cc.uukanshu.ui.vmFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -167,11 +167,9 @@ private fun formatBytes(b: Long): String = when {
 @Composable
 fun LibraryScreen(onBook: (String) -> Unit) {
     val ctx = LocalContext.current
-    val app = ctx.applicationContext as cc.uukanshu.App
-    val vm: LibraryViewModel = viewModel(factory = object : ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            LibraryViewModel(ctx.repo(), Prefs(app), T2S(app), app.downloadManager) as T
+    val app = ctx.app()
+    val vm: LibraryViewModel = viewModel(factory = vmFactory {
+        LibraryViewModel(app.repo, app.prefs, app.t2s, app.downloadManager)
     })
     val ui by vm.ui.collectAsState()
     LaunchedEffect(Unit) { vm.refresh() }

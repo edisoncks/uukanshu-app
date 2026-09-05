@@ -27,8 +27,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -36,8 +34,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.prefs.Prefs
+import cc.uukanshu.ui.vmFactory
 import cc.uukanshu.ui.detail.DetailScreen
 import cc.uukanshu.ui.home.HomeScreen
 import cc.uukanshu.ui.library.LibraryScreen
@@ -58,9 +56,9 @@ private data class Tab(val route: String, val label: String, val icon: @Composab
 
 @Composable
 fun UukanshuApp() {
-    val app = LocalContext.current.applicationContext as App
-    val prefs = remember { Prefs(app) }
-    val t2s = remember { T2S(app) }
+    val app = LocalContext.current.app()
+    val prefs = remember { app.prefs }
+    val t2s = remember { app.t2s }
     // Global display prefs: bottom nav + theme follow them live.
     val simplified by prefs.simplified.collectAsState(initial = false)
     val theme by prefs.theme.collectAsState(initial = Prefs.SYSTEM)
@@ -88,10 +86,8 @@ fun UukanshuApp() {
         )
         // Shared update state: auto-check fires once per day whatever tab is open;
         // the manual check button lives in Settings, the dialog overlays any tab.
-        val updateVm: UpdateViewModel = viewModel(factory = object : ViewModelProvider.Factory {
-            @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                UpdateViewModel(app, prefs) as T
+        val updateVm: UpdateViewModel = viewModel(factory = vmFactory {
+            UpdateViewModel(app, prefs)
         })
         val updateUi by updateVm.ui.collectAsState()
         LaunchedEffect(Unit) { updateVm.autoCheck() }

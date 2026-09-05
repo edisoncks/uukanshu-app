@@ -33,14 +33,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cc.uukanshu.CATEGORIES
 import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.prefs.Prefs
-import cc.uukanshu.repo
+import cc.uukanshu.app
+import cc.uukanshu.ui.vmFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -184,11 +184,9 @@ class HomeViewModel(
 @Composable
 fun HomeScreen(onBook: (String) -> Unit) {
     val ctx = LocalContext.current
-    val app = ctx.applicationContext as cc.uukanshu.App
-    val vm: HomeViewModel = viewModel(factory = object : ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            HomeViewModel(ctx.repo(), Prefs(app), T2S(app)) as T
+    val app = ctx.app()
+    val vm: HomeViewModel = viewModel(factory = vmFactory {
+        HomeViewModel(app.repo, app.prefs, app.t2s)
     })
     val ui by vm.ui.collectAsState()
 

@@ -35,14 +35,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.prefs.Prefs
-import cc.uukanshu.repo
+import cc.uukanshu.app
 import cc.uukanshu.ui.ThemeIconButton
+import cc.uukanshu.ui.vmFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -306,16 +306,14 @@ class ReaderViewModel(
 @Composable
 fun ReaderScreen(bookId: String, position: Int) {
     val ctx = LocalContext.current
-    val app = ctx.applicationContext as cc.uukanshu.App
+    val app = ctx.app()
     // Keyed on bookId only: paging reuses this VM via load(), and the nav
     // graph holds at most one reader per book, so position is just the
     // initial load argument, not an identity.
     val vm: ReaderViewModel = viewModel(
         key = "reader-$bookId",
-        factory = object : ViewModelProvider.Factory {
-            @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                ReaderViewModel(app.repo, T2S(app), Prefs(app), bookId, position) as T
+        factory = vmFactory {
+            ReaderViewModel(app.repo, app.t2s, app.prefs, bookId, position)
         },
     )
     val ui by vm.ui.collectAsState()

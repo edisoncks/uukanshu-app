@@ -30,8 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import cc.uukanshu.App
-import cc.uukanshu.data.convert.T2S
+import cc.uukanshu.app
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.data.update.UpdateDownloader
 import cc.uukanshu.ui.update.UpdateViewModel
@@ -51,9 +50,9 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(updateVm: UpdateViewModel) {
     val ctx = LocalContext.current
-    val app = ctx.applicationContext as App
-    val prefs = remember { Prefs(app) }
-    val t2s = remember { T2S(app) }
+    val app = ctx.app()
+    val prefs = remember { app.prefs }
+    val t2s = remember { app.t2s }
     val scope = rememberCoroutineScope()
     val simplified by prefs.simplified.collectAsState(initial = false)
     val theme by prefs.theme.collectAsState(initial = Prefs.SYSTEM)

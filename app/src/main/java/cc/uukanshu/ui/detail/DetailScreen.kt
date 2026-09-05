@@ -25,14 +25,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.prefs.Prefs
-import cc.uukanshu.repo
+import cc.uukanshu.app
+import cc.uukanshu.ui.vmFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -193,13 +193,11 @@ class DetailViewModel(
 @Composable
 fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> Unit) {
     val ctx = LocalContext.current
-    val app = ctx.applicationContext as cc.uukanshu.App
+    val app = ctx.app()
     val vm: DetailViewModel = viewModel(
         key = bookId,
-        factory = object : ViewModelProvider.Factory {
-            @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                DetailViewModel(ctx.repo(), Prefs(app), T2S(app), bookId, app.downloadManager) as T
+        factory = vmFactory {
+            DetailViewModel(app.repo, app.prefs, app.t2s, bookId, app.downloadManager)
         },
     )
     val ui by vm.ui.collectAsState()
