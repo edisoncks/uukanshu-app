@@ -29,15 +29,14 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cc.uukanshu.data.convert.T2S
+import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.repo
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 
 class DetailViewModel(
@@ -45,6 +44,7 @@ class DetailViewModel(
     private val prefs: Prefs,
     private val t2s: T2S,
     private val bookId: String,
+    private val downloads: BookDownloadManager,
 ) : ViewModel() {
     data class Ui(
         // No default on purpose: every construction must state loading
@@ -87,6 +87,18 @@ class DetailViewModel(
         viewModelScope.launch {
             repo.progressFlow(bookId).collect { pos ->
                 _ui.value = _ui.value.copy(bookmarkedPosition = pos)
+            }
+        }
+        // App-scoped download: re-attach to an in-flight or finished job
+        // when re-opening this detail after navigating away.
+        viewModelScope.launch {
+            downloads.observe(bookId).collect { st ->
+                if (st == null) return@collect
+                _ui.value = _ui.value.copy(
+                    downloading = st.downloading,
+                    done = st.done,
+                    downloadError = st.error,
+                )
             }
         }
     }
@@ -136,38 +148,16 @@ class DetailViewModel(
         }
     }
 
-    private var downloadJob: kotlinx.coroutines.Job? = null
-
-    /** Manual full-novel download: sequential 1-at-a-time, cancelable. */
+    /** Manual full-novel download: app-scoped, survives leaving detail. */
     fun downloadAll() {
         if (_ui.value.downloading) return
-        // Set synchronously on the caller (Main) thread so the guard above
-        // holds for back-to-back taps without depending on dispatcher
-        // eagerness.
         _ui.value = _ui.value.copy(downloading = true, done = 0, downloadError = null)
-        downloadJob = viewModelScope.launch {
-            val self = currentCoroutineContext().job
-            try {
-                repo.downloadAll(bookId) { done, _ ->
-                    _ui.value = _ui.value.copy(done = done)
-                }
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                _ui.value = _ui.value.copy(downloadError = "${e.javaClass.simpleName}: ${e.message}")
-            } finally {
-                // Only the current job may clear the flag: a cancelled
-                // predecessor's late finally must not hide a live download
-                // started by cancel -> instant re-tap.
-                if (downloadJob === self) {
-                    _ui.value = _ui.value.copy(downloading = false)
-                }
-            }
-        }
+        downloads.start(bookId)
     }
 
     fun cancelDownload() {
-        downloadJob?.cancel()
-        downloadJob = null
+        downloads.cancel(bookId)
+        // Manager publishes downloading=false; reflect instantly for snappy UI.
         _ui.value = _ui.value.copy(downloading = false)
     }
 
@@ -184,7 +174,7 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
         factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                DetailViewModel(ctx.repo(), Prefs(app), T2S(app), bookId) as T
+                DetailViewModel(ctx.repo(), Prefs(app), T2S(app), bookId, app.downloadManager) as T
         },
     )
     val ui by vm.ui.collectAsState()

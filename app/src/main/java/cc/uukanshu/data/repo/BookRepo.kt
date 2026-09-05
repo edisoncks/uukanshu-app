@@ -5,6 +5,7 @@ import cc.uukanshu.data.db.BookEntity
 import cc.uukanshu.data.db.ChapterEntity
 import cc.uukanshu.data.db.ProgressEntity
 import cc.uukanshu.data.net.SiteApi
+import cc.uukanshu.data.net.UukanshuGate
 import cc.uukanshu.data.parse.Parser
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -22,10 +23,13 @@ import kotlin.random.Random
 class BookRepo(
     private val site: SiteApi,
     private val db: AppDb,
+    private val gate: UukanshuGate = UukanshuGate(),
 ) {
     suspend fun category(categoryId: Int, page: Int): List<Parser.BookItem> =
-        withContext(Dispatchers.IO) {
-            Parser.parseCategory(site.get("${Parser.BASE}/class_${categoryId}_${page}.html"))
+        gate.withPermit {
+            withContext(Dispatchers.IO) {
+                Parser.parseCategory(site.get("${Parser.BASE}/class_${categoryId}_${page}.html"))
+            }
         }
 
     /**
@@ -33,13 +37,17 @@ class BookRepo(
      * bookbox cards as categories (title/author/words/latest/intro).
      */
     suspend fun recent(page: Int): List<Parser.BookItem> =
-        withContext(Dispatchers.IO) {
-            Parser.parseCategory(site.get("${Parser.BASE}/top/lastupdate_${page}.html"))
+        gate.withPermit {
+            withContext(Dispatchers.IO) {
+                Parser.parseCategory(site.get("${Parser.BASE}/top/lastupdate_${page}.html"))
+            }
         }
 
     suspend fun search(keyword: String): Parser.SearchResult =
-        withContext(Dispatchers.IO) {
-            Parser.parseSearch(site.search(keyword))
+        gate.withPermit {
+            withContext(Dispatchers.IO) {
+                Parser.parseSearch(site.search(keyword))
+            }
         }
 
     data class Detail(val meta: Parser.BookMeta, val chapters: List<Parser.ChapterRef>)
@@ -124,11 +132,16 @@ class BookRepo(
         )
     }
 
-    suspend fun detail(bookId: String): Detail = withContext(Dispatchers.IO) {
+    suspend fun detail(bookId: String): Detail {
         val url = "${Parser.BASE}/book/$bookId/"
-        val html = site.get(url)
-        val meta = Parser.parseBookMeta(html, url)
-        val chapters = Parser.parseToc(html, bookId)
+        // Single-flight: only the HTTP fetch holds the gate; parse + DB
+        // merge run outside so a slow transaction never blocks other screens.
+        val html = gate.withPermit {
+            withContext(Dispatchers.IO) { site.get(url) }
+        }
+        return withContext(Dispatchers.IO) {
+            val meta = Parser.parseBookMeta(html, url)
+            val chapters = Parser.parseToc(html, bookId)
         // Empty TOC means a block page / layout change, not an empty book:
         // never wipe the cached chapters on nothing. Return fresh (empty)
         // without touching the DB so offline content survives.
@@ -154,12 +167,15 @@ class BookRepo(
                 db.chapters().upsertAll(mergeToc(bookId, chapters, cached))
             }
         }.onFailure { if (it is CancellationException) throw it }
-        Detail(meta, chapters)
+            Detail(meta, chapters)
+        }
     }
 
     suspend fun chapter(url: String): Parser.ChapterContent =
-        withContext(Dispatchers.IO) {
-            Parser.parseChapter(site.get(url), url)
+        gate.withPermit {
+            withContext(Dispatchers.IO) {
+                Parser.parseChapter(site.get(url), url)
+            }
         }
 
     suspend fun cachedChapterContent(bookId: String, position: Int): String? =
