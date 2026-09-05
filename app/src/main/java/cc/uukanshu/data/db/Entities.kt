@@ -50,6 +50,10 @@ interface BookDao {
 
     @Query("SELECT * FROM books ORDER BY updatedAt DESC")
     suspend fun cachedBooks(): List<BookEntity>
+
+    /** Bump shelf order without touching meta; no-op when the row is missing. */
+    @Query("UPDATE books SET updatedAt = :now WHERE id = :id")
+    suspend fun touch(id: String, now: Long)
 }
 
 @Dao
@@ -78,6 +82,9 @@ interface ProgressDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(progress: ProgressEntity)
+
+    @Query("SELECT * FROM progress")
+    suspend fun all(): List<ProgressEntity>
 
     @Query("DELETE FROM progress WHERE bookId = :bookId")
     suspend fun deleteBook(bookId: String)

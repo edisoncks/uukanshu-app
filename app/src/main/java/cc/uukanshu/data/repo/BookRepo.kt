@@ -8,6 +8,7 @@ import cc.uukanshu.data.net.SiteApi
 import cc.uukanshu.data.parse.Parser
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -59,6 +60,37 @@ class BookRepo(
             ChapterEntity(bookId, it.position, it.pageId, it.title, it.url,
                 content = cachedByPageId[it.pageId].orEmpty())
         }
+
+        /**
+         * Shelf order key: last interaction wins. Reading writes
+         * [ProgressEntity.updatedAt], downloading writes
+         * [BookEntity.updatedAt]; either bumps the book to the top.
+         */
+        fun lastActivity(bookAt: Long, progressAt: Long?): Long =
+            maxOf(bookAt, progressAt ?: 0L)
+
+        /**
+         * Preserve the shelf timestamp across TOC refreshes: browsing
+         * Detail must never reorder the shelf, only reads/downloads bump.
+         */
+        fun preserveBookUpdatedAt(
+            existing: BookEntity?,
+            fresh: BookEntity,
+            now: Long,
+        ): BookEntity =
+            if (existing != null) fresh.copy(updatedAt = existing.updatedAt)
+            else fresh.copy(updatedAt = now)
+
+        /**
+         * Shelf order: most-recently read or downloaded first; never-touched
+         * sinks to the bottom, ties keep the input (DB) order (stable sort).
+         */
+        fun sortShelf(
+            books: List<CachedBook>,
+            bookAt: Map<String, Long>,
+            progressAt: Map<String, Long>,
+        ): List<CachedBook> =
+            books.sortedByDescending { lastActivity(bookAt[it.id] ?: 0L, progressAt[it.id]) }
     }
 
     /**
@@ -103,10 +135,17 @@ class BookRepo(
         val html = site.get(url)
         val meta = Parser.parseBookMeta(html, url)
         val chapters = Parser.parseToc(html, bookId)
-        // Cache meta + TOC skeleton, preserving downloaded content.
+        // Cache meta + TOC skeleton, preserving downloaded content and the
+        // shelf timestamp (browsing Detail alone must not reorder the shelf).
         runCatching {
+            val existing = db.books().book(bookId)
+            val now = System.currentTimeMillis()
             db.books().upsert(
-                BookEntity(bookId, meta.title, meta.author, meta.intro, meta.category, meta.latestChapterTitle),
+                preserveBookUpdatedAt(
+                    existing,
+                    BookEntity(bookId, meta.title, meta.author, meta.intro, meta.category, meta.latestChapterTitle),
+                    now,
+                ),
             )
             val cached = db.chapters().chapters(bookId)
                 .associate { it.pageId to it.content }
@@ -134,9 +173,14 @@ class BookRepo(
         db.chapters().upsertAll(listOf(row.copy(content = content)))
     }
 
-    /** Silent auto-bookmark: overwrite on every successful chapter open. */
+    /**
+     * Silent auto-bookmark: overwrite on every successful chapter open.
+     * Also bumps the shelf (same clock for progress + book rows).
+     */
     suspend fun saveProgress(bookId: String, position: Int) = withContext(Dispatchers.IO) {
-        db.progress().upsert(ProgressEntity(bookId, position, System.currentTimeMillis()))
+        val now = System.currentTimeMillis()
+        db.progress().upsert(ProgressEntity(bookId, position, now))
+        runCatching { db.books().touch(bookId, now) }
     }
 
     /** Live bookmarked position for the continue-reading button. */
@@ -159,7 +203,10 @@ class BookRepo(
     )
 
     suspend fun library(): List<CachedBook> = withContext(Dispatchers.IO) {
-        db.books().cachedBooks().map { b ->
+        val rows = db.books().cachedBooks()
+        val bookAt = rows.associate { it.id to it.updatedAt }
+        val progressAt = db.progress().all().associate { it.bookId to it.updatedAt }
+        rows.map { b ->
             val chapters = db.chapters().chapters(b.id)
             CachedBook(
                 b.id, b.title, b.author,
@@ -167,7 +214,7 @@ class BookRepo(
                 cached = chapters.count { it.content.isNotEmpty() },
                 bytes = chapters.sumOf { it.content.toByteArray().size.toLong() },
             )
-        }.filter { it.cached > 0 }
+        }.filter { it.cached > 0 }.let { sortShelf(it, bookAt, progressAt) }
     }
 
     /**
@@ -180,21 +227,36 @@ class BookRepo(
         kotlinx.coroutines.delay(3000L + Random.nextLong(0, 1001))
     }
 
-    /** Sequential full download; [onProgress] gets (done, total). Throwing aborts. */
+    /**
+     * Sequential full download; [onProgress] gets (done, total). Throwing aborts.
+     * Bumps the shelf when content was cached (even partial/cancelled),
+     * so the just-downloaded book is on top and easy to find.
+     */
     suspend fun downloadAll(bookId: String, onProgress: (Int, Int) -> Unit) {
         val chapters = withContext(Dispatchers.IO) { detail(bookId).chapters }
-        var fetchedAny = false
-        chapters.forEachIndexed { idx, ref ->
-            val has = withContext(Dispatchers.IO) {
-                cachedChapterContent(bookId, ref.position) != null
+        try {
+            var fetchedAny = false
+            chapters.forEachIndexed { idx, ref ->
+                val has = withContext(Dispatchers.IO) {
+                    cachedChapterContent(bookId, ref.position) != null
+                }
+                if (!has) {
+                    if (fetchedAny) crawlDelay()
+                    val text = withContext(Dispatchers.IO) { chapter(ref.url).text }
+                    saveChapterContent(bookId, ref.position, text)
+                    fetchedAny = true
+                }
+                onProgress(idx + 1, chapters.size)
             }
-            if (!has) {
-                if (fetchedAny) crawlDelay()
-                val text = withContext(Dispatchers.IO) { chapter(ref.url).text }
-                saveChapterContent(bookId, ref.position, text)
-                fetchedAny = true
+        } finally {
+            // Touch even on cancel/error when something is cached; never
+            // let the bump break (or mask) the download result.
+            runCatching {
+                withContext(NonCancellable + Dispatchers.IO) {
+                    val cached = db.chapters().chapters(bookId).count { it.content.isNotEmpty() }
+                    if (cached > 0) db.books().touch(bookId, System.currentTimeMillis())
+                }
             }
-            onProgress(idx + 1, chapters.size)
         }
     }
 

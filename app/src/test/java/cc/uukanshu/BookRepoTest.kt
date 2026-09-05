@@ -1,5 +1,6 @@
 package cc.uukanshu
 
+import cc.uukanshu.data.db.BookEntity
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.repo.BookRepo
 import org.junit.Assert.assertEquals
@@ -30,5 +31,49 @@ class BookRepoTest {
         )
         val visible = books.filter { it.cached > 0 }
         assertEquals(listOf("b", "c"), visible.map { it.id })
+    }
+
+    private fun shelf(id: String) =
+        BookRepo.CachedBook(id, id.uppercase(), "Au", total = 10, cached = 1, bytes = 100)
+
+    @Test fun downloadBumpsWithoutProgress() {
+        // b was only downloaded (bookAt), a was read earlier: download wins.
+        val books = listOf(shelf("a"), shelf("b"))
+        val ordered = BookRepo.sortShelf(
+            books,
+            bookAt = mapOf("a" to 100L, "b" to 300L),
+            progressAt = mapOf("a" to 200L),
+        )
+        assertEquals(listOf("b", "a"), ordered.map { it.id })
+    }
+
+    @Test fun readBeatsOlderDownload() {
+        val books = listOf(shelf("a"), shelf("b"))
+        val ordered = BookRepo.sortShelf(
+            books,
+            bookAt = mapOf("a" to 250L, "b" to 100L),
+            progressAt = mapOf("a" to 200L, "b" to 300L),
+        )
+        assertEquals(listOf("b", "a"), ordered.map { it.id })
+    }
+
+    @Test fun noActivitySinksToBottomKeepingOrder() {
+        val books = listOf(shelf("a"), shelf("b"), shelf("c"))
+        val ordered = BookRepo.sortShelf(
+            books,
+            bookAt = mapOf("b" to 200L),
+            progressAt = mapOf("b" to 100L),
+        )
+        // b has activity; a/c untouched keep their relative order behind it.
+        assertEquals(listOf("b", "a", "c"), ordered.map { it.id })
+    }
+
+    @Test fun detailRefreshPreservesShelfTimestamp() {
+        val existing = BookEntity("1", "T", "Au", "", "", "", updatedAt = 500L)
+        val fresh = BookEntity("1", "T2", "Au2", "", "", "", updatedAt = 0L)
+        // Refresh keeps the bump: browsing Detail must not reorder the shelf.
+        assertEquals(500L, BookRepo.preserveBookUpdatedAt(existing, fresh, now = 999L).updatedAt)
+        // First cache stamps now so a fresh download has an order key.
+        assertEquals(999L, BookRepo.preserveBookUpdatedAt(null, fresh, now = 999L).updatedAt)
     }
 }
