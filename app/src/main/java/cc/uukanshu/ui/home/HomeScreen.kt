@@ -113,7 +113,7 @@ class HomeViewModel(
                     // Tab/category changed while fetching: drop this stale page-1.
                     if (cur.tab != s.tab || cur.categoryId != s.categoryId) cur
                     else cur.copy(
-                        books = distinct, loading = false,
+                        books = distinct, loading = false, error = null,
                         page = 1, endOfList = books.isEmpty(),
                     )
                 }
@@ -133,7 +133,7 @@ class HomeViewModel(
         // Set the flag synchronously on the caller (Main) thread. Setting it
         // inside launch{} lets two rapid scroll events both pass the guard
         // before either flag is visible, double-fetching the same page.
-        _ui.value = s.copy(loadingMore = true)
+        _ui.value = s.copy(loadingMore = true, error = null)
         viewModelScope.launch {
             try {
                 val next = if (s.tab == 0) repo.recent(s.page + 1)
@@ -151,7 +151,7 @@ class HomeViewModel(
                         // keys never collide and crash.
                         val merged = mergeBooks(cur.books, next)
                         cur.copy(
-                            books = merged, page = cur.page + 1,
+                            books = merged, page = cur.page + 1, error = null,
                             loadingMore = false, endOfList = next.isEmpty(),
                         )
                     }
@@ -267,6 +267,25 @@ fun HomeScreen(onBook: (String) -> Unit) {
                         item {
                             Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator()
+                            }
+                        }
+                    }
+                    // Page-N failure with earlier pages visible: footer error + retry
+                    // instead of silently swallowing (was invisible when books non-empty).
+                    if (ui.error != null && ui.books.isNotEmpty() && !ui.loadingMore) {
+                        item {
+                            Column(
+                                Modifier.fillMaxWidth().padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Text(
+                                    ui.error!!,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                                Button({ vm.loadMore() }, Modifier.padding(top = 8.dp)) {
+                                    Text(vm.display("重試 / Retry"))
+                                }
                             }
                         }
                     }
