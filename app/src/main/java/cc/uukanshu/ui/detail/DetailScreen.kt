@@ -56,6 +56,7 @@ class DetailViewModel(
         val simplified: Boolean = false,
         val cached: Set<Int> = emptySet(),
         val offline: Boolean = false,
+        val refreshing: Boolean = false,
         val bookmarkedPosition: Int? = null,
     )
 
@@ -86,18 +87,35 @@ class DetailViewModel(
     fun refresh() {
         downloadJob?.cancel()
         viewModelScope.launch {
-            _ui.value = _ui.value.copy(loading = true, error = null)
-            try {
-                val res = repo.detailOrCached(bookId)
+            // Stale-while-revalidate: paint cache instantly, refresh silently.
+            val cached = runCatching { repo.cachedDetail(bookId) }.getOrNull()
+            if (cached != null) {
                 _ui.value = _ui.value.copy(
-                    loading = false, meta = res.detail.meta,
-                    chapters = res.detail.chapters, offline = res.offline,
+                    loading = false, error = null,
+                    meta = cached.meta, chapters = cached.chapters,
+                    offline = false, refreshing = true,
+                )
+            } else {
+                _ui.value = _ui.value.copy(loading = true, error = null, refreshing = false)
+            }
+            try {
+                val fresh = repo.detail(bookId)
+                _ui.value = _ui.value.copy(
+                    loading = false, error = null,
+                    meta = fresh.meta, chapters = fresh.chapters,
+                    offline = false, refreshing = false,
                 )
             } catch (e: Exception) {
-                _ui.value = _ui.value.copy(
-                    loading = false,
-                    error = "${e.javaClass.simpleName}: ${e.message}",
-                )
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                if (_ui.value.meta != null) {
+                    // Keep stale content visible, flag offline.
+                    _ui.value = _ui.value.copy(loading = false, refreshing = false, offline = true)
+                } else {
+                    _ui.value = _ui.value.copy(
+                        loading = false, refreshing = false,
+                        error = "${e.javaClass.simpleName}: ${e.message}",
+                    )
+                }
             }
         }
     }
@@ -159,6 +177,9 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
         else -> LazyColumn(Modifier.fillMaxSize().padding(12.dp)) {
             item {
                 val m = ui.meta!!
+                if (ui.refreshing) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 4.dp))
+                }
                 Text(vm.displayTitle(m.title), style = MaterialTheme.typography.headlineSmall)
                 if (ui.offline) {
                     Text(
