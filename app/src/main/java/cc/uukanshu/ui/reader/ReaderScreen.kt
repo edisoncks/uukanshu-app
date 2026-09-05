@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -13,9 +14,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -220,104 +223,100 @@ fun ReaderScreen(bookId: String, position: Int) {
     var menu by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize()) {
-        // Single compact row: navigation flexes, settings live in ⋯
-        // so nothing can overflow or steal reading space.
-        Row(
-            Modifier.fillMaxWidth().padding(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Button(
-                onClick = { vm.load(ui.position - 1) },
-                enabled = !ui.loading && ui.position > 1,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text(vm.display("上一章"))
-            }
-            Button(
-                onClick = {
-                    if (ui.position >= ui.total && ui.total > 0) {
-                        scope.launch { snacks.showSnackbar("已是最新一章 / end of book") }
-                    } else vm.load(ui.position + 1)
-                },
-                enabled = !ui.loading,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text(vm.display("下一章"))
-            }
-            Box {
-                TextButton(onClick = { menu = true }) {
-                    Text("⋯", fontSize = 20.sp)
+        // Reading content flexes; single sticky bottom bar (Option C:
+        // [⋯ | prev | next]) stays pinned so no duplicate nav row is needed.
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            when {
+                ui.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
                 }
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    DropdownMenuItem(
-                        text = { Text(if (ui.simplified) vm.display("簡體 ✓") else vm.display("繁體 ✓")) },
-                        onClick = { vm.toggleSimplified(); menu = false },
-                    )
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
+                ui.error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(ui.error!!)
+                        Button({ vm.load(ui.position) }, Modifier.padding(top = 12.dp)) { Text(vm.display("重試")) }
+                    }
+                }
+                else -> {
+                    val scroll = rememberScrollState()
+                    // Paging chapters reuses this composition: jump to top.
+                    LaunchedEffect(ui.position) { runCatching { scroll.scrollTo(0) } }
+                    Column(
+                        Modifier.fillMaxSize().verticalScroll(scroll).padding(16.dp),
                     ) {
-                        Text(vm.display("字體"))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(onClick = { vm.font(-0.1f) }) { Text("A-") }
-                            TextButton(onClick = { vm.font(0.1f) }) { Text("A+") }
+                        if (ui.book.isNotEmpty()) Text(ui.book, style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "${ui.position}/${ui.total} ${ui.title}",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(bottom = 12.dp),
+                        )
+                        Text(ui.text, fontSize = (17 * ui.fontScale).sp, lineHeight = (28 * ui.fontScale).sp)
+                    }
+                }
+            }
+            SnackbarHost(snacks, Modifier.align(Alignment.BottomCenter).padding(8.dp))
+        }
+        // Single sticky bottom nav: settings in ⋯ (left, out of thumb way),
+        // prev/next dominate the thumb zone.
+        Surface(tonalElevation = 3.dp) {
+            Column {
+                HorizontalDivider()
+                Row(
+                    Modifier.fillMaxWidth().navigationBarsPadding().padding(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box {
+                        TextButton(onClick = { menu = true }) {
+                            Text("⋯", fontSize = 20.sp)
+                        }
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            DropdownMenuItem(
+                                text = { Text(if (ui.simplified) vm.display("簡體 ✓") else vm.display("繁體 ✓")) },
+                                onClick = { vm.toggleSimplified(); menu = false },
+                            )
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(vm.display("字體"))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    TextButton(onClick = { vm.font(-0.1f) }) { Text("A-") }
+                                    TextButton(onClick = { vm.font(0.1f) }) { Text("A+") }
+                                }
+                            }
+                            DropdownMenuItem(
+                                text = { Text(vm.themeLabel()) },
+                                trailingIcon = {
+                                    ThemeIconButton(ui.theme, { vm.cycleTheme() }, vm::display)
+                                },
+                                onClick = { vm.cycleTheme() },
+                            )
                         }
                     }
-                    DropdownMenuItem(
-                        text = { Text(vm.themeLabel()) },
-                        trailingIcon = {
-                            ThemeIconButton(ui.theme, { vm.cycleTheme() }, vm::display)
-                        },
-                        onClick = { vm.cycleTheme() },
-                    )
-                }
-            }
-        }
-        when {
-            ui.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-            ui.error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(ui.error!!)
-                    Button({ vm.load(ui.position) }, Modifier.padding(top = 12.dp)) { Text(vm.display("重試")) }
-                }
-            }
-            else -> {
-                val scroll = rememberScrollState()
-                // Paging chapters reuses this composition: jump to top.
-                LaunchedEffect(ui.position) { runCatching { scroll.scrollTo(0) } }
-                Column(
-                    Modifier.fillMaxSize().verticalScroll(scroll).padding(16.dp),
-                ) {
-                if (ui.book.isNotEmpty()) Text(ui.book, style = MaterialTheme.typography.titleSmall)
-                Text(
-                    "${ui.position}/${ui.total} ${ui.title}",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(bottom = 12.dp),
-                )
-                Text(ui.text, fontSize = (17 * ui.fontScale).sp, lineHeight = (28 * ui.fontScale).sp)
-                Row(Modifier.fillMaxWidth().padding(top = 16.dp)) {
                     Button(
                         onClick = {
                             if (ui.position <= 1) scope.launch { snacks.showSnackbar("已是第一章 / start of book") }
                             else vm.load(ui.position - 1)
                         },
-                        modifier = Modifier.weight(1f).padding(end = 4.dp),
-                    ) { Text(vm.display("上一章")) }
+                        enabled = !ui.loading && ui.position > 1,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(vm.display("上一章"))
+                    }
                     Button(
                         onClick = {
-                            if (ui.position >= ui.total) scope.launch { snacks.showSnackbar("已是最新一章 / end of book") }
-                            else vm.load(ui.position + 1)
+                            if (ui.position >= ui.total && ui.total > 0) {
+                                scope.launch { snacks.showSnackbar("已是最新一章 / end of book") }
+                            } else vm.load(ui.position + 1)
                         },
-                        modifier = Modifier.weight(1f).padding(start = 4.dp),
-                    ) { Text(vm.display("下一章")) }
-                }
+                        enabled = !ui.loading,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(vm.display("下一章"))
+                    }
                 }
             }
         }
-        SnackbarHost(snacks)
     }
 }
