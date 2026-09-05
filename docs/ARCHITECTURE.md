@@ -67,7 +67,9 @@ UI (ViewModels)
 - `data/repo/BookRepo.kt`: cache-first reads (`cachedDetail`,
   `cachedChapterContent`), network fetch + raw save, `crawlDelay()` between
   bulk requests, progress save, library stats, delete/clear. Background
-  TOC revalidation merges without wiping downloads (by `pageId`).
+  TOC revalidation merges without wiping downloads (by `pageId`); the
+  wholesale TOC replace and single-row content writes serialize on one
+  Mutex so concurrent download/refresh never loses a committed chapter.
   Network fetches (`recent`/`category`/`search`/`detail`/`chapter`) are
   serialized through `UukanshuGate`; only the HTTP fetch holds the permit,
   parse + Room merge run outside.

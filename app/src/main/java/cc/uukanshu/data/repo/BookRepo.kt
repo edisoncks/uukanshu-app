@@ -13,6 +13,8 @@ import kotlinx.coroutines.NonCancellable
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.random.Random
 
@@ -25,6 +27,14 @@ class BookRepo(
     private val db: AppDb,
     private val gate: UukanshuGate = UukanshuGate(),
 ) {
+    /**
+     * Serializes the TOC wholesale replace in [detail] against single-row
+     * content writes ([saveChapterContent]): without this, a download UPDATE
+     * committing between the replace's content snapshot and its
+     * delete+reinsert is silently lost. Network stays outside the lock —
+     * only the short DB critical sections serialize.
+     */
+    private val dbWrite = Mutex()
     suspend fun category(categoryId: Int, page: Int): List<Parser.BookItem> =
         gate.withPermit {
             withContext(Dispatchers.IO) {
@@ -151,20 +161,22 @@ class BookRepo(
         // Atomic replace: without the delete, a shrunken TOC leaves stale
         // rows past the new end (ghost chapters with stale text/counts).
         runCatching {
-            db.withTransaction {
-                val existing = db.books().book(bookId)
-                val now = System.currentTimeMillis()
-                db.books().upsert(
-                    preserveBookUpdatedAt(
-                        existing,
-                        BookEntity(bookId, meta.title, meta.author, meta.intro, meta.category, meta.latestChapterTitle),
-                        now,
-                    ),
-                )
-                val cached = db.chapters().chapters(bookId)
-                    .associate { it.pageId to it.content }
-                db.chapters().deleteBook(bookId)
-                db.chapters().upsertAll(mergeToc(bookId, chapters, cached))
+            dbWrite.withLock {
+                db.withTransaction {
+                    val existing = db.books().book(bookId)
+                    val now = System.currentTimeMillis()
+                    db.books().upsert(
+                        preserveBookUpdatedAt(
+                            existing,
+                            BookEntity(bookId, meta.title, meta.author, meta.intro, meta.category, meta.latestChapterTitle),
+                            now,
+                        ),
+                    )
+                    val cached = db.chapters().chapters(bookId)
+                        .associate { it.pageId to it.content }
+                    db.chapters().deleteBook(bookId)
+                    db.chapters().upsertAll(mergeToc(bookId, chapters, cached))
+                }
             }
         }.onFailure { if (it is CancellationException) throw it }
             Detail(meta, chapters)
@@ -186,7 +198,9 @@ class BookRepo(
         db.chapters().cachedPositionsFlow(bookId).map { it.toSet() }
 
     suspend fun saveChapterContent(bookId: String, position: Int, content: String) {
-        db.chapters().updateContent(bookId, position, content)
+        dbWrite.withLock {
+            db.chapters().updateContent(bookId, position, content)
+        }
     }
 
     /**
@@ -299,9 +313,13 @@ class BookRepo(
     }
 
     suspend fun deleteBook(bookId: String) = withContext(Dispatchers.IO) {
-        db.chapters().deleteBook(bookId)
-        db.books().deleteBook(bookId)
-        db.progress().deleteBook(bookId)
+        dbWrite.withLock {
+            db.withTransaction {
+                db.chapters().deleteBook(bookId)
+                db.books().deleteBook(bookId)
+                db.progress().deleteBook(bookId)
+            }
+        }
     }
 
     suspend fun clearAll() = withContext(Dispatchers.IO) {
