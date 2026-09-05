@@ -42,7 +42,9 @@ import cc.uukanshu.repo
 import cc.uukanshu.ui.ThemeIconButton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class HomeViewModel(
@@ -97,29 +99,39 @@ class HomeViewModel(
 
     fun selectTab(tab: Int) {
         if (_ui.value.tab == tab) return
-        _ui.value = Ui(tab = tab, categoryId = _ui.value.categoryId, loading = true,
-            simplified = _ui.value.simplified)
+        val cur = _ui.value
+        _ui.value = Ui(tab = tab, categoryId = cur.categoryId, loading = true,
+            simplified = cur.simplified, theme = cur.theme)
         refresh()
     }
 
     fun selectCategory(id: Int) {
         _ui.value = _ui.value.copy(tab = 1, categoryId = id, page = 1, books = emptyList(),
-            loading = true, endOfList = false, error = null)
+            loading = true, loadingMore = false, endOfList = false, error = null)
         refresh()
     }
 
     fun refresh() {
         val s = _ui.value
+        // Set loading synchronously so a concurrent loadMore() sees it and stands down.
+        _ui.value = s.copy(loading = true, loadingMore = false, error = null)
         viewModelScope.launch {
-            _ui.value = s.copy(loading = true, error = null)
             try {
                 val books = if (s.tab == 0) repo.recent(1) else repo.category(s.categoryId, 1)
-                _ui.value = s.copy(
-                    books = books, loading = false,
-                    page = 1, endOfList = books.isEmpty(),
-                )
+                val distinct = books.distinctBy { it.id }
+                _ui.update { cur ->
+                    // Tab/category changed while fetching: drop this stale page-1.
+                    if (cur.tab != s.tab || cur.categoryId != s.categoryId) cur
+                    else cur.copy(
+                        books = distinct, loading = false,
+                        page = 1, endOfList = books.isEmpty(),
+                    )
+                }
             } catch (e: Exception) {
-                _ui.value = s.copy(loading = false, error = "${e.javaClass.simpleName}: ${e.message}")
+                _ui.update { cur ->
+                    if (cur.tab != s.tab || cur.categoryId != s.categoryId) cur
+                    else cur.copy(loading = false, error = "${e.javaClass.simpleName}: ${e.message}")
+                }
             }
         }
     }
@@ -127,19 +139,49 @@ class HomeViewModel(
     fun loadMore() {
         val s = _ui.value
         if (s.loading || s.loadingMore || s.endOfList) return
+        // Set the flag synchronously on the caller (Main) thread. Setting it
+        // inside launch{} lets two rapid scroll events both pass the guard
+        // before either flag is visible, double-fetching the same page.
+        _ui.value = s.copy(loadingMore = true)
         viewModelScope.launch {
-            _ui.value = s.copy(loadingMore = true)
             try {
                 val next = if (s.tab == 0) repo.recent(s.page + 1)
                 else repo.category(s.categoryId, s.page + 1)
-                _ui.value = s.copy(
-                    books = s.books + next, page = s.page + 1,
-                    loadingMore = false, endOfList = next.isEmpty(),
-                )
+                _ui.update { cur ->
+                    // Tab/category switched, or a refresh() started while we were
+                    // fetching: drop this stale page instead of overwriting fresh state.
+                    // (Fresh Ui already has loadingMore=false, so just return it.)
+                    if (cur.tab != s.tab || cur.categoryId != s.categoryId ||
+                        cur.page != s.page || cur.loading
+                    ) cur
+                    else {
+                        // Live-shifted recent feed overlaps pages (verified: id 25745
+                        // on both page 1 and 2): dedup by stable id so LazyColumn
+                        // keys never collide and crash.
+                        val merged = mergeBooks(cur.books, next)
+                        cur.copy(
+                            books = merged, page = cur.page + 1,
+                            loadingMore = false, endOfList = next.isEmpty(),
+                        )
+                    }
+                }
             } catch (e: Exception) {
-                _ui.value = s.copy(loadingMore = false, error = "${e.javaClass.simpleName}: ${e.message}")
+                _ui.update { cur ->
+                    if (cur.tab != s.tab || cur.categoryId != s.categoryId ||
+                        cur.page != s.page || cur.loading
+                    ) cur
+                    else cur.copy(loadingMore = false, error = "${e.javaClass.simpleName}: ${e.message}")
+                }
             }
         }
+    }
+
+    companion object {
+        /** Append a page, dropping overlap by stable book id (feed shifts live). */
+        fun mergeBooks(
+            old: List<Parser.BookItem>,
+            next: List<Parser.BookItem>,
+        ): List<Parser.BookItem> = (old + next).distinctBy { it.id }
     }
 }
 
@@ -183,6 +225,11 @@ fun HomeScreen(onBook: (String) -> Unit) {
                 }
             }
         }
+        // Hoisted so appends don't reset scroll; reset explicitly on tab/category switch.
+        val listState = rememberLazyListState()
+        LaunchedEffect(ui.tab, ui.categoryId) {
+            listState.scrollToItem(0)
+        }
         when {
             ui.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
@@ -194,15 +241,22 @@ fun HomeScreen(onBook: (String) -> Unit) {
                 }
             }
             else -> {
-                val listState = rememberLazyListState()
                 LaunchedEffect(listState, ui.tab, ui.categoryId) {
-                    snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
-                        .collect { idx ->
-                            if (idx != null && idx >= ui.books.size - 3) vm.loadMore()
-                        }
+                    // Observe live totalItemsCount, not a stale ui.books.size capture:
+                    // the old threshold never advanced after appends, refiring
+                    // loadMore() for pages 3,4,5... without further scrolling.
+                    snapshotFlow {
+                        val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index
+                        val total = listState.layoutInfo.totalItemsCount
+                        last to total
+                    }.distinctUntilChanged().collect { (idx, total) ->
+                        if (idx != null && total > 0 && idx >= total - 3) vm.loadMore()
+                    }
                 }
                 LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(8.dp)) {
-                    items(ui.books, key = { it.id + it.title }) { b ->
+                    // Stable id key: recent feed shifts live (same id across pages),
+                    // and id+title duplicates crash LazyColumn. Dedup happens in VM.
+                    items(ui.books, key = { it.id }) { b ->
                         Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onBook(b.id) }) {
                             Column(Modifier.padding(12.dp)) {
                                 Text(vm.display(b.title), style = MaterialTheme.typography.titleMedium)
