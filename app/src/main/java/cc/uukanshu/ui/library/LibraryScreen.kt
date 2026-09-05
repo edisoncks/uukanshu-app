@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -19,6 +20,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -106,13 +110,30 @@ fun LibraryScreen(onBook: (String) -> Unit) {
     })
     val ui by vm.ui.collectAsState()
     LaunchedEffect(Unit) { vm.refresh() }
+    // Destructive, unrecoverable (includes metered downloads): confirm first.
+    var confirmClear by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().padding(12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(vm.display("已緩存"), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
             if (ui.books.isNotEmpty()) {
-                TextButton(onClick = { vm.clearAll() }) { Text(vm.display("清空全部")) }
+                TextButton(onClick = { confirmClear = true }) { Text(vm.display("清空全部")) }
             }
+        }
+        if (confirmClear) {
+            AlertDialog(
+                onDismissRequest = { confirmClear = false },
+                title = { Text(vm.display("清空全部緩存？")) },
+                text = { Text(vm.display("將刪除所有已下載的章節，且無法還原。")) },
+                confirmButton = {
+                    TextButton(onClick = { confirmClear = false; vm.clearAll() }) {
+                        Text(vm.display("清空"))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmClear = false }) { Text(vm.display("取消")) }
+                },
+            )
         }
         val total = ui.books.sumOf { it.bytes }
         Text(
