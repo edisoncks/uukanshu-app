@@ -36,11 +36,14 @@ class UpdateDownloader(private val context: Context) {
     /**
      * Enqueue the download. Returns the [DownloadManager] id, or -1 when a
      * complete file for this version is already on disk (caller can install).
+     * Completeness means byte-exact match against the GitHub asset size;
+     * anything else (missing, empty, partial, or unknown size) is deleted
+     * and re-downloaded. Length > 0 alone proves nothing after a kill.
      */
     fun enqueue(info: UpdateInfo): Long {
         deleteStaleApks(keepName = info.apkName)
         val file = apkFile(info)
-        if (file.exists() && file.length() > 0) return -1L
+        if (isComplete(file, info.size)) return -1L
         if (file.exists()) file.delete()
         val req = DownloadManager.Request(Uri.parse(info.apkUrl))
             .setTitle("uukanshu ${info.tag}")
@@ -97,6 +100,13 @@ class UpdateDownloader(private val context: Context) {
     }
 
     companion object {
+        /** Byte-exact completeness check shared by enqueue/alreadyHave/install. */
+        fun isComplete(file: File, expectedSize: Long?): Boolean {
+            if (!file.exists()) return false
+            if (expectedSize == null) return false
+            return file.length() == expectedSize
+        }
+
         /** Local version via PackageManager (no BuildConfig flag needed). */
         fun currentVersion(context: Context): String = runCatching {
             val pm = context.packageManager

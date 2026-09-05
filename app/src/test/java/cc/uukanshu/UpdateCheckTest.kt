@@ -87,4 +87,20 @@ class UpdateApiParseTest {
         assertNotNull(info)
         assertEquals("app.apk", info!!.apkName)
     }
+
+    @Test
+    fun `parses asset size when present`() {
+        val info = UpdateApi.parse(
+            """{"tag_name":"v1.0.18","assets":[{"name":"uukanshu-1.0.18.apk","browser_download_url":"https://example.com/u.apk","size":12345678}]}""",
+        )
+        assertNotNull(info)
+        assertEquals(12345678L, info!!.size)
+    }
+
+    @Test
+    fun `size null when absent`() {
+        val info = UpdateApi.parse(payload)
+        assertNotNull(info)
+        assertNull(info!!.size)
+    }
 }

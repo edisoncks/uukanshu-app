@@ -22,6 +22,8 @@ data class UpdateInfo(
     val apkUrl: String,
     val apkName: String,
     val htmlUrl: String,
+    /** Asset size in bytes from GitHub, null when unknown. */
+    val size: Long? = null,
 )
 
 /** Numeric dot-separated compare (`1.0.15` > `1.0.9`); pure + unit-tested. */
@@ -106,6 +108,8 @@ class UpdateApi(
             val url = ((asset["browser_download_url"] as? String) ?: "").trim()
             val name = ((asset["name"] as? String) ?: "").trim()
             if (url.isEmpty() || name.isEmpty()) return null
+            // GitHub reports asset size as a JSON number; absent on old payloads.
+            val size = (asset["size"] as? Number)?.toLong()?.takeIf { it > 0 }
             UpdateInfo(
                 tag = tag,
                 version = VersionCompare.normalize(tag),
@@ -113,6 +117,7 @@ class UpdateApi(
                 apkUrl = url,
                 apkName = name,
                 htmlUrl = ((root["html_url"] as? String) ?: "").trim(),
+                size = size,
             )
         }.getOrNull()
     }

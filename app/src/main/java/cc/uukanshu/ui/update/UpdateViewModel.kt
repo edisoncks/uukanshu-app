@@ -92,10 +92,10 @@ class UpdateViewModel(
                 return
             }
             // Same-version APK already downloaded (e.g. process died mid-flow):
-            // skip straight to the install prompt.
+            // skip straight to the install prompt. Byte-exact size match only;
+            // a partial file must re-download, never install.
             val alreadyHave = withContext(Dispatchers.IO) {
-                val f = downloader.apkFile(info)
-                f.exists() && f.length() > 0
+                UpdateDownloader.isComplete(downloader.apkFile(info), info.size)
             }
             _ui.update {
                 it.copy(checking = false, visible = true, info = info,
@@ -129,7 +129,10 @@ class UpdateViewModel(
     fun skipVersion() {
         val v = _ui.value.info?.version ?: return
         viewModelScope.launch { prefs.setSkippedVersion(v) }
-        dismiss()
+        // Skipping means go away: clear the pending update so the Settings
+        // banner and dialog don't come straight back. Next manual check
+        // re-fetches (manual ignores skipped); auto stays suppressed.
+        _ui.update { it.copy(visible = false, upToDate = false, error = null, info = null) }
     }
 
     fun startDownload() {
@@ -144,16 +147,57 @@ class UpdateViewModel(
                 needsUnknownSources = false)
         }
         viewModelScope.launch(Dispatchers.IO) {
-            val id = downloader.enqueue(info)
-            if (id == -1L) {
-                _ui.update { it.copy(downloading = false, fileReady = true) }
+            val id = try {
+                downloader.enqueue(info)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    // Never leave the dialog wedged in "downloading" with no job.
+                    _ui.update {
+                        it.copy(
+                            downloading = false,
+                            error = "${e.javaClass.simpleName}: ${e.message}",
+                            downloadId = null,
+                        )
+                    }
+                }
                 return@launch
             }
-            _ui.update { it.copy(downloadId = id) }
-            pollJob?.cancel()
-            pollJob = viewModelScope.launch {
-                while (true) {
-                    when (val s = withContext(Dispatchers.IO) { downloader.query(id) }) {
+            if (id == -1L) {
+                withContext(Dispatchers.Main) {
+                    _ui.update { it.copy(downloading = false, fileReady = true) }
+                }
+                return@launch
+            }
+            // Publish from Main: cancelDownload() reads/writes the same state
+            // on Main. Publishing from IO let a fast cancel slip between
+            // enqueue and publication, leaking a DM download the UI forgot.
+            withContext(Dispatchers.Main) {
+                if (!_ui.value.downloading) {
+                    // Cancelled while enqueueing: drop the just-created download.
+                    viewModelScope.launch(Dispatchers.IO) { downloader.cancel(id) }
+                    return@withContext
+                }
+                _ui.update { it.copy(downloadId = id) }
+                pollJob?.cancel()
+                pollJob = viewModelScope.launch {
+                    while (true) {
+                        val s = try {
+                            withContext(Dispatchers.IO) { downloader.query(id) }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            _ui.update {
+                                it.copy(
+                                    downloading = false,
+                                    error = "${e.javaClass.simpleName}: ${e.message}",
+                                    downloadId = null,
+                                )
+                            }
+                            return@launch
+                        }
+                        when (s) {
                         is DownloadStatus.Running -> _ui.update {
                             it.copy(progress = s.progress)
                         }
@@ -175,6 +219,7 @@ class UpdateViewModel(
                     delay(500)
                 }
             }
+            }
         }
     }
 
@@ -192,8 +237,8 @@ class UpdateViewModel(
     fun install() {
         val info = _ui.value.info ?: return
         val file = downloader.apkFile(info)
-        if (!file.exists()) {
-            _ui.update { it.copy(fileReady = false, error = "APK file missing, please re-download") }
+        if (!UpdateDownloader.isComplete(file, info.size)) {
+            _ui.update { it.copy(fileReady = false, error = "APK file missing or incomplete, please re-download") }
             return
         }
         app.startActivity(UpdateDownloader.installIntent(app, file))
