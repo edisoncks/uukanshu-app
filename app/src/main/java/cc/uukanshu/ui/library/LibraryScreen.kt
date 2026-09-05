@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -22,6 +23,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -110,6 +112,11 @@ fun LibraryScreen(onBook: (String) -> Unit) {
     })
     val ui by vm.ui.collectAsState()
     LaunchedEffect(Unit) { vm.refresh() }
+    // Saveable so detail->back restores index/offset via the library
+    // back-stack entry; plain remember is discarded with the composition.
+    val listState = rememberSaveable(saver = LazyListState.Saver) {
+        LazyListState()
+    }
     // Destructive, unrecoverable (includes metered downloads): confirm first.
     var confirmClear by remember { mutableStateOf(false) }
 
@@ -141,7 +148,10 @@ fun LibraryScreen(onBook: (String) -> Unit) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        if (ui.loading) {
+        // Stale-while-revalidate: keep the old list visible during
+        // return-refresh so the saveable scroll position isn't lost to a
+        // full-screen spinner; spinner only for the initial empty load.
+        if (ui.loading && ui.books.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
@@ -150,7 +160,7 @@ fun LibraryScreen(onBook: (String) -> Unit) {
                 Text(vm.display("尚無緩存 — 在書籍詳情頁下載整本"), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
-            LazyColumn(Modifier.fillMaxSize()) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                 items(ui.books, key = { it.id }) { b ->
                     Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onBook(b.id) }) {
                         Column(Modifier.padding(12.dp)) {
