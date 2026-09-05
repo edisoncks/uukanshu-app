@@ -39,8 +39,8 @@ tab/category/position changed mid-fetch.
 |---|---|
 | Home (`ui/home`) | Tabs 最近更新 (recent) / 分類 (category). Category chips (`AssistChip`), Paging 3 `LazyColumn` (one HTML page per load, prefetch automatic). `BookPagingSource` filters already-seen ids per list because the live recent feed overlaps pages; one cached Pager per tab/category (`pagingFor`, keyed `recent`/`cat-{id}`) so ids never leak across lists and detail→back replays cached pages instead of refetching page 1 (a `_ui.flatMapLatest { Pager }` Flow would rebuild the Pager on every re-collection and lose scroll). Refresh/append load-states drive the spinner, error + retry and empty states — the old hand-rolled `page`/`loadingMore`/`endOfList`/stale-drop/`mergeBooks` machinery is gone. Scroll is per-list: `rememberSaveable(key="home-$key")` + ViewModel map restores on detail→back (HOME entry is retained); explicit tab/category switches (`selectTab`/`selectCategory`) set a one-shot `pendingTop` flag consumed via `scrollToItem(0)`. |
 | Search (`ui/search`) | `queries` flow with 400ms `debounce` + `flatMapLatest` into `repo.search()` (superseded searches cancel structurally — no manual job/activeQuery guard), dedup by book id, follows `Prefs.simplified` live. Sealed `Ui` (Idle/Loading/Success/Error): impossible states are unrepresentable and the `when` is exhaustive. Shows result count (共 … 條結果), loading / error + retry / 沒有結果 (no results) states. |
-| Detail (`ui/detail`) | Sealed `Load` (Loading/Failed/Ready) split from live overlays (download progress, cache badges, bookmark, prefs): stale-while-revalidate paints cached TOC instantly (`Ready(refreshing=true)` with a thin bar), offline-with-cache keeps content + 離線模式 flag, offline-without-cache shows error + retry. An empty fresh TOC is treated as refresh failure (never wipes painted cache). Live flows for badges (`cachedPositionsFlow`) and bookmark (`bookmarkFlow` pageId-based via `resolveBookmark`, rows keyed by `pageId`) compose orthogonally. Full-novel download is app-scoped (`BookDownloadManager` survives leaving detail, re-attaches on re-open; one book at a time — a second tapped book queues — sequential chapters, cancelable, progress `done/downloadTotal` from the manager, coerced 0..1); refresh never cancels a running download. |
-| Reader (`ui/reader`) | Loads by 1-based `position` into TOC. Sealed `Ui` (Loading/Content/Error with position/total/prefs on the interface for the sticky bottom bar) — content+spinner combos are unrepresentable. Cache-first chapter text (read/written by stable `pageId`, so shifts can't misfile), silent auto-bookmark (`saveProgress(bookId, position, pageId)`, failures ignored), silent prefetch of next 5 (sequential with crawl delay, failures ignored). TOC itself is stale-while-revalidate; empty revalidations are ignored and the blocking first-fetch keeps stale on empty so `total` never zeroes into bogus "out of range". Prev/next serialize via `loadJob` (last-tapped wins). Bottom bar: `⋯` menu (language, font A±, theme cycle) + 上一章 / 下一章. Out-of-range and load errors show retry. |
+| Detail (`ui/detail`) | Sealed `Load` (Loading/Failed/Ready) split from live overlays (download progress, cache badges, bookmark, prefs): stale-while-revalidate paints cached TOC instantly (`Ready(refreshing=true)` with a thin bar), offline-with-cache keeps content + 離線模式 flag, offline-without-cache shows error + retry. An empty fresh TOC is treated as refresh failure (never wipes painted cache). Live flows for badges (`cachedPositionsFlow: Set<pageId>`, never positions — positions shift on TOC inserts and would mislabel badges) and bookmark (`bookmarkFlow` pageId-based via `resolveBookmark`, rows keyed by `pageId`) compose orthogonally. Full-novel download is app-scoped (`BookDownloadManager` survives leaving detail, re-attaches on re-open; one book at a time — a second tapped book queues — sequential chapters, cancelable, progress `done/downloadTotal` from the manager, coerced 0..1); refresh never cancels a running download. |
+| Reader (`ui/reader`) | Loads by 1-based `position` + stable `pageId` into TOC (`resolveEffectivePosition` prefers `pageId`, pure + tested). Sealed `Ui` (Loading/Content/Error with position/total/prefs on the interface for the sticky bottom bar) — content+spinner combos are unrepresentable. Cache-first chapter text (read/written by stable `pageId`, so shifts can't misfile), silent auto-bookmark (`saveProgress(bookId, position, pageId)`, failures ignored), silent prefetch of next 5 (sequential with crawl delay, failures ignored). TOC itself is stale-while-revalidate; empty revalidations are ignored and the blocking first-fetch keeps stale on empty so `total` never zeroes into bogus "out of range". Prev/next serialize via `loadJob` (last-tapped wins). Bottom bar: `⋯` menu (language, font A±, theme cycle) + 上一章 / 下一章. Out-of-range and load errors show retry. |
 | Library (`ui/library`) | Sealed `Load` (Loading/Failed/Shelf with optional footer error) split from live overlays (per-book download states, fresh-download titles): stale-while-revalidate keeps rows on return-refresh, spinner only for the initial empty load, refresh failures surface as footer retry with rows or full-screen without. Lists `repo.library()` (`CachedBook`: id/title/author/cached/total/bytes), total `N 本 · size`, per-book 刪除緩存 (delete) + 清空全部 (clear all, behind a confirm dialog). Deletes also evict retained `BookDownloadManager` state so re-opened details can't replay stale progress (terminal publishes after `forget()` are dropped; old-job `finally` never evicts a new job). Failed downloads offer 重試 on the shelf row itself. Progress publishes are dropped once the job is gone, so cancel can't lose to an in-flight callback. Live `BookDownloadManager` progress per book (`下載中 done/total` + 取消, incl. fresh downloads not yet qualified for the shelf). While downloading, the shelf hides the stale `cached/total` count and shows only the live `done/total` line so progress never appears twice. Empty state hints at downloading from the detail page. |
 | Settings (`ui/settings`) | Three cards: 外觀 (appearance radio: 自動/淺色/深色), 語言 (language switch 繁體/簡體), 更新 (current version 目前版本, 檢查更新 button, checking spinner, up-to-date note, reopen-dismissed-update button, 跳過此版本 skip). Writes go to `Prefs` so all screens follow live. |
 | Update (`ui/update`) | `UpdateDialog` renders every updater state (checking / up-to-date / error / new-version / downloading / file-ready / needs-unknown-sources) from `UpdateViewModel.Ui`. `startDownload` checks the on-disk APK first, so a complete file skips the unknown-sources gate straight to install. See "In-app update" below. |
@@ -51,7 +51,7 @@ tab/category/position changed mid-fetch.
 UI (ViewModels)
  └─ BookRepo            # orchestration: cache-first, prefetch, downloadAll, progress
      ├─ SiteApi         # raw HTTP (GET pages, POST /search), owns UukanshuGate per attempt
-     ├─ UukanshuGate    # single-flight Mutex: at most 1 uukanshu.cc request
+     ├─ UukanshuGate    # single-flight Mutex: at most 1 uukanshu.cc request (fail-fast on nesting, never deadlock)
      ├─ BookDownloadManager # app-scoped full-book jobs, one at a time (survive detail)
      ├─ Parser          # pure HTML → data classes (BookItem, BookMeta, ChapterRef, ChapterContent)
      ├─ Room (AppDb)    # cached TOC/chapters/progress; schemas in app/schemas/
@@ -92,22 +92,31 @@ UI (ViewModels)
   `room.schemaDirectory("$projectDir/schemas")` exports schemas; keep them
   in version control. DB v4 adds `progress.pageId` (MIGRATION_3_4) so
   continue-reading survives TOC shifts; `position` stays as display order +
-  pre-v4 fallback.
+  pre-v4 fallback. Single write paths `AppDb.replaceToc/deleteBookFull/clearAllFull`
+  (`@Transaction`) own snapshot+delete+reinsert so callers cannot forget the
+  content merge (wiped downloads) or the delete (ghost rows); the repo `dbWrite`
+  Mutex serializes them against single-row content writes.
 - `core/Errors.kt`: single error-formatting policy. `message` (with
   `ClassName:` prefix) is for logs only; all dialog/snackbar/error-state
   text goes through `userMessage` (raw detail, class-name fallback only
   when blank). ViewModels/managers must not inline `"${e.javaClass...}"`;
   cancellation always propagates via `messageOrThrow` / `userMessageOrThrow`
-  (unit-tested in `ErrorsTest`).
+  plus suspend helpers `runCatchingExceptCancel` / `suppressExceptCancel`
+  (`kotlin.runCatching` catches `CancellationException`; the helpers rethrow).
+  All suspend catch sites use them (unit-tested in `ErrorsTest` + `HardeningTest`).
 - `data/prefs/Prefs.kt` (DataStore `uukanshu`): `simplified: Boolean`
-  (default false), `fontScale: Float` (default 1.0, clamped 0.8–1.6 on read
-  and write),
-  `theme: String` (`system`/`light`/`dark`), `lastUpdateCheck: Long`,
+  (default false), `fontScale: Float` (default 1.0, single `FONT_MIN/MAX`
+  bounds shared by read-clamp, write-clamp and reader step),
+  `theme: String` (`system`/`light`/`dark`, `normalizeTheme` fails safe to
+  `system`), `lastUpdateCheck: Long`,
   `skippedVersion: String`. All UI prefs are `Flow`s; screens collect them
   so a change in Settings re-renders everywhere live.
 - `data/convert/T2S.kt` (opencc4j): Traditional → Simplified is applied
   **at render time only**; caches and DB always store raw Traditional.
   Reader re-renders `currentRaw` on toggle with no network or spinner.
+- `core/Display.kt`: single `Display.text(t2s, raw, simplified)` rule — every
+  `display()` delegates here so no screen can mix scripts while the rest
+  follow the toggle.
 
 ## Offline cache model
 
@@ -115,7 +124,7 @@ UI (ViewModels)
   (DB v3+; `position` is display order only, indexed). The old
   `(bookId, position)` key misfiled text after TOC shifts.
 - Detail badges (✓ 已緩存) and counts (已緩存 N 章) derive from cached
-  positions; Library shows per-book `cached/total` + bytes.
+  pageIds (`cachedPositionsFlow: Set<Long>`); Library shows per-book `cached/total` + bytes.
 - Bookmarks are `(position, pageId)` (DB v4): continue-reading resolves by
   stable `pageId` first (`resolveBookmark`), falling back to `position` only
   for pre-v4 rows or vanished chapters (never a neighbor).
@@ -128,7 +137,7 @@ UI (ViewModels)
 ## In-app update
 
 Files: `data/update/` (`UpdateApi`, `UpdateDownloader`, `VersionCompare`,
-`JsonMini`) + `ui/update/` (`UpdateViewModel`, `UpdateDialog`).
+`JsonMini` strict — trailing garbage fails the parse) + `ui/update/` (`UpdateViewModel`, `UpdateDialog`).
 
 - Source: GitHub Releases API. Auto-check throttled to once per 24h
   (`AUTO_CHECK_INTERVAL_MS`, persisted `lastUpdateCheck`); manual check from
@@ -140,9 +149,10 @@ Files: `data/update/` (`UpdateApi`, `UpdateDownloader`, `VersionCompare`,
 - Download via system `DownloadManager`, polled through
   `UpdateDownloader.observe(id)` (emits `DownloadStatus` until terminal,
   then completes) with progress (0..1, indeterminate fallback). The VM
-  only maps states to dialog state. Byte-exact size verification
-  (`isComplete` for alreadyHave/enqueue; `isInstallable` lenient after a fresh
-  DownloadManager Success so sizeless releases stay installable), FileProvider +
+  only maps states to dialog state. Single file-state table `ApkState`
+  (`Missing/Partial/Ready`, `apkState(file, size, dmSuccess)`; `isComplete`
+  strict without DM receipt for alreadyHave/enqueue, `isInstallable` lenient
+  with receipt after a fresh Success so sizeless releases stay installable), FileProvider +
   installer intent handoff. Same-version file already on disk skips straight
   to install. `REQUEST_INSTALL_PACKAGES` permission + system "unknown sources"
   grant required (first in-app update prompts once).

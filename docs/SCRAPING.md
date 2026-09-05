@@ -11,6 +11,10 @@ the reference implementation for fetch/parse semantics.
   are treated as invalid, never thrown.
 - **Text only.** `<img>` / iframes / scripts are never fetched or rendered.
   `SiteApi` only requests HTML pages; `Parser` never surfaces image nodes.
+- **Single id/URL rules:** `normalizeBookId` is the only book-id normalizer
+  (numeric compare, `Int`-overflow → null, never throw); `canonicalChapterUrl`
+  is the only resolve→strip-`?#`→validate step for TOC + prev/next, so
+  tracking params never fork cache keys and validation cannot drift.
 - App sends `POST /search` for search (fields `searchkey`, `searchtype=all`).
 - Category catalogue is fixed (ids 1–10): 玄幻奇幻, 武俠仙俠, 現代都市,
   歷史軍事, 科幻小說, 遊戲競技, 恐怖靈異, 言情小說, 動漫同人, 其他類型 —
