@@ -116,7 +116,7 @@ class UpdateViewModel(
             if (manual) {
                 _ui.update {
                     it.copy(checking = false, visible = true,
-                        error = Errors.message(e))
+                        error = Errors.userMessage(e))
                 }
             } else {
                 // Auto-check is best-effort: stay silent offline / rate-limited.
@@ -178,7 +178,7 @@ class UpdateViewModel(
                     _ui.update {
                         it.copy(
                             downloading = false,
-                            error = Errors.message(e),
+                            error = Errors.userMessage(e),
                             downloadId = null,
                         )
                     }
@@ -228,7 +228,7 @@ class UpdateViewModel(
                         _ui.update {
                             it.copy(
                                 downloading = false,
-                                error = Errors.message(e),
+                                error = Errors.userMessage(e),
                                 downloadId = null,
                             )
                         }

@@ -127,7 +127,7 @@ class SearchViewModel(
                             if (e is CancellationException) throw e
                             emit(
                                 Ui.Error(
-                                    message = Errors.message(e),
+                                    message = Errors.userMessage(e),
                                     totalOrNull = _ui.value.totalOrNull,
                                     simplified = _ui.value.simplified,
                                 ),

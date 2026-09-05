@@ -313,7 +313,7 @@ class ReaderViewModel(
                 _ui.value = Ui.Error(
                     position = cur.position,
                     total = cur.total,
-                    message = Errors.message(e),
+                    message = Errors.userMessage(e),
                     simplified = cur.simplified,
                     fontScale = cur.fontScale,
                     theme = cur.theme,

@@ -93,9 +93,12 @@ UI (ViewModels)
   in version control. DB v4 adds `progress.pageId` (MIGRATION_3_4) so
   continue-reading survives TOC shifts; `position` stays as display order +
   pre-v4 fallback.
-- `core/Errors.kt`: single error-formatting policy (`Errors.message`).
-  ViewModels/managers must not inline `"${e.javaClass...}"`; cancellation
-  always propagates via `messageOrThrow` (unit-tested in `ErrorsTest`).
+- `core/Errors.kt`: single error-formatting policy. `message` (with
+  `ClassName:` prefix) is for logs only; all dialog/snackbar/error-state
+  text goes through `userMessage` (raw detail, class-name fallback only
+  when blank). ViewModels/managers must not inline `"${e.javaClass...}"`;
+  cancellation always propagates via `messageOrThrow` / `userMessageOrThrow`
+  (unit-tested in `ErrorsTest`).
 - `data/prefs/Prefs.kt` (DataStore `uukanshu`): `simplified: Boolean`
   (default false), `fontScale: Float` (default 1.0, clamped 0.8–1.6 on read
   and write),

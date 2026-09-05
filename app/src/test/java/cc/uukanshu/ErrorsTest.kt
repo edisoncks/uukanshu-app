@@ -30,4 +30,26 @@ class ErrorsTest {
             Errors.messageOrThrow(IOException("boom")),
         )
     }
+
+    @Test fun userMessageStripsClassPrefix() {
+        assertEquals("boom", Errors.userMessage(IOException("boom")))
+    }
+
+    @Test fun userMessageFallsBackToClassWhenBlank() {
+        assertEquals("IOException", Errors.userMessage(IOException()))
+        assertEquals("IOException", Errors.userMessage(IOException("  ")))
+    }
+
+    @Test fun userMessageOrThrowRethrowsCancellation() {
+        try {
+            Errors.userMessageOrThrow(CancellationException("stop"))
+            fail("must rethrow CancellationException")
+        } catch (e: CancellationException) {
+            assertEquals("stop", e.message)
+        }
+    }
+
+    @Test fun userMessageOrThrowReturnsFriendlyOtherwise() {
+        assertEquals("boom", Errors.userMessageOrThrow(IOException("boom")))
+    }
 }

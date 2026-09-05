@@ -187,7 +187,7 @@ class DetailViewModel(
                     when (val l = cur.load) {
                         // Keep stale content visible, flag offline.
                         is Load.Ready -> cur.copy(load = l.copy(refreshing = false, offline = true))
-                        else -> cur.copy(load = Load.Failed(Errors.message(e)))
+                        else -> cur.copy(load = Load.Failed(Errors.userMessage(e)))
                     }
                 }
             }

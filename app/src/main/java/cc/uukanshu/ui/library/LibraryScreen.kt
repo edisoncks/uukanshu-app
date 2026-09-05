@@ -140,8 +140,8 @@ class LibraryViewModel(
                     // DB failure is a failure, not an empty shelf: footer
                     // when rows are on screen, full-screen when empty.
                     when (val l = cur.load) {
-                        is Load.Shelf -> cur.copy(load = l.copy(error = Errors.message(e)))
-                        else -> cur.copy(load = Load.Failed(Errors.message(e)))
+                        is Load.Shelf -> cur.copy(load = l.copy(error = Errors.userMessage(e)))
+                        else -> cur.copy(load = Load.Failed(Errors.userMessage(e)))
                     }
                 }
             }

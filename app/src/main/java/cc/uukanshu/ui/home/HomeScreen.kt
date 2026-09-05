@@ -258,7 +258,7 @@ fun HomeScreen(onBook: (String) -> Unit) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            Errors.message(refresh.error),
+                            Errors.userMessage(refresh.error),
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Button({ books.retry() }, Modifier.padding(top = 12.dp)) {
@@ -326,7 +326,7 @@ fun HomeScreen(onBook: (String) -> Unit) {
                                 horizontalAlignment = Alignment.CenterHorizontally,
                             ) {
                                 Text(
-                                    Errors.message(append.error),
+                                    Errors.userMessage(append.error),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.error,
                                 )
