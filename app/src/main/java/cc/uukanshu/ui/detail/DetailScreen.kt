@@ -85,7 +85,9 @@ class DetailViewModel(
     }
 
     fun refresh() {
-        downloadJob?.cancel()
+        // Never cancel the download here: refresh (init/retry) and the
+        // manual full download are independent jobs. Killing the download
+        // on any refresh would silently abort user-requested work.
         viewModelScope.launch {
             // Stale-while-revalidate: paint cache instantly, refresh silently.
             val cached = runCatching { repo.cachedDetail(bookId) }.getOrNull()
