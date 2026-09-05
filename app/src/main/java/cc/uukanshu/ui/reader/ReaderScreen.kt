@@ -233,27 +233,30 @@ class ReaderViewModel(
     }
 
     fun toggleSimplified() {
+        // Compute and publish synchronously on the caller (Main) thread:
+        // two rapid taps must toggle twice, never read the same stale value.
+        val next = !_ui.value.simplified
+        val raw = currentRaw
+        if (raw != null) {
+            // Re-render current chapter without refetch or reload.
+            val (book, title, text) = render(raw, next)
+            _ui.value = _ui.value.copy(simplified = next, book = book, title = title, text = text)
+        } else {
+            _ui.value = _ui.value.copy(simplified = next)
+        }
         viewModelScope.launch {
-            val next = !_ui.value.simplified
             prefs.setSimplified(next)
-            val raw = currentRaw
-            if (raw != null) {
-                // Re-render current chapter without refetch or reload.
-                val (book, title, text) = render(raw, next)
-                _ui.value = _ui.value.copy(simplified = next, book = book, title = title, text = text)
-            } else {
-                _ui.value = _ui.value.copy(simplified = next)
-                load(_ui.value.position)
-            }
+            if (raw == null) load(_ui.value.position)
         }
     }
 
     fun font(delta: Float) {
-        viewModelScope.launch {
-            val next = (_ui.value.fontScale + delta).coerceIn(0.8f, 1.6f)
-            prefs.setFontScale(next)
-            _ui.value = _ui.value.copy(fontScale = next)
-        }
+        // Atomic read-modify-write on Main: the DataStore write below
+        // suspends, so reading inside the coroutine would let two rapid
+        // taps both read the old scale and lose one step.
+        val next = (_ui.value.fontScale + delta).coerceIn(0.8f, 1.6f)
+        _ui.value = _ui.value.copy(fontScale = next)
+        viewModelScope.launch { prefs.setFontScale(next) }
     }
 
     fun display(raw: String): String =
@@ -268,11 +271,9 @@ class ReaderViewModel(
 
     /** Cycle system → light → dark theme. Applied app-wide via prefs. */
     fun cycleTheme() {
-        viewModelScope.launch {
-            val next = Prefs.next(_ui.value.theme)
-            prefs.setTheme(next)
-            _ui.value = _ui.value.copy(theme = next)
-        }
+        val next = Prefs.next(_ui.value.theme)
+        _ui.value = _ui.value.copy(theme = next)
+        viewModelScope.launch { prefs.setTheme(next) }
     }
 }
 

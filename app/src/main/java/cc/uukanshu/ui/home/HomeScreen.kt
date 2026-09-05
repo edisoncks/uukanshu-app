@@ -80,10 +80,10 @@ class HomeViewModel(
     }
 
     fun toggleSimplified() {
-        viewModelScope.launch {
-            prefs.setSimplified(!_ui.value.simplified)
-            _ui.value = _ui.value.copy(simplified = !_ui.value.simplified)
-        }
+        // Synchronous toggle on Main: two rapid taps must toggle twice.
+        val next = !_ui.value.simplified
+        _ui.value = _ui.value.copy(simplified = next)
+        viewModelScope.launch { prefs.setSimplified(next) }
     }
 
     fun display(raw: String): String =
@@ -91,11 +91,9 @@ class HomeViewModel(
 
     /** Cycle system → light → dark theme. Applied app-wide via prefs. */
     fun cycleTheme() {
-        viewModelScope.launch {
-            val next = Prefs.next(_ui.value.theme)
-            prefs.setTheme(next)
-            _ui.value = _ui.value.copy(theme = next)
-        }
+        val next = Prefs.next(_ui.value.theme)
+        _ui.value = _ui.value.copy(theme = next)
+        viewModelScope.launch { prefs.setTheme(next) }
     }
 
     fun selectTab(tab: Int) {
