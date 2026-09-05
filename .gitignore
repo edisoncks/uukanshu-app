@@ -4,6 +4,7 @@ release.keystore
 *.keystore
 # Android / Gradle
 .gradle/
+.kotlin/
 build/
 app/build/
 local.properties
