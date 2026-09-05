@@ -65,6 +65,7 @@ interface BookDao {
     /** Bulk wipe for clear-all (single statement, runs inside a transaction). */
     @Query("DELETE FROM books")
     suspend fun clearAll()
+}
 
 @Dao
 interface ChapterDao {
