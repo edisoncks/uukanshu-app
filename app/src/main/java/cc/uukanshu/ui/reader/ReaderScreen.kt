@@ -111,34 +111,36 @@ class ReaderViewModel(
         }
     }
 
-    private fun Ui.withPrefs(simplified: Boolean, fontScale: Float, theme: String): Ui = when (this) {
-        is Ui.Loading -> copy(simplified = simplified, fontScale = fontScale, theme = theme)
-        is Ui.Content -> copy(simplified = simplified, fontScale = fontScale, theme = theme)
-        is Ui.Error -> copy(simplified = simplified, fontScale = fontScale, theme = theme)
-    }
-
-    private fun Ui.withTotal(total: Int): Ui = when (this) {
-        is Ui.Loading -> copy(total = total)
-        is Ui.Content -> copy(total = total)
-        is Ui.Error -> copy(total = total)
-    }
-
-    private fun Ui.withSimplified(v: Boolean): Ui = when (this) {
-        is Ui.Loading -> copy(simplified = v)
-        is Ui.Content -> copy(simplified = v)
-        is Ui.Error -> copy(simplified = v)
-    }
-
-    private fun Ui.withFontScale(v: Float): Ui = when (this) {
-        is Ui.Loading -> copy(fontScale = v)
-        is Ui.Content -> copy(fontScale = v)
-        is Ui.Error -> copy(fontScale = v)
-    }
-
-    private fun Ui.withTheme(v: String): Ui = when (this) {
-        is Ui.Loading -> copy(theme = v)
-        is Ui.Content -> copy(theme = v)
-        is Ui.Error -> copy(theme = v)
+    /**
+     * Single copy helper for the sealed [Ui]: the interface has no common
+     * `copy`, so every display-pref/total update fans out over the three
+     * subtypes here instead of five one-field `withX` helpers. Null means
+     * "keep the current value".
+     */
+    private fun Ui.copyWith(
+        simplified: Boolean? = null,
+        fontScale: Float? = null,
+        theme: String? = null,
+        total: Int? = null,
+    ): Ui = when (this) {
+        is Ui.Loading -> copy(
+            simplified = simplified ?: this.simplified,
+            fontScale = fontScale ?: this.fontScale,
+            theme = theme ?: this.theme,
+            total = total ?: this.total,
+        )
+        is Ui.Content -> copy(
+            simplified = simplified ?: this.simplified,
+            fontScale = fontScale ?: this.fontScale,
+            theme = theme ?: this.theme,
+            total = total ?: this.total,
+        )
+        is Ui.Error -> copy(
+            simplified = simplified ?: this.simplified,
+            fontScale = fontScale ?: this.fontScale,
+            theme = theme ?: this.theme,
+            total = total ?: this.total,
+        )
     }
 
     private val _ui = MutableStateFlow<Ui>(Ui.Loading(position = startPosition))
@@ -160,7 +162,7 @@ class ReaderViewModel(
     init {
         viewModelScope.launch {
             _ui.update {
-                it.withPrefs(
+                it.copyWith(
                     simplified = prefs.simplified.first(),
                     fontScale = prefs.fontScale.first(),
                     theme = prefs.theme.first(),
@@ -216,7 +218,7 @@ class ReaderViewModel(
                             if (fresh.chapters.isNotEmpty()) {
                                 chapters = fresh.chapters
                                 if (fresh.meta.title.isNotEmpty()) bookTitleRaw = fresh.meta.title
-                                _ui.update { it.withTotal(chapters.size) }
+                                _ui.update { it.copyWith(total = chapters.size) }
                             } else if (chapters.isEmpty()) {
                                 throw java.io.IOException("empty chapter list — try again later")
                             }
@@ -237,7 +239,7 @@ class ReaderViewModel(
                                 if (fresh.chapters.isEmpty()) return@onSuccess
                                 chapters = fresh.chapters
                                 if (fresh.meta.title.isNotEmpty()) bookTitleRaw = fresh.meta.title
-                                _ui.update { it.withTotal(chapters.size) }
+                                _ui.update { it.copyWith(total = chapters.size) }
                             }
                         }
                     }
@@ -357,7 +359,7 @@ class ReaderViewModel(
             val (book, title, text) = render(raw, next)
             cur.copy(simplified = next, book = book, title = title, text = text)
         } else {
-            cur.withSimplified(next)
+            cur.copyWith(simplified = next)
         }
         viewModelScope.launch {
             prefs.setSimplified(next)
@@ -370,7 +372,7 @@ class ReaderViewModel(
         // suspends, so reading inside the coroutine would let two rapid
         // taps both read the old scale and lose one step.
         val next = (_ui.value.fontScale + delta).coerceIn(0.8f, 1.6f)
-        _ui.update { it.withFontScale(next) }
+        _ui.update { it.copyWith(fontScale = next) }
         viewModelScope.launch { prefs.setFontScale(next) }
     }
 
@@ -387,7 +389,7 @@ class ReaderViewModel(
     /** Cycle system → light → dark theme. Applied app-wide via prefs. */
     fun cycleTheme() {
         val next = Prefs.next(_ui.value.theme)
-        _ui.update { it.withTheme(next) }
+        _ui.update { it.copyWith(theme = next) }
         viewModelScope.launch { prefs.setTheme(next) }
     }
 }
