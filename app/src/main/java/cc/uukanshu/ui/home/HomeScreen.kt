@@ -50,10 +50,7 @@ import cc.uukanshu.ui.vmFactory
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -81,13 +78,22 @@ class HomeViewModel(
 
     /**
      * Per-list scroll positions, keyed by [listKey]. The ViewModel survives
-     * detail->back (HOME back-stack entry is retained), so this covers the
-     * reported bug; `rememberSaveable(key)` in the composable is the second
-     * layer for rotation / process death. One entry per list (recent + each
-     * category) so lists never clobber each other — the old single shared
-     * LazyListState did.
+     * detail->back (HOME back-stack entry is retained); `rememberSaveable`
+     * in the composable is the second layer for rotation / process death.
+     * One entry per list (recent + each category) so lists never clobber
+     * each other — the old single shared LazyListState did.
      */
     private val scrolls = mutableMapOf<String, Pair<Int, Int>>()
+
+    /**
+     * Explicit tab/category switches that want top. Consumed once by the
+     * composable (`scrollToItem(0)`). A plain "VM entry is 0,0" check
+     * cannot distinguish explicit-reset from a fresh ViewModel after
+     * process death (where the saveable position must win), so this
+     * one-shot flag exists. detail->back never sets it, so back keeps
+     * position.
+     */
+    private val pendingTop = mutableSetOf<String>()
 
     fun listKey(tab: Int, categoryId: Int): String =
         if (tab == 0) "recent" else "cat-$categoryId"
@@ -97,6 +103,8 @@ class HomeViewModel(
     fun saveScroll(key: String, index: Int, offset: Int) {
         scrolls[key] = index to offset
     }
+
+    fun consumePendingTop(key: String): Boolean = pendingTop.remove(key)
 
     init {
         viewModelScope.launch {
@@ -122,7 +130,9 @@ class HomeViewModel(
         if (_ui.value.tab == tab) return
         // Explicit user switch resets the target list to top (per-list reset
         // on tab switch); detail->back never calls here so its saved pos stays.
-        scrolls.remove(listKey(tab, _ui.value.categoryId))
+        val key = listKey(tab, _ui.value.categoryId)
+        scrolls.remove(key)
+        pendingTop.add(key)
         _ui.update { it.copy(tab = tab) }
     }
 
@@ -130,20 +140,40 @@ class HomeViewModel(
         val cur = _ui.value
         if (cur.tab == 1 && cur.categoryId == id) return
         // Same reset rule as selectTab: switching categories starts at top.
-        scrolls.remove(listKey(1, id))
+        val key = listKey(1, id)
+        scrolls.remove(key)
+        pendingTop.add(key)
         _ui.update { it.copy(tab = 1, categoryId = id) }
     }
 
     /**
-     * One Pager per tab/category: switching lists invalidates the old
-     * PagingSource (and its seen-ids set), so ids never leak across lists.
-     * Retries, prefetch and refresh-load-states come from Paging — the old
-     * hand-rolled loadMore/refresh/stale-drop methods are gone.
+     * One cached Pager per tab/category, keyed by [listKey].
+     *
+     * The previous `_ui.map{...}.distinctUntilChanged().flatMapLatest{
+     * Pager... }` Flow looked equivalent but rebuilt a brand-new Pager on
+     * every new collection: `_ui` is a StateFlow, so re-collecting after
+     * detail->back (HOME recomposes, `collectAsLazyPagingItems` resubscribes)
+     * replays the current tab/category and `flatMapLatest` creates a fresh
+     * Pager/PagingSource. That refetches page 1 from network, swaps the
+     * LazyColumn for the full-screen spinner (`refresh Loading &&
+     * itemCount == 0`), and the restored index points at pages that no
+     * longer exist (the recent feed also shifts between requests) — so the
+     * scroll position was lost on every back navigation. `cachedIn` inside
+     * `flatMapLatest` did not help: each re-collection cached a *new* flow
+     * and abandoned the old pages.
+     *
+     * Caching the Flow per key keeps the same PagingData (and loaded pages)
+     * across detail->back, so no refetch and the saved scroll stays valid.
+     * Switching lists still uses a separate Pager (and seen-ids set), so ids
+     * never leak across lists. Retries, prefetch and refresh-load-states
+     * come from Paging — the old hand-rolled loadMore/refresh/stale-drop
+     * methods are gone.
      */
-    val pagingData: Flow<PagingData<Parser.BookItem>> = _ui
-        .map { it.tab to it.categoryId }
-        .distinctUntilChanged()
-        .flatMapLatest { (tab, categoryId) ->
+    private val pagers = mutableMapOf<String, Flow<PagingData<Parser.BookItem>>>()
+
+    fun pagingFor(tab: Int, categoryId: Int): Flow<PagingData<Parser.BookItem>> {
+        val key = listKey(tab, categoryId)
+        return pagers.getOrPut(key) {
             Pager(PagingConfig(pageSize = 20, enablePlaceholders = false)) {
                 BookPagingSource { page ->
                     if (tab == 0) repo.recent(page)
@@ -151,6 +181,7 @@ class HomeViewModel(
                 }
             }.flow.cachedIn(viewModelScope)
         }
+    }
 }
 
 @Composable
@@ -161,7 +192,12 @@ fun HomeScreen(onBook: (String) -> Unit) {
         HomeViewModel(app.repo, app.prefs, app.t2s)
     })
     val ui by vm.ui.collectAsState()
-    val books = vm.pagingData.collectAsLazyPagingItems()
+    // Stable Flow per list: the same instance across detail->back replays
+    // cached pages instead of refetching page 1 (see pagingFor). remember(key)
+    // swaps the instance only on a real tab/category switch.
+    val key = vm.listKey(ui.tab, ui.categoryId)
+    val pagingFlow = remember(key) { vm.pagingFor(ui.tab, ui.categoryId) }
+    val books = pagingFlow.collectAsLazyPagingItems()
 
     Column(Modifier.fillMaxSize()) {
         Text(
@@ -186,26 +222,27 @@ fun HomeScreen(onBook: (String) -> Unit) {
                 }
             }
         }
-        // Per-list scroll: one saveable state per recent/category key.
+        // Per-list scroll: one saveable slot per recent/category key.
         // - detail->back restores via the HOME back-stack entry (saveable +
-        //   ViewModel map, which survives because HOME is retained).
-        // - explicit tab/category switch resets to top (selectTab/Category
-        //   cleared the VM entry; scroll to 0 in case the saveable for this
-        //   key still holds an old position from a previous visit).
+        //   ViewModel map, which survives because HOME is retained) and —
+        //   now that pagingFor reuses pages — the restored index still points
+        //   at loaded items instead of a fresh spinner.
+        // - explicit tab/category switch resets to top via the one-shot
+        //   pendingTop flag (selectTab/Category set it; consumed here).
         // - staying on the same list (e.g. simplified toggle) keeps position.
-        val key = vm.listKey(ui.tab, ui.categoryId)
-        val initial = remember(key) { vm.scrollFor(key) }
-        val listState = rememberSaveable(key, saver = LazyListState.Saver) {
-            LazyListState(initial.first, initial.second)
+        // NOTE: `key =` is the SaveableStateRegistry slot, not the `inputs`
+        // vararg: passing the list key as inputs (rememberSaveable(key)) would
+        // share one slot across lists and drop the previous list's position.
+        val listState = rememberSaveable(key = "home-$key", saver = LazyListState.Saver) {
+            val (index, offset) = vm.scrollFor(key)
+            LazyListState(index, offset)
         }
         LaunchedEffect(key, listState) {
             snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
                 .collect { (index, offset) -> vm.saveScroll(key, index, offset) }
         }
-        LaunchedEffect(key) {
-            if (vm.scrollFor(key) == (0 to 0) &&
-                (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0)
-            ) {
+        LaunchedEffect(key, listState) {
+            if (vm.consumePendingTop(key)) {
                 listState.scrollToItem(0)
             }
         }
