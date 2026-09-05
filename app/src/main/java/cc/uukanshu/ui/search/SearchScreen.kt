@@ -66,6 +66,12 @@ class SearchViewModel(
     fun display(raw: String): String =
         if (_ui.value.simplified) t2s.convert(raw) else raw
 
+    companion object {
+        /** Drop duplicate cards by stable book id (same live-shift dup source as Home). */
+        fun dedupBooks(books: List<Parser.BookItem>): List<Parser.BookItem> =
+            books.distinctBy { it.id }
+    }
+
     fun query(q: String) {
         job?.cancel()
         if (q.isBlank()) {
@@ -77,7 +83,7 @@ class SearchViewModel(
             _ui.value = _ui.value.copy(loading = true, searched = true, error = null)
             try {
                 val res = repo.search(q.trim())
-                _ui.value = _ui.value.copy(books = res.books, total = res.total, loading = false, searched = true)
+                _ui.value = _ui.value.copy(books = dedupBooks(res.books), total = res.total, loading = false, searched = true)
             } catch (e: Exception) {
                 _ui.value = _ui.value.copy(
                     loading = false,
@@ -129,7 +135,7 @@ fun SearchScreen(onBook: (String) -> Unit) {
                 Text(vm.display("沒有結果"), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             else -> LazyColumn(Modifier.fillMaxSize()) {
-                items(ui.books, key = { it.id + it.title }) { b ->
+                items(ui.books, key = { it.id }) { b ->
                     Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onBook(b.id) }) {
                         Column(Modifier.padding(12.dp)) {
                             Text(vm.display(b.title), style = MaterialTheme.typography.titleMedium)
