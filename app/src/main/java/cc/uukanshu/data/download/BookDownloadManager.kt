@@ -59,8 +59,13 @@ class BookDownloadManager(
         val job = scope.launch {
             try {
                 repo.downloadAll(bookId) { done, total ->
-                    _states.update { cur ->
-                        cur + (bookId to State(downloading = true, done = done, total = total, error = null))
+                    // A dying job's in-flight callback must not resurrect
+                    // downloading=true after cancel() published false: drop
+                    // publishes once this id no longer has a live job.
+                    if (jobs[bookId]?.isActive == true) {
+                        _states.update { cur ->
+                            cur + (bookId to State(downloading = true, done = done, total = total, error = null))
+                        }
                     }
                 }
                 _states.update { cur ->
