@@ -60,3 +60,19 @@ gh release create vX.Y.Z \
 1. Open the **Releases** page and confirm the APK is attached.
 2. On a device (Android 12+), download the APK from the release and
    install it once as a smoke test.
+
+## Updater contract (do not break)
+
+The in-app updater (`data/update/`, `ui/update/`) depends on this exact
+shape — keep it stable or the auto-update flow silently stops finding
+releases:
+
+- Tag is `vX.Y.Z` and **must equal** `versionName X.Y.Z` (numeric
+  dot-separated compare; leading `v` stripped).
+- Exactly one asset named `uukanshu-X.Y.Z.apk` (the updater globs
+  `uukanshu-*.apk`, falling back to any `.apk`). Never rename it and never
+  attach a second APK.
+- Release body is shown verbatim as the update changelog (keep it concise,
+  plain Markdown, no huge dumps — the dialog scrolls at ~220dp).
+- Smoke-test the in-app path after publishing: install the previous release,
+  tap ⬇ on Home, confirm the prompt → download progress → installer handoff.

@@ -12,10 +12,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -40,6 +44,8 @@ import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.repo
 import cc.uukanshu.ui.ThemeIconButton
+import cc.uukanshu.ui.update.UpdateDialog
+import cc.uukanshu.ui.update.UpdateViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -196,6 +202,13 @@ fun HomeScreen(onBook: (String) -> Unit) {
             HomeViewModel(ctx.repo(), Prefs(app), T2S(app)) as T
     })
     val ui by vm.ui.collectAsState()
+    val updateVm: UpdateViewModel = viewModel(factory = object : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            UpdateViewModel(app, Prefs(app)) as T
+    })
+    val updateUi by updateVm.ui.collectAsState()
+    LaunchedEffect(Unit) { updateVm.autoCheck() }
 
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -204,10 +217,33 @@ fun HomeScreen(onBook: (String) -> Unit) {
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.weight(1f).padding(start = 12.dp),
             )
+            IconButton(onClick = { updateVm.manualCheck() }) {
+                Icon(
+                    Icons.Filled.Refresh,
+                    contentDescription = vm.display("檢查更新"),
+                    tint = if (updateUi.info != null) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             TextButton(onClick = { vm.toggleSimplified() }) {
                 Text(if (ui.simplified) "简" else "繁")
             }
             ThemeIconButton(ui.theme, { vm.cycleTheme() }, vm::display)
+        }
+        // Dismissed-but-available update: one-line banner to reopen the dialog.
+        if (updateUi.info != null && !updateUi.visible) {
+            Card(
+                onClick = { updateVm.reopen() },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            ) {
+                Text(
+                    if (updateUi.fileReady) vm.display("更新已下載完成，點擊立即安裝")
+                    else vm.display("發現新版本 ${updateUi.info!!.tag}，點擊查看"),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(12.dp),
+                )
+            }
         }
         TabRow(selectedTabIndex = ui.tab) {
             Tab(selected = ui.tab == 0, onClick = { vm.selectTab(0) }, text = { Text(vm.display("最近更新")) })
@@ -289,4 +325,16 @@ fun HomeScreen(onBook: (String) -> Unit) {
             }
         }
     }
+    UpdateDialog(
+        ui = updateUi,
+        display = vm::display,
+        onDownload = { updateVm.startDownload() },
+        onInstall = { updateVm.install() },
+        onCancelDownload = { updateVm.cancelDownload() },
+        onSkip = { updateVm.skipVersion() },
+        onDismiss = { updateVm.dismiss() },
+        onRetry = { updateVm.manualCheck() },
+        onBrowser = { updateVm.openInBrowser() },
+        onOpenUnknownSources = { updateVm.openUnknownSources() },
+    )
 }

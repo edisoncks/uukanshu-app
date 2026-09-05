@@ -10,8 +10,14 @@ then open it on your phone to install (Android 12+). If prompted, allow
 "install unknown apps" for your browser/file manager — the APK is signed
 but not Play-distributed.
 
-To update, download the newest APK and install over the old one (same
-signature, data and cache preserved).
+To update, open the app and tap the ⬇ button in the Home top bar (or wait
+for the automatic new-version prompt, checked at most once a day via the
+GitHub Releases API). The app downloads `uukanshu-{version}.apk` with the
+system DownloadManager and hands it to the package installer — install over
+the old one (same signature, data and cache preserved). On the first in-app
+update, allow "install unknown apps" for **uukanshu** itself when the system
+asks. Manual fallback: download the APK from the Releases page and install
+it the same way.
 
 ## Features
 
@@ -23,6 +29,9 @@ signature, data and cache preserved).
 - ⏬ Auto-cache next 5 chapters; manual full-novel download with progress + cancel
 - 🗑️ Library with per-book size, delete per book / clear all; offline cached-first reading
 - 🔤 Font-size +/-, persisted with DataStore; Material3 light/dark
+- ⬆️ In-app update: GitHub Releases check (auto daily + manual ⬇ button),
+  DownloadManager download with progress, system installer handoff; "skip
+  this version" and browser-download fallback included
 
 ## Build
 

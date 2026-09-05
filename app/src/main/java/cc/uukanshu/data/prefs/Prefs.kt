@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -15,6 +16,8 @@ object PrefsKeys {
     val SIMPLIFIED = booleanPreferencesKey("simplified")
     val FONT_SCALE = floatPreferencesKey("font_scale")
     val THEME = stringPreferencesKey("theme")
+    val LAST_UPDATE_CHECK = longPreferencesKey("last_update_check")
+    val SKIPPED_VERSION = stringPreferencesKey("skipped_version")
 }
 
 class Prefs(private val context: Context) {
@@ -50,5 +53,24 @@ class Prefs(private val context: Context) {
 
     suspend fun setTheme(v: String) {
         context.store.edit { it[PrefsKeys.THEME] = v }
+    }
+
+    /** Last GitHub update-check timestamp (epoch millis, 0 = never). */
+    val lastUpdateCheck: Flow<Long> =
+        context.store.data.map { it[PrefsKeys.LAST_UPDATE_CHECK] ?: 0L }
+
+    suspend fun setLastUpdateCheck(now: Long) {
+        context.store.edit { it[PrefsKeys.LAST_UPDATE_CHECK] = now }
+    }
+
+    /** Remote version the user asked not to be reminded about again. */
+    val skippedVersion: Flow<String?> =
+        context.store.data.map { it[PrefsKeys.SKIPPED_VERSION] }
+
+    suspend fun setSkippedVersion(v: String?) {
+        context.store.edit {
+            if (v == null) it.remove(PrefsKeys.SKIPPED_VERSION)
+            else it[PrefsKeys.SKIPPED_VERSION] = v
+        }
     }
 }
