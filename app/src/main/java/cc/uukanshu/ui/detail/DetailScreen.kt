@@ -281,8 +281,11 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
                                 )
                             }
                         }
+                        // fullyCached survives process restart (manager done/total
+                        // don't); the 已緩存 count line below shows the same source.
+                        val fullyCached = ui.chapters.isNotEmpty() && ui.cached.size >= ui.chapters.size
                         Button({ vm.downloadAll() }, Modifier.fillMaxWidth()) {
-                            Text(if (ui.done > 0 && ui.done >= ui.chapters.size) vm.displayTitle("重新下載整本") else vm.displayTitle("下載整本"))
+                            Text(if (fullyCached || (ui.done > 0 && ui.done >= ui.chapters.size)) vm.displayTitle("重新下載整本") else vm.displayTitle("下載整本"))
                         }
                     }
                 }
