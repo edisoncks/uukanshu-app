@@ -21,4 +21,14 @@ class BookRepoTest {
         assertEquals("002 (retitled)", merged[1].title)
         assertEquals("", merged[2].content)
     }
+
+    @Test fun shelfShowsOnlyBooksWithCachedChapters() {
+        val books = listOf(
+            BookRepo.CachedBook("a", "A", "Au", total = 10, cached = 0, bytes = 0),
+            BookRepo.CachedBook("b", "B", "Au", total = 10, cached = 1, bytes = 100),
+            BookRepo.CachedBook("c", "C", "Au", total = 5, cached = 5, bytes = 500),
+        )
+        val visible = books.filter { it.cached > 0 }
+        assertEquals(listOf("b", "c"), visible.map { it.id })
+    }
 }

@@ -167,7 +167,7 @@ class BookRepo(
                 cached = chapters.count { it.content.isNotEmpty() },
                 bytes = chapters.sumOf { it.content.toByteArray().size.toLong() },
             )
-        }
+        }.filter { it.cached > 0 }
     }
 
     /**
@@ -205,6 +205,7 @@ class BookRepo(
     }
 
     suspend fun clearAll() = withContext(Dispatchers.IO) {
-        library().forEach { deleteBook(it.id) }
+        // Bypass the shelf filter: must wipe zero-cached orphans too.
+        db.books().cachedBooks().forEach { deleteBook(it.id) }
     }
 }
