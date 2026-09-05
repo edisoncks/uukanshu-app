@@ -70,6 +70,26 @@ interface ChapterDao {
 
     @Query("DELETE FROM chapters WHERE bookId = :bookId")
     suspend fun deleteBook(bookId: String)
+
+    /** Single-row content read: no full-table scan to render one chapter. */
+    @Query("SELECT content FROM chapters WHERE bookId = :bookId AND position = :position")
+    suspend fun chapterContent(bookId: String, position: Int): String?
+
+    /**
+     * Atomic single-row content write. Never read-modify-write the whole
+     * table here: a background TOC revalidate does a wholesale upsert, and
+     * copying a stale row back over it loses fresh titles or content.
+     * No-op when the TOC row is missing.
+     */
+    @Query("UPDATE chapters SET content = :content WHERE bookId = :bookId AND position = :position")
+    suspend fun updateContent(bookId: String, position: Int, content: String)
+
+    @Query("SELECT COUNT(*) FROM chapters WHERE bookId = :bookId AND content != ''")
+    suspend fun cachedCount(bookId: String): Int
+
+    /** Whole shelf stats in one round trip; callers group by bookId. */
+    @Query("SELECT * FROM chapters")
+    suspend fun allChapters(): List<ChapterEntity>
 }
 
 @Dao

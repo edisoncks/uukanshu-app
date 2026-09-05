@@ -9,6 +9,7 @@ import cc.uukanshu.data.parse.Parser
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
@@ -137,19 +138,24 @@ class BookRepo(
         val chapters = Parser.parseToc(html, bookId)
         // Cache meta + TOC skeleton, preserving downloaded content and the
         // shelf timestamp (browsing Detail alone must not reorder the shelf).
+        // Atomic replace: without the delete, a shrunken TOC leaves stale
+        // rows past the new end (ghost chapters with stale text/counts).
         runCatching {
-            val existing = db.books().book(bookId)
-            val now = System.currentTimeMillis()
-            db.books().upsert(
-                preserveBookUpdatedAt(
-                    existing,
-                    BookEntity(bookId, meta.title, meta.author, meta.intro, meta.category, meta.latestChapterTitle),
-                    now,
-                ),
-            )
-            val cached = db.chapters().chapters(bookId)
-                .associate { it.pageId to it.content }
-            db.chapters().upsertAll(mergeToc(bookId, chapters, cached))
+            db.withTransaction {
+                val existing = db.books().book(bookId)
+                val now = System.currentTimeMillis()
+                db.books().upsert(
+                    preserveBookUpdatedAt(
+                        existing,
+                        BookEntity(bookId, meta.title, meta.author, meta.intro, meta.category, meta.latestChapterTitle),
+                        now,
+                    ),
+                )
+                val cached = db.chapters().chapters(bookId)
+                    .associate { it.pageId to it.content }
+                db.chapters().deleteBook(bookId)
+                db.chapters().upsertAll(mergeToc(bookId, chapters, cached))
+            }
         }
         Detail(meta, chapters)
     }
@@ -160,17 +166,14 @@ class BookRepo(
         }
 
     suspend fun cachedChapterContent(bookId: String, position: Int): String? =
-        db.chapters().chapters(bookId).firstOrNull { it.position == position }
-            ?.content?.takeIf { it.isNotEmpty() }
+        db.chapters().chapterContent(bookId, position)?.takeIf { it.isNotEmpty() }
 
     /** Positions with downloaded content — live stream driving chapter-list badges. */
     fun cachedPositionsFlow(bookId: String): Flow<Set<Int>> =
         db.chapters().cachedPositionsFlow(bookId).map { it.toSet() }
 
     suspend fun saveChapterContent(bookId: String, position: Int, content: String) {
-        val list = db.chapters().chapters(bookId)
-        val row = list.firstOrNull { it.position == position } ?: return
-        db.chapters().upsertAll(listOf(row.copy(content = content)))
+        db.chapters().updateContent(bookId, position, content)
     }
 
     /**
@@ -206,13 +209,15 @@ class BookRepo(
         val rows = db.books().cachedBooks()
         val bookAt = rows.associate { it.id to it.updatedAt }
         val progressAt = db.progress().all().associate { it.bookId to it.updatedAt }
+        // Two round trips total (was N+1); bytes use explicit UTF-8.
+        val byBook = db.chapters().allChapters().groupBy { it.bookId }
         rows.map { b ->
-            val chapters = db.chapters().chapters(b.id)
+            val chapters = byBook[b.id].orEmpty()
             CachedBook(
                 b.id, b.title, b.author,
                 total = chapters.size,
                 cached = chapters.count { it.content.isNotEmpty() },
-                bytes = chapters.sumOf { it.content.toByteArray().size.toLong() },
+                bytes = chapters.sumOf { it.content.toByteArray(Charsets.UTF_8).size.toLong() },
             )
         }.filter { it.cached > 0 }.let { sortShelf(it, bookAt, progressAt) }
     }
@@ -253,7 +258,7 @@ class BookRepo(
             // let the bump break (or mask) the download result.
             runCatching {
                 withContext(NonCancellable + Dispatchers.IO) {
-                    val cached = db.chapters().chapters(bookId).count { it.content.isNotEmpty() }
+                    val cached = db.chapters().cachedCount(bookId)
                     if (cached > 0) db.books().touch(bookId, System.currentTimeMillis())
                 }
             }
