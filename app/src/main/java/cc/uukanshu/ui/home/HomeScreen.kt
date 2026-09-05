@@ -8,9 +8,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -23,6 +23,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -211,10 +215,20 @@ fun HomeScreen(onBook: (String) -> Unit) {
                 }
             }
         }
-        // Hoisted so appends don't reset scroll; reset explicitly on tab/category switch.
-        val listState = rememberLazyListState()
+        // Saveable so detail->back restores index/offset via the home
+        // back-stack entry; plain remember is discarded with the composition.
+        // Reset only on a real tab/category change, not on first composition
+        // or return from detail (lastResetKey is null then, so we skip).
+        val listState = rememberSaveable(saver = LazyListState.Saver) {
+            LazyListState()
+        }
+        var lastResetKey by remember { mutableStateOf<Pair<Int, Int>?>(null) }
         LaunchedEffect(ui.tab, ui.categoryId) {
-            listState.scrollToItem(0)
+            val key = ui.tab to ui.categoryId
+            if (lastResetKey != null && lastResetKey != key) {
+                listState.scrollToItem(0)
+            }
+            lastResetKey = key
         }
         when {
             ui.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
