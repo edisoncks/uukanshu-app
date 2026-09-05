@@ -30,6 +30,9 @@ class SiteApi(
         "Upgrade-Insecure-Requests" to "1",
     )
 
+    /** Marker for deterministic failures (404 and friends) that must fail fast. */
+    private class NonRetryable(val failure: IOException) : IOException(failure.message)
+
     @Throws(IOException::class)
     fun get(url: String): String {
         var last: Exception? = null
@@ -42,11 +45,15 @@ class SiteApi(
                     if (code == 408 || code == 429 || code >= 500) {
                         throw IOException("HTTP $code for $url")
                     }
-                    if (!res.isSuccessful) throw IOException("HTTP $code for $url")
+                    // Deterministic client errors never heal on retry: fail
+                    // fast instead of burning ~4.5s of backoff sleeps.
+                    if (!res.isSuccessful) throw NonRetryable(IOException("HTTP $code for $url"))
                     val body = res.body?.string() ?: throw IOException("empty body for $url")
                     throwIfBlocked(body)
                     return body
                 }
+            } catch (e: NonRetryable) {
+                throw e.failure
             } catch (e: Exception) {
                 last = e
                 if (attempt < 2) Thread.sleep(1500L * (attempt + 1))
@@ -67,11 +74,17 @@ class SiteApi(
                 val builder = Request.Builder().url("$BASE_URL/search").post(form)
                 headers.forEach { (k, v) -> builder.header(k, v) }
                 client.newCall(builder.build()).execute().use { res ->
-                    if (!res.isSuccessful) throw IOException("HTTP ${res.code} for search")
+                    val code = res.code
+                    if (code == 408 || code == 429 || code >= 500) {
+                        throw IOException("HTTP $code for search")
+                    }
+                    if (!res.isSuccessful) throw NonRetryable(IOException("HTTP $code for search"))
                     val body = res.body?.string() ?: throw IOException("empty search body")
                     throwIfBlocked(body)
                     return body
                 }
+            } catch (e: NonRetryable) {
+                throw e.failure
             } catch (e: Exception) {
                 last = e
                 if (attempt < 2) Thread.sleep(1500L * (attempt + 1))
