@@ -34,11 +34,15 @@ import cc.uukanshu.app
 import cc.uukanshu.core.Errors
 import cc.uukanshu.ui.vmFactory
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class SearchViewModel(
@@ -57,14 +61,58 @@ class SearchViewModel(
 
     private val _ui = MutableStateFlow(Ui())
     val ui: StateFlow<Ui> = _ui
-    private var job: Job? = null
-    // Latest submitted query, written synchronously on Main: a response for
-    // a superseded query (cleared mid-fetch) must not paint over fresh state.
-    private var activeQuery: String = ""
+    // Raw keystrokes; the pipeline below debounces + cancels superseded
+    // searches, so no manual Job/activeQuery guard can be forgotten.
+    private val queries = MutableStateFlow("")
 
     init {
         viewModelScope.launch {
             _ui.value = _ui.value.copy(simplified = prefs.simplified.first())
+        }
+        // Settings owns the toggle now: follow it live so results
+        // re-render when the user flips Simplified/Traditional there.
+        viewModelScope.launch {
+            prefs.simplified.collect { v -> _ui.update { it.copy(simplified = v) } }
+        }
+        viewModelScope.launch {
+            @OptIn(FlowPreview::class)
+            queries.debounce(400).flatMapLatest { raw ->
+                val q = raw.trim()
+                if (q.isEmpty()) {
+                    flowOf(
+                        _ui.value.copy(
+                            books = emptyList(), total = null,
+                            loading = false, error = null, searched = false,
+                        ),
+                    )
+                } else {
+                    flow {
+                        emit(_ui.value.copy(loading = true, searched = true, error = null))
+                        try {
+                            val res = repo.search(q)
+                            // No stale-check needed: flatMapLatest cancels the
+                            // previous flow, so a superseded result is never
+                            // collected (the old code needed activeQuery because
+                            // cancellation only bites at suspend points and
+                            // nothing suspended past this point).
+                            emit(
+                                _ui.value.copy(
+                                    books = dedupBooks(res.books), total = res.total,
+                                    loading = false, error = null, searched = true,
+                                ),
+                            )
+                        } catch (e: Exception) {
+                            if (e is CancellationException) throw e
+                            emit(
+                                _ui.value.copy(
+                                    loading = false,
+                                    error = Errors.message(e), searched = true,
+                                ),
+                            )
+                        }
+                    }
+                }
+            }.collect { _ui.value = it }
         }
     }
 
@@ -78,30 +126,14 @@ class SearchViewModel(
     }
 
     fun query(q: String) {
-        job?.cancel()
-        activeQuery = q.trim()
+        queries.value = q
         if (q.isBlank()) {
-            _ui.value = _ui.value.copy(books = emptyList(), total = null, loading = false, searched = false)
-            return
-        }
-        job = viewModelScope.launch {
-            delay(400) // debounce
-            _ui.value = _ui.value.copy(loading = true, searched = true, error = null)
-            try {
-                val res = repo.search(q.trim())
-                // Superseded (cleared/retyped) while fetching: drop instead
-                // of painting stale results — cancellation only bites at
-                // suspend points, and nothing suspends past this point.
-                if (q.trim() != activeQuery) return@launch
-                _ui.value = _ui.value.copy(books = dedupBooks(res.books), total = res.total, loading = false, searched = true)
-            } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                if (q.trim() != activeQuery) return@launch
-                _ui.value = _ui.value.copy(
-                    loading = false,
-                    error = Errors.message(e), searched = true,
-                )
-            }
+            // Clear instantly for snappy UX; the debounced pipeline re-emits
+            // the same empty state idempotently.
+            _ui.value = _ui.value.copy(
+                books = emptyList(), total = null,
+                loading = false, error = null, searched = false,
+            )
         }
     }
 }
