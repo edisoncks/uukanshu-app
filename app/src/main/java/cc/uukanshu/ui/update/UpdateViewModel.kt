@@ -13,7 +13,6 @@ import cc.uukanshu.data.update.VersionCompare
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -193,44 +192,38 @@ class UpdateViewModel(
                 }
                 _ui.update { it.copy(downloadId = id) }
                 pollJob?.cancel()
+                // Progress comes from UpdateDownloader.observe (completes on
+                // terminal states); the VM only maps states to dialog state.
+                // Query failures (not download failures) surface as errors.
                 pollJob = viewModelScope.launch {
-                    while (true) {
-                        val s = try {
-                            withContext(Dispatchers.IO) { downloader.query(id) }
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            _ui.update {
-                                it.copy(
-                                    downloading = false,
-                                    error = Errors.message(e),
-                                    downloadId = null,
-                                )
+                    try {
+                        downloader.observe(id).collect { s ->
+                            when (s) {
+                                is DownloadStatus.Running -> _ui.update {
+                                    it.copy(progress = s.progress)
+                                }
+                                is DownloadStatus.Success -> _ui.update {
+                                    it.copy(downloading = false, fileReady = true,
+                                        downloadId = null)
+                                }
+                                is DownloadStatus.Failed -> _ui.update {
+                                    it.copy(downloading = false, error = s.reason,
+                                        downloadId = null)
+                                }
                             }
-                            return@launch
                         }
-                        when (s) {
-                        is DownloadStatus.Running -> _ui.update {
-                            it.copy(progress = s.progress)
-                        }
-                        is DownloadStatus.Success -> {
-                            _ui.update {
-                                it.copy(downloading = false, fileReady = true,
-                                    downloadId = null)
-                            }
-                            return@launch
-                        }
-                        is DownloadStatus.Failed -> {
-                            _ui.update {
-                                it.copy(downloading = false, error = s.reason,
-                                    downloadId = null)
-                            }
-                            return@launch
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        _ui.update {
+                            it.copy(
+                                downloading = false,
+                                error = Errors.message(e),
+                                downloadId = null,
+                            )
                         }
                     }
-                    delay(500)
                 }
-            }
             }
         }
     }

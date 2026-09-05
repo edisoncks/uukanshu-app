@@ -121,8 +121,11 @@ Files: `data/update/` (`UpdateApi`, `UpdateDownloader`, `VersionCompare`,
   Settings always hits the network.
 - Version compare is numeric dot-separated on `versionName` vs tag (leading
   `v` stripped). Non-matching APK assets fail closed (no update offered).
-- Download via system `DownloadManager` with progress (0..1, indeterminate
-  fallback), byte-exact size verification (`isComplete`), FileProvider +
+- Download via system `DownloadManager`, polled through
+  `UpdateDownloader.observe(id)` (emits `DownloadStatus` until terminal,
+  then completes) with progress (0..1, indeterminate fallback). The VM
+  only maps states to dialog state. Byte-exact size verification
+  (`isComplete`), FileProvider +
   installer intent handoff. Same-version file already on disk skips straight
   to install. `REQUEST_INSTALL_PACKAGES` permission + system "unknown sources"
   grant required (first in-app update prompts once).

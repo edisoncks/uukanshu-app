@@ -8,6 +8,11 @@ import android.os.Environment
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 
 /** Terminal states for one [DownloadManager] id. */
 sealed interface DownloadStatus {
@@ -62,6 +67,22 @@ class UpdateDownloader(private val context: Context) {
     fun cancel(downloadId: Long) {
         runCatching { dm.remove(downloadId) }
     }
+
+    /**
+     * Terminal-state flow for one [DownloadManager] id: emits [query]
+     * until it leaves Running, then completes. The ViewModel used to own
+     * this poll loop inline (delay + error mapping included); owning it
+     * here keeps all DownloadManager knowledge in one place and leaves
+     * the VM as a pure collector that maps states to dialog state.
+     */
+    fun observe(downloadId: Long, intervalMs: Long = 500): Flow<DownloadStatus> = flow {
+        while (true) {
+            val s = query(downloadId)
+            emit(s)
+            if (s !is DownloadStatus.Running) return@flow
+            delay(intervalMs)
+        }
+    }.flowOn(Dispatchers.IO)
 
     fun query(downloadId: Long): DownloadStatus {
         dm.query(DownloadManager.Query().setFilterById(downloadId)).use { c ->
