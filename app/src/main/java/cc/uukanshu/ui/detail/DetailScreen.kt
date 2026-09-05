@@ -65,6 +65,10 @@ class DetailViewModel(
 
     private val _ui = MutableStateFlow(Ui(loading = true))
     val ui: StateFlow<Ui> = _ui
+    // Serialized refresh: rapid retry taps cancel the previous fetch so two
+    // wholesale TOC replaces never run concurrently (last-tapped wins).
+    // Never touched by downloadAll/cancelDownload — those are independent.
+    private var refreshJob: kotlinx.coroutines.Job? = null
 
     init {
         viewModelScope.launch {
@@ -91,7 +95,8 @@ class DetailViewModel(
         // Never cancel the download here: refresh (init/retry) and the
         // manual full download are independent jobs. Killing the download
         // on any refresh would silently abort user-requested work.
-        viewModelScope.launch {
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
             // Stale-while-revalidate: paint cache instantly, refresh silently.
             val cached = try {
                 repo.cachedDetail(bookId)
