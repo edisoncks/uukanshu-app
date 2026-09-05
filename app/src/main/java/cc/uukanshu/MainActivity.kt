@@ -87,7 +87,13 @@ fun UukanshuApp() {
                         tabs.forEach { tab ->
                             NavigationBarItem(
                                 selected = route == tab.route,
-                                onClick = { nav.navigate(tab.route) { launchSingleTop = true } },
+                                // Single-top + state restore: double-taps never stack
+                                // duplicate tab destinations.
+                                onClick = { nav.navigate(tab.route) {
+                                    launchSingleTop = true
+                                    popUpTo(nav.graph.startDestinationId) { saveState = true }
+                                    restoreState = true
+                                } },
                                 icon = tab.icon,
                                 label = { Text(tab.label) },
                             )
@@ -97,16 +103,22 @@ fun UukanshuApp() {
             },
         ) { inner ->
             NavHost(nav, startDestination = "home", Modifier.padding(inner)) {
-                composable("home") { HomeScreen(onBook = { id -> nav.navigate("detail/$id") }) }
-                composable("search") { SearchScreen(onBook = { id -> nav.navigate("detail/$id") }) }
-                composable("library") { LibraryScreen(onBook = { id -> nav.navigate("detail/$id") }) }
+                // launchSingleTop: rapid double-taps on the same book must
+                // not push duplicate detail destinations.
+                composable("home") { HomeScreen(onBook = { id -> nav.navigate("detail/$id") { launchSingleTop = true } }) }
+                composable("search") { SearchScreen(onBook = { id -> nav.navigate("detail/$id") { launchSingleTop = true } }) }
+                composable("library") { LibraryScreen(onBook = { id -> nav.navigate("detail/$id") { launchSingleTop = true } }) }
                 composable(
                     "detail/{bookId}",
                     arguments = listOf(navArgument("bookId") { type = NavType.StringType }),
                 ) { entry ->
                     DetailScreen(
                         bookId = entry.arguments?.getString("bookId").orEmpty(),
-                        onChapter = { id, pos -> nav.navigate("reader/$id/$pos") },
+                        // launchSingleTop: double-tapping a chapter never stacks
+                        // two identical reader destinations (back would show the
+                        // same chapter twice). Paging within the reader reuses
+                        // the ViewModel via load(), not navigation.
+                        onChapter = { id, pos -> nav.navigate("reader/$id/$pos") { launchSingleTop = true } },
                     )
                 }
                 composable(
