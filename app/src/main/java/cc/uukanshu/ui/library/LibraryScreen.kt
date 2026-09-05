@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import cc.uukanshu.core.Display
 import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.db.BookEntity
 import cc.uukanshu.data.download.BookDownloadManager
@@ -100,11 +101,9 @@ class LibraryViewModel(
                 if (newActive.isNotEmpty()) {
                     viewModelScope.launch {
                         val titles = newActive.mapNotNull { id ->
-                            try {
-                                repo.bookEntry(id)?.let { id to it }
-                            } catch (_: Exception) {
-                                null
-                            }
+                            // Must not swallow cancellation: a cleared VM would
+                            // otherwise keep this child alive past teardown.
+                            Errors.suppressExceptCancel { repo.bookEntry(id)?.let { id to it } }
                         }.toMap()
                         if (titles.isNotEmpty()) {
                             _ui.update { cur ->
@@ -178,7 +177,7 @@ class LibraryViewModel(
     }
 
     fun display(raw: String): String =
-        if (_ui.value.simplified) t2s.convert(raw) else raw
+        Display.text(t2s, raw, _ui.value.simplified)
 }
 
 private fun formatBytes(b: Long): String = when {

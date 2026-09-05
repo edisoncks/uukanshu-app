@@ -106,7 +106,8 @@ class BookDownloadManager(
                 // cancel()/forget() already published downloading=false; keep done/total.
                 throw e
             } catch (e: Exception) {
-                if (e is CancellationException) throw e
+                // Note: CancellationException is caught above, so this branch
+                // never sees cancellation (no second check needed).
                 // Same forget-wins guard as the success path.
                 val self = coroutineContext[Job]
                 if (self != null && jobs[bookId] !== self) return@launch

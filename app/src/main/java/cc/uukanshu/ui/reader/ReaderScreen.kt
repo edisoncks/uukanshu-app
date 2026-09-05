@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import cc.uukanshu.core.Display
 import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.prefs.Prefs
@@ -59,6 +60,7 @@ class ReaderViewModel(
     private val prefs: Prefs,
     private val bookId: String,
     startPosition: Int,
+    private val startPageId: Long = 0L,
 ) : ViewModel() {
 
     /**
@@ -146,6 +148,11 @@ class ReaderViewModel(
     private val _ui = MutableStateFlow<Ui>(Ui.Loading(position = startPosition))
     val ui: StateFlow<Ui> = _ui
     private var chapters: List<Parser.ChapterRef> = emptyList()
+    // Stable identity for the initially requested chapter. The nav route
+    // carries both position (display order) and pageId (stable); after a TOC
+    // shift the position may name a neighbor, so the first load resolves by
+    // pageId when it matches a live chapter.
+    private var pendingPageId: Long = startPageId
     private var bookTitleRaw: String = ""
     // Serialized chapter loads: rapid prev/next taps must not overlap —
     // last-tapped wins, never last-to-finish.
@@ -169,6 +176,24 @@ class ReaderViewModel(
                 )
             }
             load(startPosition)
+        }
+    }
+
+    companion object {
+        /**
+         * Resolve the effective position for a load: stable pageId wins over
+         * display position, so a TOC insert between Detail tap and Reader open
+         * cannot alias to a neighbor. Pure + unit-tested.
+         */
+        fun resolveEffectivePosition(
+            chapters: List<Parser.ChapterRef>,
+            requestedPosition: Int,
+            requestedPageId: Long,
+        ): Int {
+            if (requestedPageId != 0L) {
+                chapters.firstOrNull { it.pageId == requestedPageId }?.let { return it.position }
+            }
+            return requestedPosition
         }
     }
 
@@ -230,25 +255,41 @@ class ReaderViewModel(
                     } else if (cachedToc != null) {
                         // Serving from stale TOC: revalidate silently.
                         // Never blocks reading, never wipes content (mergeToc
-                        // preserves downloads by pageId).
+                        // preserves downloads by pageId). Cancellation rethrows
+                        // (a superseded revalidate must stay cancelled); ordinary
+                        // failures are ignored so reading never breaks.
                         revalidateJob = viewModelScope.launch {
-                            runCatching { repo.detail(bookId) }.onSuccess { fresh ->
-                                // Empty TOC is a failed parse, never a real book:
-                                // accepting it would zero `total` mid-read and turn
-                                // the next tap into a bogus "out of range".
-                                if (fresh.chapters.isEmpty()) return@onSuccess
-                                chapters = fresh.chapters
-                                if (fresh.meta.title.isNotEmpty()) bookTitleRaw = fresh.meta.title
-                                _ui.update { it.copyWith(total = chapters.size) }
+                            val fresh = try {
+                                repo.detail(bookId)
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (_: Exception) {
+                                return@launch
                             }
+                            // Empty TOC is a failed parse, never a real book:
+                            // accepting it would zero `total` mid-read and turn
+                            // the next tap into a bogus "out of range".
+                            if (fresh.chapters.isEmpty()) return@launch
+                            chapters = fresh.chapters
+                            if (fresh.meta.title.isNotEmpty()) bookTitleRaw = fresh.meta.title
+                            _ui.update { it.copyWith(total = chapters.size) }
                         }
                     }
                 }
+                // One-shot pageId resolution for the initial open: a TOC shift
+                // between Detail tap and Reader load must not alias to a
+                // neighbor. Subsequent prev/next loads pass position only
+                // (pendingPageId already consumed → 0).
+                val effective = if (pendingPageId != 0L) {
+                    val r = resolveEffectivePosition(chapters, position, pendingPageId)
+                    pendingPageId = 0L
+                    r
+                } else position
                 val total = chapters.size
-                if (position < 1 || position > total) {
+                if (effective < 1 || effective > total) {
                     val cur = _ui.value
                     _ui.value = Ui.Error(
-                        position = position,
+                        position = effective,
                         total = total,
                         message = "out of range",
                         simplified = cur.simplified,
@@ -257,7 +298,7 @@ class ReaderViewModel(
                     )
                     return@launch
                 }
-                val ref = chapters[position - 1]
+                val ref = chapters[effective - 1]
                 // Room cache first (by stable pageId), else network (then save raw).
                 val cached = repo.cachedChapterContent(bookId, ref.pageId)
                 val raw = if (cached != null) {
@@ -266,9 +307,9 @@ class ReaderViewModel(
                     Parser.ChapterContent(
                         book = ReaderTitle.resolve(bookTitleRaw, "", (_ui.value as? Ui.Content)?.book.orEmpty()),
                         title = ref.title, text = cached,
-                        prevUrl = chapters.getOrNull(position - 2)?.url,
+                        prevUrl = chapters.getOrNull(effective - 2)?.url,
                         tocUrl = null,
-                        nextUrl = chapters.getOrNull(position)?.url,
+                        nextUrl = chapters.getOrNull(effective)?.url,
                     )
                 } else {
                     val fetched = repo.chapter(ref.url)
@@ -290,7 +331,7 @@ class ReaderViewModel(
                 val cur = _ui.value
                 val (book, title, text) = render(raw, cur.simplified)
                 _ui.value = Ui.Content(
-                    position = position,
+                    position = effective,
                     total = total,
                     book = book, title = title, text = text,
                     simplified = cur.simplified,
@@ -301,12 +342,12 @@ class ReaderViewModel(
                 // TOC inserts); never break reading on save failure
                 // (cancellation still propagates).
                 try {
-                    repo.saveProgress(bookId, position, ref.pageId)
+                    repo.saveProgress(bookId, effective, ref.pageId)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
                 }
-                prefetchNext5(position)
+                prefetchNext5(effective)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 val cur = _ui.value
@@ -371,13 +412,13 @@ class ReaderViewModel(
         // Atomic read-modify-write on Main: the DataStore write below
         // suspends, so reading inside the coroutine would let two rapid
         // taps both read the old scale and lose one step.
-        val next = (_ui.value.fontScale + delta).coerceIn(0.8f, 1.6f)
+        val next = Prefs.coerceFontScale(_ui.value.fontScale + delta)
         _ui.update { it.copyWith(fontScale = next) }
         viewModelScope.launch { prefs.setFontScale(next) }
     }
 
     fun display(raw: String): String =
-        if (_ui.value.simplified) t2s.convert(raw) else raw
+        Display.text(t2s, raw, _ui.value.simplified)
 
     /** Converted theme-mode label for the settings menu. */
     fun themeLabel(): String = display(when (_ui.value.theme) {
@@ -395,16 +436,16 @@ class ReaderViewModel(
 }
 
 @Composable
-fun ReaderScreen(bookId: String, position: Int) {
+fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L) {
     val ctx = LocalContext.current
     val app = ctx.app()
     // Keyed on bookId only: paging reuses this VM via load(), and the nav
-    // graph holds at most one reader per book, so position is just the
-    // initial load argument, not an identity.
+    // graph holds at most one reader per book, so position/pageId are just
+    // the initial load arguments, not an identity.
     val vm: ReaderViewModel = viewModel(
         key = "reader-$bookId",
         factory = vmFactory {
-            ReaderViewModel(app.repo, app.t2s, app.prefs, bookId, position)
+            ReaderViewModel(app.repo, app.t2s, app.prefs, bookId, position, pageId)
         },
     )
     val ui by vm.ui.collectAsState()

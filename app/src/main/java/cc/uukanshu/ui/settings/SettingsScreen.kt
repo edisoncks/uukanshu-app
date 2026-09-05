@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import cc.uukanshu.app
+import cc.uukanshu.core.Display
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.data.update.UpdateDownloader
 import cc.uukanshu.ui.update.UpdateViewModel
@@ -56,7 +57,7 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
     val scope = rememberCoroutineScope()
     val simplified by prefs.simplified.collectAsState(initial = false)
     val theme by prefs.theme.collectAsState(initial = Prefs.SYSTEM)
-    fun display(raw: String): String = if (simplified) t2s.convert(raw) else raw
+    fun display(raw: String): String = Display.text(t2s, raw, simplified)
     val updateUi by updateVm.ui.collectAsState()
     val currentVersion = remember(ctx) { UpdateDownloader.currentVersion(ctx) }
 

@@ -2,6 +2,9 @@ package cc.uukanshu.data.net
 
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.coroutineContext
 
 /**
  * Single-flight gate for uukanshu.cc HTTP.
@@ -25,6 +28,26 @@ import kotlinx.coroutines.sync.withLock
 class UukanshuGate {
     private val mutex = Mutex()
 
-    suspend fun <T> withPermit(block: suspend () -> T): T =
-        mutex.withLock { block() }
+    /** Marker in the coroutine context while the permit is held. */
+    private data object GateClaim : CoroutineContext.Element {
+        override val key: CoroutineContext.Key<*> = Key
+        object Key : CoroutineContext.Key<GateClaim>
+    }
+
+    /**
+     * Run [block] with the single-flight permit held.
+     *
+     * Fail-fast on nesting: `Mutex` is not reentrant, so wrapping a
+     * `BookRepo` call (which itself calls `SiteApi`, which acquires the
+     * permit per attempt) would deadlock forever. Detect the claim in the
+     * coroutine context and throw instead of hanging.
+     */
+    suspend fun <T> withPermit(block: suspend () -> T): T {
+        if (coroutineContext[GateClaim.Key] != null) {
+            error("nested UukanshuGate.withPermit would deadlock: call SiteApi (per-attempt gating) instead of wrapping BookRepo")
+        }
+        return mutex.withLock {
+            withContext(GateClaim) { block() }
+        }
+    }
 }

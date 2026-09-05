@@ -18,11 +18,18 @@ object Routes {
     const val SETTINGS = "settings"
 
     const val DETAIL_PATTERN = "detail/{bookId}"
-    const val READER_PATTERN = "reader/{bookId}/{position}"
+    const val READER_PATTERN = "reader/{bookId}/{position}/{pageId}"
 
     fun detail(bookId: String): String = "detail/$bookId"
 
-    fun reader(bookId: String, position: Int): String = "reader/$bookId/$position"
+    /**
+     * Chapter route carries both display order ([position]) and stable
+     * identity ([pageId]). Position alone shifts when the site inserts
+     * chapters between Detail and Reader; the reader resolves by pageId
+     * first so a shifted TOC cannot open the wrong chapter.
+     */
+    fun reader(bookId: String, position: Int, pageId: Long = 0L): String =
+        "reader/$bookId/$position/$pageId"
 
     /** Detail destinations pop readers back to this (reader only opens from detail). */
     fun detailBase(bookId: String): String = detail(bookId)
@@ -45,19 +52,22 @@ fun NavController.navigateToBook(bookId: String) {
 /**
  * Chapter open from detail: one reader per book (opening another chapter
  * pops the previous reader), identical double-tap skipped entirely.
+ * Carries stable pageId so a TOC shift between tap and open cannot alias
+ * to a neighbor: the reader prefers pageId over position.
  *
  * Reads the controller property directly — the collected bottom-bar entry
  * lags a frame and would reintroduce the race. Clicks serialize on Main
  * and navigate() commits synchronously, so check-then-navigate here is
  * atomic w.r.t. any other tap.
  */
-fun NavController.navigateToChapter(bookId: String, position: Int) {
+fun NavController.navigateToChapter(bookId: String, position: Int, pageId: Long = 0L) {
     val top = currentBackStackEntry
     val same = top?.destination?.route == Routes.READER_PATTERN &&
         top.arguments?.getString("bookId") == bookId &&
-        top.arguments?.getInt("position") == position
+        top.arguments?.getInt("position") == position &&
+        top.arguments?.getLong("pageId") == pageId
     if (!same) {
-        navigate(Routes.reader(bookId, position)) {
+        navigate(Routes.reader(bookId, position, pageId)) {
             launchSingleTop = true
             popUpTo(Routes.detailBase(bookId)) { inclusive = false }
         }

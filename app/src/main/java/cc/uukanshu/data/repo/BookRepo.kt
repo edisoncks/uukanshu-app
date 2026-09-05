@@ -1,5 +1,6 @@
 package cc.uukanshu.data.repo
 
+import cc.uukanshu.core.Errors
 import cc.uukanshu.data.db.AppDb
 import cc.uukanshu.data.db.BookEntity
 import cc.uukanshu.data.db.ChapterEntity
@@ -9,7 +10,6 @@ import cc.uukanshu.data.parse.Parser
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
-import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
@@ -173,25 +173,25 @@ class BookRepo(
         if (chapters.isEmpty()) return@withContext Detail(meta, chapters)
         // Cache meta + TOC skeleton, preserving downloaded content and the
         // shelf timestamp (browsing Detail alone must not reorder the shelf).
-        // Atomic replace: without the delete, a shrunken TOC leaves stale
-        // rows past the new end (ghost chapters with stale text/counts).
-        runCatching {
+        // Single write path via AppDb.replaceToc: snapshot + delete + reinsert
+        // are one Room transaction so a concurrent content write cannot be
+        // lost, and callers cannot forget the merge (wiped downloads) or the
+        // delete (ghost rows past a shrunken TOC).
+        Errors.runCatchingExceptCancel {
             dbWrite.withLock {
-                db.withTransaction {
-                    val existing = db.books().book(bookId)
-                    val now = System.currentTimeMillis()
-                    db.books().upsert(
-                        preserveBookUpdatedAt(
-                            existing,
-                            BookEntity(bookId, meta.title, meta.author, meta.intro, meta.category, meta.latestChapterTitle),
-                            now,
-                        ),
-                    )
-                    val cached = db.chapters().chapters(bookId)
-                        .associate { it.pageId to it.content }
-                    db.chapters().deleteBook(bookId)
-                    db.chapters().upsertAll(mergeToc(bookId, chapters, cached))
+                val existing = db.books().book(bookId)
+                val now = System.currentTimeMillis()
+                val book = preserveBookUpdatedAt(
+                    existing,
+                    BookEntity(bookId, meta.title, meta.author, meta.intro, meta.category, meta.latestChapterTitle),
+                    now,
+                )
+                // Content-empty skeleton; replaceToc backfills cached text by
+                // stable pageId inside the same transaction.
+                val skeleton = chapters.map {
+                    ChapterEntity(bookId, it.position, it.pageId, it.title, it.url, content = "")
                 }
+                db.replaceToc(book, skeleton)
             }
         }.onFailure { if (it is CancellationException) throw it }
             Detail(meta, chapters)
@@ -208,8 +208,8 @@ class BookRepo(
     suspend fun cachedChapterContent(bookId: String, pageId: Long): String? =
         db.chapters().chapterContent(bookId, pageId)?.takeIf { it.isNotEmpty() }
 
-    /** Positions with downloaded content — live stream driving chapter-list badges. */
-    fun cachedPositionsFlow(bookId: String): Flow<Set<Int>> =
+    /** Stable ids with downloaded content — immune to TOC-shift mislabeling. */
+    fun cachedPositionsFlow(bookId: String): Flow<Set<Long>> =
         db.chapters().cachedPositionsFlow(bookId).map { it.toSet() }
 
     /** Content write by stable pageId — a shifted TOC can never misfile text. */
@@ -229,7 +229,9 @@ class BookRepo(
         withContext(Dispatchers.IO) {
             val now = System.currentTimeMillis()
             db.progress().upsert(ProgressEntity(bookId, position, pageId, now))
-            runCatching { db.books().touch(bookId, now) }
+            // Best-effort shelf bump: must not swallow cancellation (would
+            // turn a cancelled save into a normal return and run extra work).
+            Errors.suppressExceptCancel { db.books().touch(bookId, now) }
         }
 
     /** Live bookmark (position + stable pageId) for continue-reading. */
@@ -351,26 +353,17 @@ class BookRepo(
 
     suspend fun deleteBook(bookId: String) = withContext(Dispatchers.IO) {
         dbWrite.withLock {
-            db.withTransaction {
-                db.chapters().deleteBook(bookId)
-                db.books().deleteBook(bookId)
-                db.progress().deleteBook(bookId)
-            }
+            db.deleteBookFull(bookId)
         }
     }
 
     /**
-     * Atomic wipe of every table in one transaction: the old per-book loop
-     * could strand a half-cleared library on cancellation, and could never
-     * reach progress rows with no book row (see [ProgressDao.clearAll]).
+     * Atomic wipe via [AppDb.clearAllFull]: single transaction so
+     * cancellation cannot strand a half-cleared library.
      */
     suspend fun clearAll() = withContext(Dispatchers.IO) {
         dbWrite.withLock {
-            db.withTransaction {
-                db.chapters().clearAll()
-                db.books().clearAll()
-                db.progress().clearAll()
-            }
+            db.clearAllFull()
         }
     }
 }

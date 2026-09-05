@@ -42,6 +42,7 @@ import androidx.paging.compose.itemKey
 import cc.uukanshu.CATEGORIES
 import cc.uukanshu.app
 import cc.uukanshu.core.Errors
+import cc.uukanshu.core.Display
 import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.paging.BookPagingSource
 import cc.uukanshu.data.parse.Parser
@@ -132,7 +133,7 @@ class HomeViewModel(
     }
 
     fun display(raw: String): String =
-        if (_ui.value.simplified) t2s.convert(raw) else raw
+        Display.text(t2s, raw, _ui.value.simplified)
 
     fun selectTab(tab: Int) {
         if (_ui.value.tab == tab) return

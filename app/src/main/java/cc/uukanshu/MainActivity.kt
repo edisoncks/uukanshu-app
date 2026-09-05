@@ -34,6 +34,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import cc.uukanshu.core.Display
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.ui.Routes
 import cc.uukanshu.ui.navigateToBook
@@ -66,7 +67,7 @@ fun UukanshuApp() {
     // Global display prefs: bottom nav + theme follow them live.
     val simplified by prefs.simplified.collectAsState(initial = false)
     val theme by prefs.theme.collectAsState(initial = Prefs.SYSTEM)
-    fun display(raw: String): String = if (simplified) t2s.convert(raw) else raw
+    fun display(raw: String): String = Display.text(t2s, raw, simplified)
     // minSdk 31 guarantees dynamic color; plain schemes as fallback.
     val dark = when (theme) {
         Prefs.LIGHT -> false
@@ -127,7 +128,7 @@ fun UukanshuApp() {
                         bookId = entry.arguments?.getString("bookId").orEmpty(),
                         // Paging within the reader reuses the ViewModel via load(),
                         // not navigation (see Nav.kt for the dedup/pop rules).
-                        onChapter = { id, pos -> nav.navigateToChapter(id, pos) },
+                        onChapter = { id, pos, pageId -> nav.navigateToChapter(id, pos, pageId) },
                     )
                 }
                 composable(
@@ -135,11 +136,13 @@ fun UukanshuApp() {
                     arguments = listOf(
                         navArgument("bookId") { type = NavType.StringType },
                         navArgument("position") { type = NavType.IntType },
+                        navArgument("pageId") { type = NavType.LongType; defaultValue = 0L },
                     ),
                 ) { entry ->
                     ReaderScreen(
                         bookId = entry.arguments?.getString("bookId").orEmpty(),
                         position = entry.arguments?.getInt("position") ?: 1,
+                        pageId = entry.arguments?.getLong("pageId") ?: 0L,
                     )
                 }
             }

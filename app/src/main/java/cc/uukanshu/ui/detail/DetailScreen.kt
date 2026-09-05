@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import cc.uukanshu.core.Display
 import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.data.parse.Parser
@@ -74,7 +75,7 @@ class DetailViewModel(
         val downloadTotal: Int = 0,
         val downloadError: String? = null,
         val simplified: Boolean = false,
-        val cached: Set<Int> = emptySet(),
+        val cached: Set<Long> = emptySet(),
         val bookmark: BookRepo.Bookmark? = null,
     )
 
@@ -208,7 +209,7 @@ class DetailViewModel(
     }
 
     fun displayTitle(raw: String): String =
-        if (_ui.value.simplified) t2s.convert(raw) else raw
+        Display.text(t2s, raw, _ui.value.simplified)
 
     /** Continue target resolved against the live TOC (pageId first). */
     fun continueChapter(chapters: List<Parser.ChapterRef>): Parser.ChapterRef? =
@@ -229,7 +230,7 @@ class DetailViewModel(
 }
 
 @Composable
-fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> Unit) {
+fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int, pageId: Long) -> Unit) {
     val ctx = LocalContext.current
     val app = ctx.app()
     val vm: DetailViewModel = viewModel(
@@ -282,7 +283,7 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
                     ) {
                         if (bookmarked != null) {
                             Button(
-                                onClick = { onChapter(bookId, bookmarked.position) },
+                                onClick = { onChapter(bookId, bookmarked.position, bookmarked.pageId) },
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
                                 Text(
@@ -309,7 +310,7 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
                     ) {
                         if (bookmarked != null) {
                             Button(
-                                onClick = { onChapter(bookId, bookmarked.position) },
+                                onClick = { onChapter(bookId, bookmarked.position, bookmarked.pageId) },
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
                                 Text(
@@ -339,7 +340,7 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
             }
             items(load.chapters, key = { it.pageId }) { c ->
                 Row(
-                    Modifier.fillMaxWidth().clickable { onChapter(bookId, c.position) }.padding(vertical = 8.dp),
+                    Modifier.fillMaxWidth().clickable { onChapter(bookId, c.position, c.pageId) }.padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -357,7 +358,7 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int) -> U
                             modifier = Modifier.padding(end = 4.dp),
                         )
                     }
-                    if (c.position in ui.cached) {
+                    if (c.pageId in ui.cached) {
                         Text(
                             "✓ ${vm.displayTitle("已緩存")}",
                             style = MaterialTheme.typography.bodySmall,

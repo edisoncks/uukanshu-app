@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.Transaction
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
@@ -82,6 +83,46 @@ abstract class AppDb : RoomDatabase() {
     abstract fun books(): BookDao
     abstract fun chapters(): ChapterDao
     abstract fun progress(): ProgressDao
+
+    /**
+     * Atomic TOC wholesale replace that preserves downloaded content.
+     *
+     * The snapshot (`cached` by stable pageId) and the delete+reinsert run
+     * in one Room transaction, so a concurrent single-row content write
+     * committing between them is not lost. Callers must still serialize
+     * this against `ChapterDao.updateContent` via the repo `dbWrite` Mutex
+     * (Room transactions alone don't serialize against each other beyond
+     * SQLite locking). Takes a content-empty skeleton; content merge lives
+     * here so callers cannot forget it (wiping downloads) or forget the
+     * delete (leaving ghost rows past a shrunken TOC).
+     */
+    @Transaction
+    open suspend fun replaceToc(book: BookEntity, skeleton: List<ChapterEntity>) {
+        books().upsert(book)
+        val cached = chapters().chapters(book.id).associate { it.pageId to it.content }
+        chapters().deleteBook(book.id)
+        chapters().upsertAll(skeleton.map { it.copy(content = cached[it.pageId].orEmpty()) })
+    }
+
+    /** Atomic per-book wipe across all three tables (single transaction). */
+    @Transaction
+    open suspend fun deleteBookFull(bookId: String) {
+        chapters().deleteBook(bookId)
+        books().deleteBook(bookId)
+        progress().deleteBook(bookId)
+    }
+
+    /**
+     * Atomic wipe of every table in one transaction: the old per-book loop
+     * could strand a half-cleared library on cancellation, and could never
+     * reach progress rows with no book row.
+     */
+    @Transaction
+    open suspend fun clearAllFull() {
+        chapters().clearAll()
+        books().clearAll()
+        progress().clearAll()
+    }
 
     companion object {
         @Volatile private var instance: AppDb? = null

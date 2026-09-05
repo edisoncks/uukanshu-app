@@ -63,6 +63,26 @@ object Parser {
 
     // -- book URL ------------------------------------------------------
 
+    /**
+     * Single normalization for every book id in this file.
+     *
+     * Ids compare numerically ("001" == "1") and huge digit runs that
+     * overflow `Int` are rejected (null, never throw). Pure `toIntOrNull`
+     * — never `runCatching { toInt() }`, so there is exactly one place to
+     * keep in sync when the id shape changes.
+     */
+    fun normalizeBookId(raw: String?): String? {
+        val t = raw?.trim() ?: return null
+        if (t.isEmpty()) return null
+        val i = t.toIntOrNull() ?: return null
+        if (i < 0) return null
+        return i.toString()
+    }
+
+    /** Numeric compare key for TOC filtering; null input stays null. */
+    private fun bookIdIntOrNull(raw: String?): Int? =
+        raw?.trim()?.toIntOrNull()?.takeIf { it >= 0 }
+
     /** Canonical book URL, or null when `url` is not a book index page. */
     fun bookUrlOrNull(url: String): String? {
         // Tolerate trailing query/fragment (?from= / #toc): canonicalize away.
@@ -70,13 +90,13 @@ object Parser {
         val m = Regex("""https?://(?:www\.)?uukanshu\.cc/book/(\d+)/?(?:index\.html)?/?""")
             .matchEntire(clean) ?: return null
         // Huge digit runs match \d+ but overflow Int: null, never throw.
-        val id = m.groupValues[1].toIntOrNull() ?: return null
+        val id = normalizeBookId(m.groupValues[1]) ?: return null
         return "$BASE/book/$id/"
     }
 
     fun bookIdOrNull(url: String): String? =
         Regex("""/book/(\d+)/?""").find(url)?.groupValues?.getOrNull(1)
-            ?.let { runCatching { it.toInt().toString() }.getOrNull() }
+            ?.let { normalizeBookId(it) }
 
     fun chapterPageIdOrNull(url: String): Long? =
         Regex("""/book/\d+/(\d+)\.html""").find(url)?.groupValues?.getOrNull(1)?.toLongOrNull()
@@ -127,7 +147,7 @@ object Parser {
                 ?.takeIf { it.toIntOrNull() != null }
                 ?: doc.selectFirst("meta[property=og:novel:read_url]")?.attr("content")
                     ?.let { bookIdOrNull(it) }
-            val normId = id?.let { runCatching { it.trim().toInt().toString() }.getOrNull() }
+            val normId = normalizeBookId(id)
             if (normId != null) {
                 val meta = parseBookMeta(html, "$BASE/book/$normId/")
                 return SearchResult(
@@ -172,7 +192,7 @@ object Parser {
      */
     fun parseToc(html: String, bookId: String? = null): List<ChapterRef> {
         val matches = tocLink.findAll(html).toList()
-        val wanted = bookId?.let { runCatching { it.trim().toInt() }.getOrNull() ?: -1 }
+        val wanted = bookId?.let { bookIdIntOrNull(it) ?: -1 }
         val lastIdx = mutableMapOf<Pair<String, String>, Int>()
         matches.forEachIndexed { i, m ->
             if (wanted != null && m.groupValues[2].toIntOrNull() != wanted) return@forEachIndexed
@@ -252,7 +272,19 @@ object Parser {
         val m = Regex(
             """<a\s[^>]*?href=["']([^"']+)["'][^>]*>\s*${label.pattern}\s*</a>""",
         ).find(page) ?: return null
-        val abs = absolutize(m.groupValues[1], pageUrl)
+        return canonicalChapterUrl(m.groupValues[1], pageUrl)
+    }
+
+    /**
+     * Single resolve → strip `?query`/`#fragment` → shape-validate step for
+     * every chapter href (TOC + prev/next). Returns the canonical URL or
+     * null when the href is not a chapter (TOC index, lastchapter.php =
+     * end-of-book). Centralized so tracking params can never yield two
+     * cache keys for one chapter and validation can never drift between
+     * call sites.
+     */
+    fun canonicalChapterUrl(href: String, base: String): String? {
+        val abs = absolutize(href, base)
         // Strip query/fragment for shape validation + canonical return so the
         // same chapter never yields two cache keys (?from=... variants).
         val clean = abs.substringBefore('?').substringBefore('#')

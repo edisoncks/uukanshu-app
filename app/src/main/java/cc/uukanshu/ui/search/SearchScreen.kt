@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import cc.uukanshu.core.Display
 import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.prefs.Prefs
@@ -140,7 +141,7 @@ class SearchViewModel(
     }
 
     fun display(raw: String): String =
-        if (_ui.value.simplified) t2s.convert(raw) else raw
+        Display.text(t2s, raw, _ui.value.simplified)
 
     companion object {
         /** Drop duplicate cards by stable book id (same live-shift dup source as Home). */

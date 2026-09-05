@@ -14,6 +14,10 @@ internal object JsonMini {
         p.ws()
         val v = p.value()
         p.ws()
+        // Strict: trailing garbage (truncated/corrupt payload + junk) must fail
+        // instead of silently returning the prefix. GitHub payloads are exact;
+        // ignoring the tail would mask corruption as a valid release.
+        if (p.i != text.length) throw IllegalArgumentException("trailing data at ${p.i}")
         return v
     }
 

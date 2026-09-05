@@ -85,9 +85,13 @@ interface ChapterDao {
     @Query("SELECT * FROM chapters WHERE bookId = :bookId ORDER BY position")
     suspend fun chapters(bookId: String): List<ChapterEntity>
 
-    /** Positions with downloaded content, as a live stream for badges. */
-    @Query("SELECT position FROM chapters WHERE bookId = :bookId AND content != ''")
-    fun cachedPositionsFlow(bookId: String): Flow<List<Int>>
+    /**
+     * Stable ids with downloaded content, as a live stream for badges.
+     * Keyed by pageId (never position): positions shift when the site inserts
+     * chapters, which would mislabel badges until the next TOC revalidate.
+     */
+    @Query("SELECT pageId FROM chapters WHERE bookId = :bookId AND content != ''")
+    fun cachedPositionsFlow(bookId: String): Flow<List<Long>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(chapters: List<ChapterEntity>)

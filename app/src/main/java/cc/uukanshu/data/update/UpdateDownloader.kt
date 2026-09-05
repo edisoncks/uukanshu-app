@@ -120,17 +120,42 @@ class UpdateDownloader(private val context: Context) {
         }?.forEach { runCatching { it.delete() } }
     }
 
+    /** Single decision table for APK file state: call the wrong gate and a
+     * killed-process partial either blocks install or gets installed.
+     * Use [apkState] at call sites; [isComplete]/[isInstallable] stay as
+     * the tested predicates behind it. */
+    sealed interface ApkState {
+        data object Missing : ApkState
+        /** Present but shorter/longer than the release size (or empty). */
+        data object Partial : ApkState
+        /** Byte-exact match, or non-empty after a fresh DM SUCCESS with unknown size. */
+        data object Ready : ApkState
+    }
+
     companion object {
+
+        /**
+         * Resolve [ApkState] for [file]. `dmSuccess=true` only immediately
+         * after DownloadManager reported SUCCESS for this id (system receipt);
+         * everywhere else (alreadyHave/enqueue) pass false so unknown size
+         * never counts as complete.
+         */
+        fun apkState(file: File, expectedSize: Long?, dmSuccess: Boolean = false): ApkState {
+            if (!file.exists() || file.length() <= 0) return ApkState.Missing
+            if (expectedSize != null) {
+                return if (file.length() == expectedSize) ApkState.Ready else ApkState.Partial
+            }
+            // Unknown size: strict without a DM receipt, lenient with one.
+            return if (dmSuccess) ApkState.Ready else ApkState.Partial
+        }
+
         /** Byte-exact completeness check shared by enqueue/alreadyHave.
          *
          * Strict by design: unknown size never counts as complete, so a
          * partial file left by a killed process can never skip re-download.
          */
-        fun isComplete(file: File, expectedSize: Long?): Boolean {
-            if (!file.exists()) return false
-            if (expectedSize == null) return false
-            return file.length() == expectedSize
-        }
+        fun isComplete(file: File, expectedSize: Long?): Boolean =
+            apkState(file, expectedSize, dmSuccess = false) == ApkState.Ready
 
         /**
          * Install gate: byte-exact when the release reports a size, otherwise
@@ -140,11 +165,9 @@ class UpdateDownloader(private val context: Context) {
          * or an explicit user tap, so a killed-process partial can never
          * sneak through alreadyHave, but a sizeless release stays installable.
          */
-        fun isInstallable(file: File, expectedSize: Long?): Boolean {
-            if (!file.exists() || file.length() <= 0) return false
-            if (expectedSize == null) return true
-            return file.length() == expectedSize
-        }
+        fun isInstallable(file: File, expectedSize: Long?): Boolean =
+            // Explicit user tap / post-SUCCESS: treat unknown size leniently.
+            apkState(file, expectedSize, dmSuccess = true) == ApkState.Ready
 
         /** Local version via PackageManager (no BuildConfig flag needed). */
         fun currentVersion(context: Context): String = runCatching {

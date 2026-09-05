@@ -39,6 +39,35 @@ object Errors {
         if (e is CancellationException) throw e
         return userMessage(e)
     }
+
+    /**
+     * `runCatching` for suspend blocks that must not swallow cancellation.
+     * `kotlin.runCatching` catches `CancellationException` (it is an
+     * `Exception`), which suppresses coroutine cancellation and turns a
+     * cancelled job into a normal failure. Use this instead for any
+     * suspend call (DB, network, DataStore): cancellation rethrows,
+     * other failures are captured in the `Result`.
+     */
+    suspend fun <T> runCatchingExceptCancel(block: suspend () -> T): Result<T> = try {
+        Result.success(block())
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+
+    /**
+     * Fire-and-forget variant: returns null on ordinary failure, rethrows
+     * cancellation. For optional reads (stale cache paint, best-effort
+     * revalidate) where `null`/skip is the failure mode.
+     */
+    suspend fun <T> suppressExceptCancel(block: suspend () -> T): T? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        null
+    }
 }
 
 /** Shorthand for `catch (e: Exception) { userMessageOrThrow(e) }` sites. */
