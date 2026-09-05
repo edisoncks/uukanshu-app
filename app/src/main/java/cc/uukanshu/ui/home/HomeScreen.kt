@@ -23,10 +23,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -80,6 +79,25 @@ class HomeViewModel(
     private val _ui = MutableStateFlow(Ui())
     val ui: StateFlow<Ui> = _ui
 
+    /**
+     * Per-list scroll positions, keyed by [listKey]. The ViewModel survives
+     * detail->back (HOME back-stack entry is retained), so this covers the
+     * reported bug; `rememberSaveable(key)` in the composable is the second
+     * layer for rotation / process death. One entry per list (recent + each
+     * category) so lists never clobber each other — the old single shared
+     * LazyListState did.
+     */
+    private val scrolls = mutableMapOf<String, Pair<Int, Int>>()
+
+    fun listKey(tab: Int, categoryId: Int): String =
+        if (tab == 0) "recent" else "cat-$categoryId"
+
+    fun scrollFor(key: String): Pair<Int, Int> = scrolls[key] ?: (0 to 0)
+
+    fun saveScroll(key: String, index: Int, offset: Int) {
+        scrolls[key] = index to offset
+    }
+
     init {
         viewModelScope.launch {
             _ui.value = _ui.value.copy(
@@ -102,10 +120,17 @@ class HomeViewModel(
 
     fun selectTab(tab: Int) {
         if (_ui.value.tab == tab) return
+        // Explicit user switch resets the target list to top (per-list reset
+        // on tab switch); detail->back never calls here so its saved pos stays.
+        scrolls.remove(listKey(tab, _ui.value.categoryId))
         _ui.update { it.copy(tab = tab) }
     }
 
     fun selectCategory(id: Int) {
+        val cur = _ui.value
+        if (cur.tab == 1 && cur.categoryId == id) return
+        // Same reset rule as selectTab: switching categories starts at top.
+        scrolls.remove(listKey(1, id))
         _ui.update { it.copy(tab = 1, categoryId = id) }
     }
 
@@ -161,20 +186,28 @@ fun HomeScreen(onBook: (String) -> Unit) {
                 }
             }
         }
-        // Saveable so detail->back restores index/offset via the home
-        // back-stack entry; plain remember is discarded with the composition.
-        // Reset only on a real tab/category change, not on first composition
-        // or return from detail (lastResetKey is null then, so we skip).
-        val listState = rememberSaveable(saver = LazyListState.Saver) {
-            LazyListState()
+        // Per-list scroll: one saveable state per recent/category key.
+        // - detail->back restores via the HOME back-stack entry (saveable +
+        //   ViewModel map, which survives because HOME is retained).
+        // - explicit tab/category switch resets to top (selectTab/Category
+        //   cleared the VM entry; scroll to 0 in case the saveable for this
+        //   key still holds an old position from a previous visit).
+        // - staying on the same list (e.g. simplified toggle) keeps position.
+        val key = vm.listKey(ui.tab, ui.categoryId)
+        val initial = remember(key) { vm.scrollFor(key) }
+        val listState = rememberSaveable(key, saver = LazyListState.Saver) {
+            LazyListState(initial.first, initial.second)
         }
-        var lastResetKey by remember { mutableStateOf<Pair<Int, Int>?>(null) }
-        LaunchedEffect(ui.tab, ui.categoryId) {
-            val key = ui.tab to ui.categoryId
-            if (lastResetKey != null && lastResetKey != key) {
+        LaunchedEffect(key, listState) {
+            snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+                .collect { (index, offset) -> vm.saveScroll(key, index, offset) }
+        }
+        LaunchedEffect(key) {
+            if (vm.scrollFor(key) == (0 to 0) &&
+                (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0)
+            ) {
                 listState.scrollToItem(0)
             }
-            lastResetKey = key
         }
         val refresh = books.loadState.refresh
         val append = books.loadState.append
