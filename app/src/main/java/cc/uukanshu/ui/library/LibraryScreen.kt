@@ -275,11 +275,19 @@ fun LibraryScreen(onBook: (String) -> Unit) {
                 }
                 items(ui.books, key = { it.id }) { b ->
                     val st = ui.downloading[b.id]
+                    val isDownloading = st?.downloading == true
                     Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onBook(b.id) }) {
                         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(vm.display(b.title), style = MaterialTheme.typography.titleMedium)
+                            // While downloading, the DB snapshot (b.cached/b.total)
+                            // is stale until the job finishes — show only the live
+                            // done/total line below so progress never appears twice.
                             Text(
-                                "${vm.display(b.author)} · ${b.cached}/${b.total} ${vm.display("章")} · ${formatBytes(b.bytes)}",
+                                if (isDownloading) {
+                                    "${vm.display(b.author)} · ${formatBytes(b.bytes)}"
+                                } else {
+                                    "${vm.display(b.author)} · ${b.cached}/${b.total} ${vm.display("章")} · ${formatBytes(b.bytes)}"
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                             )
                             if (st?.downloading == true) {
