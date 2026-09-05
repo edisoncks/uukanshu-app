@@ -141,7 +141,7 @@ object Parser {
             if (wanted != null && m.groupValues[2].toIntOrNull() != wanted) return@forEachIndexed
             val key = m.groupValues[2] to m.groupValues[3]
             if (key in seen || lastIdx[key] != i) return@forEachIndexed
-            val pageId = m.groupValues[3].toLongOrNull() ?: return@forEachIndexed
+            val pageId = chapterPageIdOrNull(BASE + m.groupValues[1]) ?: return@forEachIndexed
             seen += key
             out += ChapterRef(
                 position = out.size + 1,
