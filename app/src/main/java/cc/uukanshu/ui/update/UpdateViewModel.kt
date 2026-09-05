@@ -138,15 +138,26 @@ class UpdateViewModel(
     fun startDownload() {
         val info = _ui.value.info ?: return
         if (_ui.value.downloading) return
-        if (!UpdateDownloader.canInstall(app)) {
-            _ui.update { it.copy(needsUnknownSources = true) }
-            return
-        }
         _ui.update {
             it.copy(downloading = true, progress = null, error = null,
                 needsUnknownSources = false)
         }
         viewModelScope.launch(Dispatchers.IO) {
+            // Already-have check first: a complete APK on disk skips
+            // straight to install even when the unknown-sources permission
+            // was revoked since (install() needs no gate of its own).
+            if (UpdateDownloader.isComplete(downloader.apkFile(info), info.size)) {
+                withContext(Dispatchers.Main) {
+                    _ui.update { it.copy(downloading = false, fileReady = true) }
+                }
+                return@launch
+            }
+            if (!UpdateDownloader.canInstall(app)) {
+                withContext(Dispatchers.Main) {
+                    _ui.update { it.copy(downloading = false, needsUnknownSources = true) }
+                }
+                return@launch
+            }
             val id = try {
                 downloader.enqueue(info)
             } catch (e: CancellationException) {
