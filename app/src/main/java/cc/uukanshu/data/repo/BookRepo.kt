@@ -121,6 +121,10 @@ class BookRepo(
         val html = site.get(url)
         val meta = Parser.parseBookMeta(html, url)
         val chapters = Parser.parseToc(html, bookId)
+        // Empty TOC means a block page / layout change, not an empty book:
+        // never wipe the cached chapters on nothing. Return fresh (empty)
+        // without touching the DB so offline content survives.
+        if (chapters.isEmpty()) return@withContext Detail(meta, chapters)
         // Cache meta + TOC skeleton, preserving downloaded content and the
         // shelf timestamp (browsing Detail alone must not reorder the shelf).
         // Atomic replace: without the delete, a shrunken TOC leaves stale
