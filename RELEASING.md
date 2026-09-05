@@ -69,9 +69,9 @@ releases:
 
 - Tag is `vX.Y.Z` and **must equal** `versionName X.Y.Z` (numeric
   dot-separated compare; leading `v` stripped).
-- Exactly one asset named `uukanshu-X.Y.Z.apk` (the updater globs
-  `uukanshu-*.apk`, falling back to any `.apk`). Never rename it and never
-  attach a second APK.
+- Exactly one asset named `uukanshu-X.Y.Z.apk` (the updater only accepts
+  `uukanshu-*.apk`; any other `.apk` is ignored and yields no update).
+  Never rename it and never attach a second APK.
 - Release body is shown verbatim as the update changelog (keep it concise,
   plain Markdown, no huge dumps — the dialog scrolls at ~220dp).
 - Smoke-test the in-app path after publishing: install the previous release,

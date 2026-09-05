@@ -92,19 +92,18 @@ class UpdateApi(
             val tag = (root["tag_name"] as? String)?.trim().orEmpty()
             if (tag.isEmpty()) return null
             val assets = root["assets"] as? List<*> ?: return null
-            var fallback: Map<*, *>? = null
+            // Fail closed: only a uukanshu-*.apk asset is ever offered for
+            // install. A stray .apk must never be served to the installer.
             var match: Map<*, *>? = null
             for (entry in assets) {
                 val a = entry as? Map<*, *> ?: continue
                 val name = (a["name"] as? String).orEmpty()
-                if (!name.endsWith(".apk")) continue
-                if (fallback == null) fallback = a
                 if (name.startsWith("uukanshu-") && name.endsWith(".apk")) {
                     match = a
                     break
                 }
             }
-            val asset = match ?: fallback ?: return null
+            val asset = match ?: return null
             val url = ((asset["browser_download_url"] as? String) ?: "").trim()
             val name = ((asset["name"] as? String) ?: "").trim()
             if (url.isEmpty() || name.isEmpty()) return null

@@ -80,12 +80,13 @@ class UpdateApiParseTest {
     }
 
     @Test
-    fun `falls back to any apk`() {
-        val info = UpdateApi.parse(
-            """{"tag_name":"v1.0.15","assets":[{"name":"app.apk","browser_download_url":"https://example.com/a.apk"}]}""",
+    fun `rejects stray apk asset`() {
+        // Fail closed: a non-uukanshu .apk must never be offered for install.
+        assertNull(
+            UpdateApi.parse(
+                """{"tag_name":"v1.0.15","assets":[{"name":"app.apk","browser_download_url":"https://example.com/a.apk"}]}""",
+            ),
         )
-        assertNotNull(info)
-        assertEquals("app.apk", info!!.apkName)
     }
 
     @Test
