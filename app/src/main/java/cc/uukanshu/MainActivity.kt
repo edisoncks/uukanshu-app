@@ -3,28 +3,33 @@ package cc.uukanshu
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -38,6 +43,9 @@ import cc.uukanshu.ui.home.HomeScreen
 import cc.uukanshu.ui.library.LibraryScreen
 import cc.uukanshu.ui.search.SearchScreen
 import cc.uukanshu.ui.reader.ReaderScreen
+import cc.uukanshu.ui.settings.SettingsScreen
+import cc.uukanshu.ui.update.UpdateDialog
+import cc.uukanshu.ui.update.UpdateViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -76,7 +84,17 @@ fun UukanshuApp() {
             Tab("home", display("首頁")) { Icon(Icons.Filled.Home, contentDescription = null) },
             Tab("search", display("搜索")) { Icon(Icons.Filled.Search, contentDescription = null) },
             Tab("library", display("書架")) { Icon(Icons.Filled.List, contentDescription = null) },
+            Tab("settings", display("設定")) { Icon(Icons.Filled.Settings, contentDescription = null) },
         )
+        // Shared update state: auto-check fires once per day whatever tab is open;
+        // the manual check button lives in Settings, the dialog overlays any tab.
+        val updateVm: UpdateViewModel = viewModel(factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                UpdateViewModel(app, prefs) as T
+        })
+        val updateUi by updateVm.ui.collectAsState()
+        LaunchedEffect(Unit) { updateVm.autoCheck() }
         Scaffold(
             bottomBar = {
                 val entry by nav.currentBackStackEntryAsState()
@@ -108,6 +126,7 @@ fun UukanshuApp() {
                 composable("home") { HomeScreen(onBook = { id -> nav.navigate("detail/$id") { launchSingleTop = true } }) }
                 composable("search") { SearchScreen(onBook = { id -> nav.navigate("detail/$id") { launchSingleTop = true } }) }
                 composable("library") { LibraryScreen(onBook = { id -> nav.navigate("detail/$id") { launchSingleTop = true } }) }
+                composable("settings") { SettingsScreen(updateVm) }
                 composable(
                     "detail/{bookId}",
                     arguments = listOf(navArgument("bookId") { type = NavType.StringType }),
@@ -134,6 +153,18 @@ fun UukanshuApp() {
                     )
                 }
             }
+            UpdateDialog(
+                ui = updateUi,
+                display = ::display,
+                onDownload = { updateVm.startDownload() },
+                onInstall = { updateVm.install() },
+                onCancelDownload = { updateVm.cancelDownload() },
+                onSkip = { updateVm.skipVersion() },
+                onDismiss = { updateVm.dismiss() },
+                onRetry = { updateVm.manualCheck() },
+                onBrowser = { updateVm.openInBrowser() },
+                onOpenUnknownSources = { updateVm.openUnknownSources() },
+            )
         }
     }
 }

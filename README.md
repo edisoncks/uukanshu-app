@@ -10,9 +10,9 @@ then open it on your phone to install (Android 12+). If prompted, allow
 "install unknown apps" for your browser/file manager — the APK is signed
 but not Play-distributed.
 
-To update, open the app and tap the ⬇ button in the Home top bar (or wait
+To update, open the app and go to the Settings tab → 檢查更新 (or wait
 for the automatic new-version prompt, checked at most once a day via the
-GitHub Releases API). The app downloads `uukanshu-{version}.apk` with the
+GitHub Releases API). The Settings tab also shows the installed version. The app downloads `uukanshu-{version}.apk` with the
 system DownloadManager and hands it to the package installer — install over
 the old one (same signature, data and cache preserved). On the first in-app
 update, allow "install unknown apps" for **uukanshu** itself when the system
@@ -25,11 +25,12 @@ it the same way.
 - 🔍 Search by title (`POST /search`, hot-span stripping)
 - 📖 Book detail with full chapter list (reading order, cached badges)
 - 📄 Chapter reader with prev/next, start/end snackbars
-- 🀄 Global Traditional → Simplified toggle (Home top bar + reader; opencc4j at render time, raw cached)
+- 🀄 Global Traditional → Simplified toggle (Settings tab + reader; opencc4j at render time, raw cached)
+- ⚙️ Settings tab: theme (auto/light/dark), Simplified/Traditional, update check + installed version
 - ⏬ Auto-cache next 5 chapters; manual full-novel download with progress + cancel
 - 🗑️ Library with per-book size, delete per book / clear all; offline cached-first reading
-- 🔤 Font-size +/-, persisted with DataStore; Material3 light/dark
-- ⬆️ In-app update: GitHub Releases check (auto daily + manual ⬇ button),
+- 🔤 Font-size +/-, persisted with DataStore; Material3 light/dark (Settings tab)
+- ⬆️ In-app update: GitHub Releases check (auto daily + manual button in Settings),
   DownloadManager download with progress, system installer handoff; "skip
   this version" and browser-download fallback included
 

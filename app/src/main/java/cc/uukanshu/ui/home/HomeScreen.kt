@@ -4,7 +4,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -12,19 +11,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -43,9 +37,6 @@ import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.repo
-import cc.uukanshu.ui.ThemeIconButton
-import cc.uukanshu.ui.update.UpdateDialog
-import cc.uukanshu.ui.update.UpdateViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -83,24 +74,18 @@ class HomeViewModel(
             )
             refresh()
         }
-    }
-
-    fun toggleSimplified() {
-        // Synchronous toggle on Main: two rapid taps must toggle twice.
-        val next = !_ui.value.simplified
-        _ui.value = _ui.value.copy(simplified = next)
-        viewModelScope.launch { prefs.setSimplified(next) }
+        // Settings tab owns the toggles now: follow DataStore so the list
+        // re-renders when the user flips Simplified/Theme there.
+        viewModelScope.launch {
+            prefs.simplified.collect { v -> _ui.update { it.copy(simplified = v) } }
+        }
+        viewModelScope.launch {
+            prefs.theme.collect { v -> _ui.update { it.copy(theme = v) } }
+        }
     }
 
     fun display(raw: String): String =
         if (_ui.value.simplified) t2s.convert(raw) else raw
-
-    /** Cycle system → light → dark theme. Applied app-wide via prefs. */
-    fun cycleTheme() {
-        val next = Prefs.next(_ui.value.theme)
-        _ui.value = _ui.value.copy(theme = next)
-        viewModelScope.launch { prefs.setTheme(next) }
-    }
 
     fun selectTab(tab: Int) {
         if (_ui.value.tab == tab) return
@@ -202,49 +187,13 @@ fun HomeScreen(onBook: (String) -> Unit) {
             HomeViewModel(ctx.repo(), Prefs(app), T2S(app)) as T
     })
     val ui by vm.ui.collectAsState()
-    val updateVm: UpdateViewModel = viewModel(factory = object : ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            UpdateViewModel(app, Prefs(app)) as T
-    })
-    val updateUi by updateVm.ui.collectAsState()
-    LaunchedEffect(Unit) { updateVm.autoCheck() }
 
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "uukanshu",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.weight(1f).padding(start = 12.dp),
-            )
-            IconButton(onClick = { updateVm.manualCheck() }) {
-                Icon(
-                    Icons.Filled.Refresh,
-                    contentDescription = vm.display("檢查更新"),
-                    tint = if (updateUi.info != null) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            TextButton(onClick = { vm.toggleSimplified() }) {
-                Text(if (ui.simplified) "简" else "繁")
-            }
-            ThemeIconButton(ui.theme, { vm.cycleTheme() }, vm::display)
-        }
-        // Dismissed-but-available update: one-line banner to reopen the dialog.
-        if (updateUi.info != null && !updateUi.visible) {
-            Card(
-                onClick = { updateVm.reopen() },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-            ) {
-                Text(
-                    if (updateUi.fileReady) vm.display("更新已下載完成，點擊立即安裝")
-                    else vm.display("發現新版本 ${updateUi.info!!.tag}，點擊查看"),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(12.dp),
-                )
-            }
-        }
+        Text(
+            "uukanshu",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, top = 12.dp, bottom = 4.dp),
+        )
         TabRow(selectedTabIndex = ui.tab) {
             Tab(selected = ui.tab == 0, onClick = { vm.selectTab(0) }, text = { Text(vm.display("最近更新")) })
             Tab(selected = ui.tab == 1, onClick = { vm.selectTab(1) }, text = { Text(vm.display("分類")) })
@@ -325,16 +274,4 @@ fun HomeScreen(onBook: (String) -> Unit) {
             }
         }
     }
-    UpdateDialog(
-        ui = updateUi,
-        display = vm::display,
-        onDownload = { updateVm.startDownload() },
-        onInstall = { updateVm.install() },
-        onCancelDownload = { updateVm.cancelDownload() },
-        onSkip = { updateVm.skipVersion() },
-        onDismiss = { updateVm.dismiss() },
-        onRetry = { updateVm.manualCheck() },
-        onBrowser = { updateVm.openInBrowser() },
-        onOpenUnknownSources = { updateVm.openUnknownSources() },
-    )
 }
