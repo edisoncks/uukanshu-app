@@ -93,8 +93,10 @@ object Parser {
             // Authors appear as `作者：X` plain text or `作者：<a>X</a>`.
             val author = box.select(".author").firstOrNull()
                 ?.text()?.substringAfter("作者", "")?.trim('：', ':', ' ', ' ')?.trim().orEmpty()
+            // Anchor on the 字數 label: an author name containing 字 must
+            // never hijack the word-count field.
             val words = box.select(".author").map { it.text() }
-                .firstOrNull { "字" in it }?.trim().orEmpty()
+                .firstOrNull { "字數" in it }?.trim().orEmpty()
             val reads = box.select(".author").map { it.text() }
                 .firstOrNull { "閱讀" in it || "阅读" in it }?.trim().orEmpty()
             val catAnchor = box.selectFirst(".cat a")
@@ -201,11 +203,9 @@ object Parser {
             ?: Regex("""作者[：:]\s*(\S+)""").find(tag)?.groupValues?.getOrNull(1).orEmpty()
         val spans = doc.select("p.booktag span").map { it.text().trim() }
         val words = spans.firstOrNull { "字" in it }.orEmpty()
-        val category = spans.firstOrNull { "字" !in it && it != spans.firstOrNull() }?.let {
-            // category is the non-words blue span; status is the red span.
-            doc.select("p.booktag span.blue").map { s -> s.text().trim() }
-                .firstOrNull { s -> "字" !in s }.orEmpty()
-        }.orEmpty()
+        // Category is the non-words blue span; status is the red span.
+        val category = doc.select("p.booktag span.blue").map { s -> s.text().trim() }
+            .firstOrNull { s -> "字" !in s }.orEmpty()
         val status = doc.select("p.booktag span.red").map { it.text().trim() }
             .firstOrNull { it == "連載" || it == "完結" || it == "连载" || it == "完结" }.orEmpty()
         val intro = doc.selectFirst("p.bookintro")?.text()?.trim().orEmpty()

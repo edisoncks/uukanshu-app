@@ -176,6 +176,22 @@ class ParserTest {
         assertEquals(1, res.books.size)
     }
 
+    @Test fun wordsAnchoredOnLabelNotAuthorName() {
+        // An author name containing 字 must not hijack the word-count field.
+        val html = """
+            <div class="bookbox"><div class="bookinfo"><div class="bookname">
+            <a href="/book/999/">測書</a></div>
+            <div class="author">作者：數字先生</div><div class="author">字數：12345</div>
+            <div class="cat"><span>更新到：</span><a href="/book/999/1.html">第1章</a></div>
+            <div class="update"><span>簡介：</span>簡介。</div>
+            </div></div>
+        """.trimIndent()
+        val books = Parser.parseCategory(html)
+        assertEquals(1, books.size)
+        assertEquals("數字先生", books[0].author)
+        assertEquals("字數：12345", books[0].words)
+    }
+
     @Test fun lastupdateCardVariant() {
         // /top/lastupdate_N.html uses <h4 class="bookname"> (categories and
         // search use <div>); the same parser must handle it, with intro.

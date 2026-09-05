@@ -50,7 +50,9 @@ rules below look odd — they encode real site quirks. **Do not "simplify".**
   `pageId` (`/book/{id}/{page}.html`) is the stable identity used for the
   TOC-shift save guard.
 - **Search/category cards:** strip `<span class="hot">` highlight markup via
-  `.text()` so titles/authors come out clean. Search also handles the
+  `.text()` so titles/authors come out clean. Word count anchors on the
+  字數 label (not a bare 字) so an author name containing 字 can't hijack
+  the field. Search also handles the
   exact-match case (keyword yields a book page, not a result list) and tagged
   result counts.
 - **Reader title:** book name comes from TOC meta (`ReaderTitle.resolve`),
