@@ -32,9 +32,11 @@ import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.repo
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 
 class DetailViewModel(
@@ -127,8 +129,12 @@ class DetailViewModel(
     /** Manual full-novel download: sequential 1-at-a-time, cancelable. */
     fun downloadAll() {
         if (_ui.value.downloading) return
+        // Set synchronously on the caller (Main) thread so the guard above
+        // holds for back-to-back taps without depending on dispatcher
+        // eagerness.
+        _ui.value = _ui.value.copy(downloading = true, done = 0, downloadError = null)
         downloadJob = viewModelScope.launch {
-            _ui.value = _ui.value.copy(downloading = true, done = 0, downloadError = null)
+            val self = currentCoroutineContext().job
             try {
                 repo.downloadAll(bookId) { done, _ ->
                     _ui.value = _ui.value.copy(done = done)
@@ -137,7 +143,12 @@ class DetailViewModel(
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 _ui.value = _ui.value.copy(downloadError = "${e.javaClass.simpleName}: ${e.message}")
             } finally {
-                _ui.value = _ui.value.copy(downloading = false)
+                // Only the current job may clear the flag: a cancelled
+                // predecessor's late finally must not hide a live download
+                // started by cancel -> instant re-tap.
+                if (downloadJob === self) {
+                    _ui.value = _ui.value.copy(downloading = false)
+                }
             }
         }
     }
