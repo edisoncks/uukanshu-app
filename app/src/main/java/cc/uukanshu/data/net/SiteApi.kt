@@ -14,6 +14,11 @@ import java.util.concurrent.TimeUnit
  * transparent), 3x retry with backoff on 408/429/5xx + transport errors,
  * Cloudflare interstitial sniff on <title>. No images are ever fetched:
  * callers only request HTML pages.
+ *
+ * GET and POST used to carry their own copies of the retry loop (backoff,
+ * fail-fast, empty-body and final-failure messages) — any policy tweak had
+ * to land twice identically. All requests now go through [send], with only
+ * the per-endpoint message nouns parameterized.
  */
 class SiteApi(
     private val client: OkHttpClient = OkHttpClient.Builder()
@@ -35,31 +40,14 @@ class SiteApi(
 
     @Throws(IOException::class)
     fun get(url: String): String {
-        var last: Exception? = null
-        repeat(3) { attempt ->
-            try {
-                val builder = Request.Builder().url(url)
-                headers.forEach { (k, v) -> builder.header(k, v) }
-                client.newCall(builder.build()).execute().use { res ->
-                    val code = res.code
-                    if (code == 408 || code == 429 || code >= 500) {
-                        throw IOException("HTTP $code for $url")
-                    }
-                    // Deterministic client errors never heal on retry: fail
-                    // fast instead of burning ~4.5s of backoff sleeps.
-                    if (!res.isSuccessful) throw NonRetryable(IOException("HTTP $code for $url"))
-                    val body = res.body?.string() ?: throw IOException("empty body for $url")
-                    throwIfBlocked(body)
-                    return body
-                }
-            } catch (e: NonRetryable) {
-                throw e.failure
-            } catch (e: Exception) {
-                last = e
-                if (attempt < 2) Thread.sleep(1500L * (attempt + 1))
-            }
-        }
-        throw IOException("failed to fetch $url: $last")
+        val builder = request(url)
+        headers.forEach { (k, v) -> builder.header(k, v) }
+        return send(
+            label = url,
+            emptyBodyMessage = "empty body for $url",
+            failurePrefix = "failed to fetch $url",
+            call = builder.build(),
+        )
     }
 
     @Throws(IOException::class)
@@ -68,18 +56,43 @@ class SiteApi(
             .add("searchkey", keyword)
             .add("searchtype", "all")
             .build()
+        val builder = request("$BASE_URL/search").post(form)
+        headers.forEach { (k, v) -> builder.header(k, v) }
+        return send(
+            label = "search",
+            emptyBodyMessage = "empty search body",
+            failurePrefix = "search failed",
+            call = builder.build(),
+        )
+    }
+
+    private fun request(url: String): Request.Builder =
+        Request.Builder().url(url)
+
+    /**
+     * Single retry policy for every request: 3x with backoff on 408/429/5xx
+     * + transport errors, fail fast on other 4xx, Cloudflare sniff on the
+     * body. Only the message nouns vary per endpoint.
+     */
+    @Throws(IOException::class)
+    private fun send(
+        label: String,
+        emptyBodyMessage: String,
+        failurePrefix: String,
+        call: Request,
+    ): String {
         var last: Exception? = null
         repeat(3) { attempt ->
             try {
-                val builder = Request.Builder().url("$BASE_URL/search").post(form)
-                headers.forEach { (k, v) -> builder.header(k, v) }
-                client.newCall(builder.build()).execute().use { res ->
+                client.newCall(call).execute().use { res ->
                     val code = res.code
                     if (code == 408 || code == 429 || code >= 500) {
-                        throw IOException("HTTP $code for search")
+                        throw IOException("HTTP $code for $label")
                     }
-                    if (!res.isSuccessful) throw NonRetryable(IOException("HTTP $code for search"))
-                    val body = res.body?.string() ?: throw IOException("empty search body")
+                    // Deterministic client errors never heal on retry: fail
+                    // fast instead of burning ~4.5s of backoff sleeps.
+                    if (!res.isSuccessful) throw NonRetryable(IOException("HTTP $code for $label"))
+                    val body = res.body?.string() ?: throw IOException(emptyBodyMessage)
                     throwIfBlocked(body)
                     return body
                 }
@@ -90,7 +103,7 @@ class SiteApi(
                 if (attempt < 2) Thread.sleep(1500L * (attempt + 1))
             }
         }
-        throw IOException("search failed: $last")
+        throw IOException("$failurePrefix: $last")
     }
 
     private fun throwIfBlocked(page: String) {
