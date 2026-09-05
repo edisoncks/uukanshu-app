@@ -19,6 +19,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -67,6 +68,10 @@ class ReaderViewModel(
     private val _ui = MutableStateFlow(Ui())
     val ui: StateFlow<Ui> = _ui
     private var chapters: List<Parser.ChapterRef> = emptyList()
+    private var bookTitleRaw: String = ""
+    // Authoritative book name from TOC meta (raw Traditional, converted at
+    // render). Cached chapters have no network payload, so they must use
+    // this — never ref.title (chapter title) nor stale UI state.
 
     init {
         viewModelScope.launch {
@@ -90,7 +95,9 @@ class ReaderViewModel(
                 if (chapters.isEmpty()) {
                     // Network-first, cached fallback: cached novels stay
                     // readable in offline mode.
-                    chapters = repo.detailOrCached(bookId).detail.chapters
+                    val detail = repo.detailOrCached(bookId).detail
+                    chapters = detail.chapters
+                    if (detail.meta.title.isNotEmpty()) bookTitleRaw = detail.meta.title
                 }
                 val total = chapters.size
                 if (position < 1 || position > total) {
@@ -102,15 +109,25 @@ class ReaderViewModel(
                 val cached = repo.cachedChapterContent(bookId, position)
                 val raw = if (cached != null) {
                     // Reconstruct nav from TOC positions (shape-validated chapter URLs only).
+                    // Book comes from TOC meta via [ReaderTitle]: never ref.title.
                     Parser.ChapterContent(
-                        book = _ui.value.book.ifEmpty { ref.title },
+                        book = ReaderTitle.resolve(bookTitleRaw, "", _ui.value.book),
                         title = ref.title, text = cached,
                         prevUrl = chapters.getOrNull(position - 2)?.url,
                         tocUrl = null,
                         nextUrl = chapters.getOrNull(position)?.url,
                     )
                 } else {
-                    repo.chapter(ref.url).also {
+                    val fetched = repo.chapter(ref.url)
+                    // Backfill the authoritative name when TOC meta was empty
+                    // (offline edge) but the chapter page knows the book.
+                    if (bookTitleRaw.isEmpty() && fetched.book.isNotEmpty()) {
+                        bookTitleRaw = fetched.book
+                    }
+                    val withBook = if (fetched.book.isEmpty() && bookTitleRaw.isNotEmpty()) {
+                        fetched.copy(book = bookTitleRaw)
+                    } else fetched
+                    withBook.also {
                         repo.saveChapterContent(bookId, position, it.text)
                     }
                 }
@@ -268,9 +285,13 @@ fun ReaderScreen(bookId: String, position: Int) {
                     Button({ vm.load(ui.position) }, Modifier.padding(top = 12.dp)) { Text(vm.display("重試")) }
                 }
             }
-            else -> Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-            ) {
+            else -> {
+                val scroll = rememberScrollState()
+                // Paging chapters reuses this composition: jump to top.
+                LaunchedEffect(ui.position) { runCatching { scroll.scrollTo(0) } }
+                Column(
+                    Modifier.fillMaxSize().verticalScroll(scroll).padding(16.dp),
+                ) {
                 if (ui.book.isNotEmpty()) Text(ui.book, style = MaterialTheme.typography.titleSmall)
                 Text(
                     "${ui.position}/${ui.total} ${ui.title}",
@@ -293,6 +314,7 @@ fun ReaderScreen(bookId: String, position: Int) {
                         },
                         modifier = Modifier.weight(1f).padding(start = 4.dp),
                     ) { Text(vm.display("下一章")) }
+                }
                 }
             }
         }
