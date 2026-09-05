@@ -133,7 +133,7 @@ fun UpdateDialog(
                             }
                         } else if (!ui.fileReady && info.changelog.isNotEmpty()) {
                             Text(
-                                info.changelog.take(2000),
+                                display(info.changelog.take(2000)),
                                 style = MaterialTheme.typography.bodyMedium,
                                 modifier = Modifier
                                     .heightIn(max = 220.dp)
