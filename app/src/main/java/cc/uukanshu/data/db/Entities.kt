@@ -27,7 +27,6 @@ data class ChapterEntity(
     val title: String,
     val url: String,
     val content: String = "",
-    val updatedAt: Long = 0L,
 )
 
 @Entity(tableName = "progress", primaryKeys = ["bookId"])
