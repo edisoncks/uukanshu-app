@@ -96,11 +96,41 @@ class ReaderViewModel(
             _ui.value = _ui.value.copy(loading = true, error = null, position = position)
             try {
                 if (chapters.isEmpty()) {
-                    // Network-first, cached fallback: cached novels stay
-                    // readable in offline mode.
-                    val detail = repo.detailOrCached(bookId).detail
-                    chapters = detail.chapters
-                    if (detail.meta.title.isNotEmpty()) bookTitleRaw = detail.meta.title
+                    // Stale-while-revalidate for TOC: paint cached TOC instantly
+                    // so cached chapters render without waiting for network,
+                    // then refresh silently in the background.
+                    val cachedToc = runCatching { repo.cachedDetail(bookId) }.getOrNull()
+                    if (cachedToc != null) {
+                        chapters = cachedToc.chapters
+                        if (cachedToc.meta.title.isNotEmpty()) bookTitleRaw = cachedToc.meta.title
+                    }
+                    if (chapters.isEmpty() || position < 1 || position > chapters.size) {
+                        // First open (no cache) or stale TOC can't cover the
+                        // requested position: blocking fetch before rendering.
+                        // This fetch doubles as the revalidation — no extra
+                        // background request, so no concurrent double-fetch.
+                        try {
+                            val fresh = repo.detail(bookId)
+                            chapters = fresh.chapters
+                            if (fresh.meta.title.isNotEmpty()) bookTitleRaw = fresh.meta.title
+                            _ui.value = _ui.value.copy(total = chapters.size)
+                        } catch (e: Exception) {
+                            if (e is kotlinx.coroutines.CancellationException) throw e
+                            // Offline with cache: keep stale TOC if we have it.
+                            if (chapters.isEmpty()) throw e
+                        }
+                    } else if (cachedToc != null) {
+                        // Serving from stale TOC: revalidate silently.
+                        // Never blocks reading, never wipes content (mergeToc
+                        // preserves downloads by pageId).
+                        viewModelScope.launch {
+                            runCatching { repo.detail(bookId) }.onSuccess { fresh ->
+                                chapters = fresh.chapters
+                                if (fresh.meta.title.isNotEmpty()) bookTitleRaw = fresh.meta.title
+                                _ui.value = _ui.value.copy(total = chapters.size)
+                            }
+                        }
+                    }
                 }
                 val total = chapters.size
                 if (position < 1 || position > total) {
@@ -143,6 +173,7 @@ class ReaderViewModel(
                 runCatching { repo.saveProgress(bookId, position) }
                 prefetchNext5(position)
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 _ui.value = _ui.value.copy(
                     loading = false,
                     error = "${e.javaClass.simpleName}: ${e.message}",
