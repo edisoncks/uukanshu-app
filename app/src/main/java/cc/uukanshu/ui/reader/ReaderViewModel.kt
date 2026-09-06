@@ -1,42 +1,7 @@
 package cc.uukanshu.ui.reader
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.lifecycle.viewmodel.compose.viewModel
 import cc.uukanshu.core.Display
 import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.parse.Parser
@@ -46,8 +11,6 @@ import cc.uukanshu.di.RepoApi
 import cc.uukanshu.core.Errors
 import cc.uukanshu.data.net.BulkFetch
 import cc.uukanshu.data.repo.TocRevalidator
-import cc.uukanshu.ui.ThemeIconButton
-import cc.uukanshu.ui.vmFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -66,21 +29,15 @@ class ReaderViewModel(
     private val startPageId: Long = 0L,
 ) : ViewModel() {
 
-    /** Sealed Ui (Loading/Content/Error); prefs on the interface for the sticky bottom bar. */
+    /** Content state only (position/total/payload); prefs live below so toggles never rebuild content. */
     sealed interface Ui {
         val position: Int
         val total: Int
-        val simplified: Boolean
-        val fontScale: Float
-        val theme: String
         val isLoading: Boolean
 
         data class Loading(
             override val position: Int,
             override val total: Int = 0,
-            override val simplified: Boolean = false,
-            override val fontScale: Float = 1f,
-            override val theme: String = Prefs.SYSTEM,
         ) : Ui {
             override val isLoading: Boolean = true
         }
@@ -91,9 +48,6 @@ class ReaderViewModel(
             val book: String,
             val title: String,
             val text: String,
-            override val simplified: Boolean,
-            override val fontScale: Float,
-            override val theme: String,
         ) : Ui {
             override val isLoading: Boolean = false
         }
@@ -102,43 +56,31 @@ class ReaderViewModel(
             override val position: Int,
             override val total: Int = 0,
             val message: String,
-            override val simplified: Boolean = false,
-            override val fontScale: Float = 1f,
-            override val theme: String = Prefs.SYSTEM,
         ) : Ui {
             override val isLoading: Boolean = false
         }
     }
 
-    /** Copy helper for sealed Ui (null = keep). */
-    private fun Ui.copyWith(
-        simplified: Boolean? = null,
-        fontScale: Float? = null,
-        theme: String? = null,
-        total: Int? = null,
-    ): Ui = when (this) {
-        is Ui.Loading -> copy(
-            simplified = simplified ?: this.simplified,
-            fontScale = fontScale ?: this.fontScale,
-            theme = theme ?: this.theme,
-            total = total ?: this.total,
-        )
-        is Ui.Content -> copy(
-            simplified = simplified ?: this.simplified,
-            fontScale = fontScale ?: this.fontScale,
-            theme = theme ?: this.theme,
-            total = total ?: this.total,
-        )
-        is Ui.Error -> copy(
-            simplified = simplified ?: this.simplified,
-            fontScale = fontScale ?: this.fontScale,
-            theme = theme ?: this.theme,
-            total = total ?: this.total,
-        )
-    }
-
     private val _ui = MutableStateFlow<Ui>(Ui.Loading(position = startPosition))
     val ui: StateFlow<Ui> = _ui
+    // Prefs mirror: seeded once, mutated synchronously by toggles (Main-thread
+    // atomicity for rapid taps), written through to prefs. Screens collect these.
+    private val _simplified = MutableStateFlow(false)
+    val simplified: StateFlow<Boolean> = _simplified
+    private val _fontScale = MutableStateFlow(1f)
+    val fontScale: StateFlow<Float> = _fontScale
+    private val _theme = MutableStateFlow(Prefs.SYSTEM)
+    val theme: StateFlow<String> = _theme
+
+    private fun setTotal(total: Int) {
+        _ui.update {
+            when (it) {
+                is Ui.Loading -> it.copy(total = total)
+                is Ui.Content -> it.copy(total = total)
+                is Ui.Error -> it.copy(total = total)
+            }
+        }
+    }
     private var chapters: List<Parser.ChapterRef> = emptyList()
     // First load resolves by stable pageId (position may name a neighbor after a TOC shift).
     private var pendingPageId: Long = startPageId
@@ -153,13 +95,9 @@ class ReaderViewModel(
 
     init {
         viewModelScope.launch {
-            _ui.update {
-                it.copyWith(
-                    simplified = prefs.simplified.first(),
-                    fontScale = prefs.fontScale.first(),
-                    theme = prefs.theme.first(),
-                )
-            }
+            _simplified.value = prefs.simplified.first()
+            _fontScale.value = prefs.fontScale.first()
+            _theme.value = prefs.theme.first()
             load(startPosition)
         }
     }
@@ -198,9 +136,6 @@ class ReaderViewModel(
             _ui.value = Ui.Loading(
                 position = position,
                 total = cur.total,
-                simplified = cur.simplified,
-                fontScale = cur.fontScale,
-                theme = cur.theme,
             )
             try {
                 if (chapters.isEmpty()) {
@@ -220,7 +155,7 @@ class ReaderViewModel(
                             if (TocRevalidator.shouldAcceptFresh(fresh.chapters, chapters.size)) {
                                 chapters = fresh.chapters
                                 if (fresh.meta.title.isNotEmpty()) bookTitleRaw = fresh.meta.title
-                                _ui.update { it.copyWith(total = chapters.size) }
+                                setTotal(chapters.size)
                             } else if (chapters.isEmpty()) {
                                 throw java.io.IOException("empty chapter list — try again later")
                             }
@@ -242,7 +177,7 @@ class ReaderViewModel(
                                 is TocRevalidator.Revalidate.Accepted -> {
                                     chapters = res.detail.chapters
                                     if (res.detail.meta.title.isNotEmpty()) bookTitleRaw = res.detail.meta.title
-                                    _ui.update { it.copyWith(total = chapters.size) }
+                                    setTotal(chapters.size)
                                 }
                                 else -> Unit // Empty/shrunken/failed: keep stale, reading never breaks.
                             }
@@ -260,14 +195,10 @@ class ReaderViewModel(
                 } else position
                 val total = chapters.size
                 if (effective < 1 || effective > total) {
-                    val cur = _ui.value
                     _ui.value = Ui.Error(
                         position = effective,
                         total = total,
                         message = "章節超出範圍",
-                        simplified = cur.simplified,
-                        fontScale = cur.fontScale,
-                        theme = cur.theme,
                     )
                     return@launch
                 }
@@ -301,15 +232,11 @@ class ReaderViewModel(
                     }
                 }
                 currentRaw = raw
-                val cur = _ui.value
-                val (book, title, text) = render(raw, cur.simplified)
+                val (book, title, text) = render(raw, _simplified.value)
                 _ui.value = Ui.Content(
                     position = effective,
                     total = total,
                     book = book, title = title, text = text,
-                    simplified = cur.simplified,
-                    fontScale = cur.fontScale,
-                    theme = cur.theme,
                 )
                 // Silent auto-bookmark by stable pageId (position shifts on
                 // TOC inserts); never break reading on save failure
@@ -328,9 +255,6 @@ class ReaderViewModel(
                     position = cur.position,
                     total = cur.total,
                     message = Errors.friendly(e),
-                    simplified = cur.simplified,
-                    fontScale = cur.fontScale,
-                    theme = cur.theme,
                 )
             }
         }
@@ -366,15 +290,14 @@ class ReaderViewModel(
     fun toggleSimplified() {
         // Compute and publish synchronously on the caller (Main) thread:
         // two rapid taps must toggle twice, never read the same stale value.
-        val next = !_ui.value.simplified
+        val next = !_simplified.value
+        _simplified.value = next
         val raw = currentRaw
         // Re-render current chapter without refetch or reload.
         val cur = _ui.value
-        _ui.value = if (raw != null && cur is Ui.Content) {
+        if (raw != null && cur is Ui.Content) {
             val (book, title, text) = render(raw, next)
-            cur.copy(simplified = next, book = book, title = title, text = text)
-        } else {
-            cur.copyWith(simplified = next)
+            _ui.value = cur.copy(book = book, title = title, text = text)
         }
         viewModelScope.launch {
             prefs.setSimplified(next)
@@ -386,16 +309,16 @@ class ReaderViewModel(
         // Atomic read-modify-write on Main: the DataStore write below
         // suspends, so reading inside the coroutine would let two rapid
         // taps both read the old scale and lose one step.
-        val next = Prefs.coerceFontScale(_ui.value.fontScale + delta)
-        _ui.update { it.copyWith(fontScale = next) }
+        val next = Prefs.coerceFontScale(_fontScale.value + delta)
+        _fontScale.value = next
         viewModelScope.launch { prefs.setFontScale(next) }
     }
 
     fun display(raw: String): String =
-        Display.text(t2s, raw, _ui.value.simplified)
+        Display.text(t2s, raw, _simplified.value)
 
     /** Converted theme-mode label for the settings menu. */
-    fun themeLabel(): String = display(when (_ui.value.theme) {
+    fun themeLabel(): String = display(when (_theme.value) {
         Prefs.LIGHT -> "主題：淺色"
         Prefs.DARK -> "主題：深色"
         else -> "主題：自動"
@@ -403,8 +326,8 @@ class ReaderViewModel(
 
     /** Cycle system → light → dark theme. Applied app-wide via prefs. */
     fun cycleTheme() {
-        val next = Prefs.next(_ui.value.theme)
-        _ui.update { it.copyWith(theme = next) }
+        val next = Prefs.next(_theme.value)
+        _theme.value = next
         viewModelScope.launch { prefs.setTheme(next) }
     }
 }

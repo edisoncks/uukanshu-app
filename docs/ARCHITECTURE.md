@@ -27,6 +27,9 @@ default with a global Simplified toggle (see below).
   `ReleaseFetcher`/`ApkDownloader`) is the only thing screens see:
   `UukanshuApp` provides `RealAppContainer(app)` via `LocalContainer`,
   ViewModels take the interfaces (faked in JVM tests, see `ContainerSeamTest`).
+  `RepoApi`/`PrefsApi` fakes stay on purpose: they keep VM tests on plain
+  JUnit (no Robolectric). `T2S`/`BookDownloadManager` are real: pure-Kotlin
+  and JVM-safe, so their fakes were deleted. Don't re-abstract them.
   Never `Prefs(app)` / `T2S(app)` /
   `UpdateApi()` per-composition — and must construct ViewModels via the
   single `ui/vmFactory { ... }` helper (`ui/VmFactory.kt`). No Hilt/Koin:
@@ -177,7 +180,7 @@ UI (ViewModels)
 ## In-app update
 
 Files: `data/update/` (`UpdateApi: ReleaseFetcher`, `UpdateDownloader:
-ApkDownloader`, `VersionCompare`, `JsonMini` strict) + `ui/update/`
+ApkDownloader`, `VersionCompare`, `JsonMini` strict — `JsonMini` stays, `org.json` is stubbed in JVM tests) + `ui/update/`
 (`UpdateViewModel`, `UpdateDialog`). Gateways make the VM fakeable;
 pure `shouldAutoCheck`/`shouldOfferUpdate` policy is JVM-tested
 (`UpdatePolicyTest`).

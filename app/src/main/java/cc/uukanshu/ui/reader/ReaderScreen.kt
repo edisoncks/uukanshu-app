@@ -66,6 +66,9 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L) {
         },
     )
     val ui by vm.ui.collectAsState()
+    val simplified by vm.simplified.collectAsState()
+    val fontScale by vm.fontScale.collectAsState()
+    val theme by vm.theme.collectAsState()
     val snacks = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf(false) }
@@ -97,7 +100,7 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L) {
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.padding(bottom = 12.dp),
                         )
-                        Text(s.text, fontSize = (17 * s.fontScale).sp, lineHeight = (28 * s.fontScale).sp)
+                        Text(s.text, fontSize = (17 * fontScale).sp, lineHeight = (28 * fontScale).sp)
                     }
                 }
             }
@@ -119,7 +122,7 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L) {
                         }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             DropdownMenuItem(
-                                text = { Text(if (ui.simplified) vm.display("簡體 ✓") else vm.display("繁體 ✓")) },
+                                text = { Text(if (simplified) vm.display("簡體 ✓") else vm.display("繁體 ✓")) },
                                 onClick = { vm.toggleSimplified(); menu = false },
                             )
                             Row(
@@ -136,7 +139,7 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L) {
                             DropdownMenuItem(
                                 text = { Text(vm.themeLabel()) },
                                 trailingIcon = {
-                                    ThemeIconButton(ui.theme, { vm.cycleTheme() }, vm::display)
+                                    ThemeIconButton(theme, { vm.cycleTheme() }, vm::display)
                                 },
                                 onClick = { vm.cycleTheme() },
                             )

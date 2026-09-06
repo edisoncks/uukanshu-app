@@ -109,7 +109,7 @@ class ReaderViewModelTest {
         val ui = vm.ui.value
         assertTrue(ui is ReaderViewModel.Ui.Content)
         assertEquals(simp, (ui as ReaderViewModel.Ui.Content).text)
-        assertEquals(true, ui.simplified)
+        assertEquals(true, vm.simplified.value)
     }
 
     @Test fun doubleToggleReturnsToStart() = runTest {
@@ -122,7 +122,7 @@ class ReaderViewModelTest {
         vm.toggleSimplified()
         vm.toggleSimplified()
         idle()
-        assertEquals(false, vm.ui.value.simplified)
+        assertEquals(false, vm.simplified.value)
     }
 
     @Test fun fontStepClampsAtBounds() = runTest {
@@ -133,9 +133,9 @@ class ReaderViewModelTest {
         val vm = ReaderViewModel(repo, T2S(), MutableFakePrefs(), "1", 1, 101L)
         idle()
         vm.font(10f)
-        assertEquals(Prefs.FONT_MAX, vm.ui.value.fontScale)
+        assertEquals(Prefs.FONT_MAX, vm.fontScale.value)
         vm.font(-10f)
-        assertEquals(Prefs.FONT_MIN, vm.ui.value.fontScale)
+        assertEquals(Prefs.FONT_MIN, vm.fontScale.value)
     }
 
     @Test fun cycleThemeRotatesSystemLightDark() = runTest {
@@ -145,12 +145,12 @@ class ReaderViewModelTest {
         )
         val vm = ReaderViewModel(repo, T2S(), MutableFakePrefs(), "1", 1, 101L)
         idle()
-        assertEquals(Prefs.SYSTEM, vm.ui.value.theme)
+        assertEquals(Prefs.SYSTEM, vm.theme.value)
         vm.cycleTheme()
-        assertEquals(Prefs.LIGHT, vm.ui.value.theme)
+        assertEquals(Prefs.LIGHT, vm.theme.value)
         vm.cycleTheme()
-        assertEquals(Prefs.DARK, vm.ui.value.theme)
+        assertEquals(Prefs.DARK, vm.theme.value)
         vm.cycleTheme()
-        assertEquals(Prefs.SYSTEM, vm.ui.value.theme)
+        assertEquals(Prefs.SYSTEM, vm.theme.value)
     }
 }
