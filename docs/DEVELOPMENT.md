@@ -54,7 +54,7 @@ layers (no device/emulator needed):
 - `T2STest` — Traditional → Simplified conversion + `CachePolicy` bounds
 - `BookPagingSourceTest`, `SearchDedupTest` — paging dedup / list dedup by stable book id
 - `ReaderTitleTest`, `BookRepoTest`, `DownloadRobustnessTest` — title
-  resolution, TOC merge/shelf rules, batched `DownloadPlan`, concurrent
+  resolution, TOC merge/shelf rules, batched `BookRepo.missing`, concurrent
   `BookDownloadManager.start` atomicity
 - `UpdateCheckTest`, `UpdatePolicyTest`, `ApkCompleteTest`, `SiteApiRetryTest` —
   version compare / throttle + offer policy / APK completeness / retry
@@ -109,13 +109,13 @@ app/src/main/java/cc/uukanshu/
   MainActivity.kt        # setContent only; shell lives in ui/AppNavHost.kt
   App.kt                 # Application singletons (gate/db/site/repo/downloads/prefs/t2s/update)
   Site.kt                # BASE_URL + fixed category catalogue (ids 1..10)
-  di/Deps.kt             # BrowseApi/ReadingApi/LibraryApi/BulkApi + container
-  core/Errors.kt         # message (logs) / friendly (UI Chinese, URL-stripped)
+  di/Deps.kt             # RepoApi/PrefsApi/ConvertApi/DownloadsApi + container
+  core/Errors.kt         # friendly (UI Chinese, URL-stripped) + cancellation-safe helpers
   core/Display.kt        # single T2S render rule
   data/
     net/SiteApi.kt + SiteGateway.kt  # HTTP client behind a fakeable interface
     parse/Parser.kt (facade) + BookIds/CardsParser/TocParser/MetaParser/ChapterParser
-    repo/BookRepo.kt + TocDiff/ShelfOrder/BookmarkResolve/DownloadPlan
+    repo/BookRepo.kt + TocDiff/ShelfOrder
     db/                  # Room: AppDb, Entities (+metas/cachedPageIds), DAOs
     prefs/Prefs.kt       # DataStore: theme, simplified, fontScale, update check state
     convert/T2S.kt       # Traditional → Simplified (opencc4j) + LRU

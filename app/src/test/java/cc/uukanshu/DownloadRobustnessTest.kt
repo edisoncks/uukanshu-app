@@ -2,7 +2,7 @@ package cc.uukanshu
 
 import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.data.parse.Parser
-import cc.uukanshu.data.repo.DownloadPlan
+import cc.uukanshu.data.repo.BookRepo
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -20,15 +20,15 @@ class DownloadRobustnessTest {
 
     @Test fun missingFiltersCachedIdsInOrder() {
         val chapters = listOf(ref(1, 101L), ref(2, 102L), ref(3, 103L))
-        val missing = DownloadPlan.missing(chapters, setOf(101L, 103L))
+        val missing = BookRepo.missing(chapters, setOf(101L, 103L))
         assertEquals(listOf(102L), missing.map { it.pageId })
     }
 
     @Test fun isCompleteOnlyWhenAllCached() {
         val chapters = listOf(ref(1, 101L), ref(2, 102L))
-        assertTrue(DownloadPlan.isComplete(chapters, setOf(101L, 102L)))
-        assertFalse(DownloadPlan.isComplete(chapters, setOf(101L)))
-        assertFalse(DownloadPlan.isComplete(emptyList(), emptySet()))
+        assertTrue(BookRepo.isDownloadComplete(chapters, setOf(101L, 102L)))
+        assertFalse(BookRepo.isDownloadComplete(chapters, setOf(101L)))
+        assertFalse(BookRepo.isDownloadComplete(emptyList(), emptySet()))
     }
 
     @Test fun concurrentStartSameIdRunsOnce() = runBlocking {

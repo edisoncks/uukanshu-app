@@ -24,7 +24,7 @@ import org.robolectric.annotation.Config
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * `BookRepo.downloadAll` loop: the `DownloadPlan` missing-set drives fetching
+ * `BookRepo.downloadAll` loop: the `BookRepo.missing` set drives fetching
  * (cached chapters are skipped, progress still spans all), and mid-download
  * deletion aborts loudly. Real in-memory Room, stub network.
  */
