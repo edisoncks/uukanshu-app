@@ -22,7 +22,7 @@ if [ ! -x "$TOOLS" ]; then
   mv "$SDK/cmdline-tools/cmdline-tools" "$SDK/cmdline-tools/latest"
 fi
 yes | "$TOOLS" --sdk_root="$SDK" --licenses >/dev/null 2>&1 || true
-"$TOOLS" --sdk_root="$SDK" "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+"$TOOLS" --sdk_root="$SDK" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
 """
 
 [tasks.setup-signing]

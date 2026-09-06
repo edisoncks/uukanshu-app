@@ -47,7 +47,7 @@ Verify the signature before publishing:
 
 ```sh
 export ANDROID_SDK_ROOT=$PWD/.android-sdk
-.android-sdk/build-tools/34.0.0/apksigner verify \
+.android-sdk/build-tools/35.0.0/apksigner verify \
   app/build/outputs/apk/release/uukanshu-X.Y.Z.apk
 ```
 

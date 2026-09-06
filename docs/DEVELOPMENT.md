@@ -10,14 +10,14 @@ How to build, test, and sign the app locally.
   - Java 17, Gradle 8.10.2, Kotlin 2.0.20
   - Android SDK installed **project-local** in `.android-sdk/`
     (`ANDROID_SDK_ROOT` / `ANDROID_HOME` point there via `mise.toml [env]`).
-- App targets: `minSdk 31` (Android 12+), `targetSdk 34`, `compileSdk 34`
+- App targets: `minSdk 31` (Android 12+), `targetSdk 35`, `compileSdk 35`
   (see `app/build.gradle.kts`).
 
 ## First-time setup
 
 ```sh
 mise install            # install pinned runtimes (project-local, no global installs)
-mise run setup-android  # platforms;android-34, build-tools;34.0.0, platform-tools (first time only)
+mise run setup-android  # platforms;android-35, build-tools;35.0.0, platform-tools (first time only)
 ```
 
 `setup-android` bootstraps `cmdline-tools` under `.android-sdk/` if missing,
@@ -70,8 +70,9 @@ pushing.
 Release builds must be signed — Android rejects unsigned APKs at install
 time ("package appears to be invalid").
 
-`versionCode` is derived from `versionName` (1.0.34 → 10034) so the two
-cannot drift; never hand-edit `versionCode`.
+`versionCode` is derived from `versionName` (1.0.34 → 1000034: each
+component × 10^(6−k), each bounded 0..999 by a build-time `require`) so
+the two cannot drift; never hand-edit `versionCode`.
 
 Resolution order in `app/build.gradle.kts` (`signingConfigs.release`):
 
@@ -98,7 +99,7 @@ require users to uninstall first (data loss). Verify before publishing:
 
 ```sh
 export ANDROID_SDK_ROOT=$PWD/.android-sdk
-.android-sdk/build-tools/34.0.0/apksigner verify \
+.android-sdk/build-tools/35.0.0/apksigner verify \
   app/build/outputs/apk/release/uukanshu-X.Y.Z.apk
 ```
 

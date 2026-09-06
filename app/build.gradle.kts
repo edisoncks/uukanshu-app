@@ -9,13 +9,13 @@ plugins {
 
 android {
     namespace = "cc.uukanshu"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "cc.uukanshu"
         // Locked by plan Rev.4: Android 12+ floor.
         minSdk = 31
-        targetSdk = 34
+        targetSdk = 35
         // Single source of truth for `uukanshu-{version}.apk`.
         versionName = "1.0.38"
         // Derived (not manual) so code/name cannot drift: 1.0.36 -> 1000036.
