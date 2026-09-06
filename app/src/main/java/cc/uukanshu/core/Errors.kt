@@ -56,7 +56,7 @@ object Errors {
         val lower = raw.lowercase()
         when {
             "blocked by cloudflare" in lower -> return "暫時被網站阻擋，請稍後再試或切換網路"
-            "empty chapter list" in lower -> return "章節列表為空，請稍後再試"
+            "empty chapter list" in lower || "chapter list shrank" in lower -> return "章節列表為空，請稍後再試"
             "book was deleted during download" in lower -> return "下載中書籍已被刪除"
             "download failed" in lower -> return "下載失敗，請重試"
             "download not found" in lower -> return "下載任務已失效，請重新下載"

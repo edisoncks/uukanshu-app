@@ -20,6 +20,7 @@ class ErrorsFriendlyTest {
         assertEquals("網路連線失敗，請檢查網路後重試", Errors.friendly(IOException("Unable to resolve host \"uukanshu.cc\"")))
         assertEquals("暫時被網站阻擋，請稍後再試或切換網路", Errors.friendly(IOException("blocked by Cloudflare — try again later")))
         assertEquals("章節列表為空，請稍後再試", Errors.friendly(IOException("empty chapter list — try again later")))
+        assertEquals("章節列表為空，請稍後再試", Errors.friendly(IOException("chapter list shrank (3 < 100) — refusing to wipe cache")))
     }
 
     @Test fun stripsUrlsFromUnknownErrors() {
