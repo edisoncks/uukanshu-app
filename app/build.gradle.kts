@@ -15,15 +15,26 @@ android {
         // Locked by plan Rev.4: Android 12+ floor.
         minSdk = 31
         targetSdk = 34
-        versionCode = 34
         // Single source of truth for `uukanshu-{version}.apk`.
         versionName = "1.0.33"
+        // Derived (not manual) so code/name cannot drift: 1.0.34 -> 10034.
+        // Monotonic from the legacy 34 (10034 > 34), so side-load updates
+        // never see a downgrade. Never hand-edit versionCode.
+        versionCode = run {
+            val name = versionName ?: "0.0.0"
+            val parts = name.split(".").map { it.filter(Char::isDigit).toIntOrNull() ?: 0 }
+            val (major, minor, patch) = Triple(parts.getOrElse(0) { 0 }, parts.getOrElse(1) { 0 }, parts.getOrElse(2) { 0 })
+            major * 10000 + minor * 100 + patch
+        }
     }
 
     // Release signing: local `release.keystore` (dev key, gitignored) by
     // default; official releases override via UUKANSHU_KEYSTORE_* env.
     // Without this the APK is unsigned and Android refuses to install it
-    // ("package appears to be invalid").
+    // ("package appears to be invalid"). Fail fast when no key exists so a
+    // debug-signed "release" can never masquerade as official (it would
+    // require uninstall to update). Opt out explicitly for throwaway local
+    // builds with -PallowDebugSigning or UUKANSHU_ALLOW_DEBUG_SIGNING=1.
     signingConfigs {
         create("release") {
             val ksProp = System.getenv("UUKANSHU_KEYSTORE_FILE")
@@ -41,8 +52,15 @@ android {
                     ?: (project.findProperty("UUKANSHU_KEY_PASSWORD") as? String)
                     ?: "uukanshu"
             } else {
-                // Fresh clone without the local key: sign like debug so the
-                // APK is at least installable (never for official releases).
+                val allowDebug = (project.findProperty("allowDebugSigning") as? String == "true") ||
+                    System.getenv("UUKANSHU_ALLOW_DEBUG_SIGNING") == "1"
+                if (!allowDebug) {
+                    throw GradleException(
+                        "No release keystore found at ${ksFile} (or \$UUKANSHU_KEYSTORE_FILE). " +
+                            "Run `mise run setup-signing` for a local dev key, export UUKANSHU_KEYSTORE_* " +
+                            "for official releases, or rebuild with -PallowDebugSigning for a throwaway debug-signed APK."
+                    )
+                }
                 initWith(getByName("debug"))
             }
             // APK Signature Scheme v2 (supported since Android 7.0, and

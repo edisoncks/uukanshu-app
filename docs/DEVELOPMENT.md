@@ -49,13 +49,18 @@ mise run test           # ./gradlew testDebugUnitTest
 Unit tests live in `app/src/test/java/cc/uukanshu/` and cover the pure-logic
 layers (no device/emulator needed):
 
-- `ParserTest` — HTML fixtures for home/category/search/detail/chapter parsing
-- `T2STest` — Traditional → Simplified conversion
+- `ParserTest`, `ParserSplitTest` — HTML fixtures + sub-parser (BookIds/
+  Toc/Chapter/Cards) delegation, LAST-wins dedup, tracking-param tolerance
+- `T2STest` — Traditional → Simplified conversion + `CachePolicy` bounds
 - `BookPagingSourceTest`, `SearchDedupTest` — paging dedup / list dedup by stable book id
-- `ReaderTitleTest`, `ReaderSaveGuardTest`, `BookRepoTest` — reader title
-  resolution, TOC-shift save guard, repo behaviour
-- `UpdateCheckTest`, `ApkCompleteTest`, `SiteApiRetryTest` — updater version
-  compare / APK completeness, network retry
+- `ReaderTitleTest`, `BookRepoTest`, `DownloadRobustnessTest` — title
+  resolution, TOC merge/shelf rules, batched `DownloadPlan`, concurrent
+  `BookDownloadManager.start` atomicity
+- `UpdateCheckTest`, `UpdatePolicyTest`, `ApkCompleteTest`, `SiteApiRetryTest` —
+  version compare / throttle + offer policy / APK completeness / retry
+- `ErrorsTest`, `ErrorsFriendlyTest`, `HardeningTest` — cancellation safety,
+  friendly Chinese mapping without URL leaks
+- `ContainerSeamTest` — DI fakes (Repo/Prefs/Convert/Downloads/Release/Apk)
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the expected workflow before
 pushing.
@@ -65,6 +70,9 @@ pushing.
 Release builds must be signed — Android rejects unsigned APKs at install
 time ("package appears to be invalid").
 
+`versionCode` is derived from `versionName` (1.0.34 → 10034) so the two
+cannot drift; never hand-edit `versionCode`.
+
 Resolution order in `app/build.gradle.kts` (`signingConfigs.release`):
 
 1. `UUKANSHU_KEYSTORE_FILE` (env var or Gradle property) + companion
@@ -73,9 +81,11 @@ Resolution order in `app/build.gradle.kts` (`signingConfigs.release`):
    previous releases.
 2. Otherwise the local dev key `release.keystore` at the repo root
    (password/alias `uukanshu`).
-3. If neither exists (fresh clone), the build falls back to the debug key so
-   the APK is at least installable. **Never use this fallback for official
-   releases.**
+3. If neither exists the build **fails fast** with a message suggesting
+   `mise run setup-signing` or the official vars. A debug-signed release
+   would require uninstall to update, so it needs explicit opt-in:
+   `-PallowDebugSigning` or `UUKANSHU_ALLOW_DEBUG_SIGNING=1` (throwaway
+   local builds only, never official releases).
 
 Generate the local dev key:
 
@@ -96,18 +106,23 @@ export ANDROID_SDK_ROOT=$PWD/.android-sdk
 
 ```text
 app/src/main/java/cc/uukanshu/
-  MainActivity.kt        # theme, bottom nav (home/search/library/settings), update dialog host
-  App.kt                 # Application + shared BookRepo
+  MainActivity.kt        # setContent only; shell lives in ui/AppNavHost.kt
+  App.kt                 # Application singletons (gate/db/site/repo/downloads/prefs/t2s/update)
   Site.kt                # BASE_URL + fixed category catalogue (ids 1..10)
+  di/Deps.kt             # BrowseApi/ReadingApi/LibraryApi/BulkApi + container
+  core/Errors.kt         # message (logs) / friendly (UI Chinese, URL-stripped)
+  core/Display.kt        # single T2S render rule
   data/
-    net/SiteApi.kt       # HTTP client (browser UA, retry, Cloudflare sniff)
-    parse/Parser.kt      # pure HTML parsers (port of uukanshu-cli)
-    repo/BookRepo.kt     # cache-first orchestration, prefetch, full download
-    db/                  # Room: AppDb, Entities, BookDao, ChapterDao, ProgressDao
+    net/SiteApi.kt + SiteGateway.kt  # HTTP client behind a fakeable interface
+    parse/Parser.kt (facade) + BookIds/CardsParser/TocParser/MetaParser/ChapterParser
+    repo/BookRepo.kt + TocMerge/ShelfOrder/BookmarkResolve/DownloadPlan
+    db/                  # Room: AppDb, Entities (+contents/cachedPageIds), DAOs
     prefs/Prefs.kt       # DataStore: theme, simplified, fontScale, update check state
-    convert/T2S.kt       # Traditional → Simplified (opencc4j), raw cached
-    update/              # UpdateApi, UpdateDownloader, VersionCompare, JsonMini
+    convert/T2S.kt       # Traditional → Simplified (opencc4j) + LRU
+    update/              # UpdateApi(ReleaseFetcher), UpdateDownloader(ApkDownloader), VersionCompare, JsonMini
+    download/BookDownloadManager.kt  # app-scoped, startLock-atomic, slot-queued
   ui/
+    AppTheme.kt (pure isDark) + AppNavHost.kt (tabs/nav/update overlay)
     home/ detail/ search/ reader/ library/ settings/ update/
       # each: *Screen.kt (composable) + *ViewModel.kt (StateFlow UI state)
 app/src/main/res/        # launcher icons, theme, FileProvider paths

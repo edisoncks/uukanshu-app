@@ -5,13 +5,15 @@ default with a global Simplified toggle (see below).
 
 ## App shell
 
-- `MainActivity.kt` (`UukanshuApp` composable):
-  - Owns the global `MaterialTheme` (dynamic color on `minSdk 31`, plain
-    schemes as fallback) driven by `Prefs.theme` (`system` / `light` / `dark`).
+- `MainActivity.kt`: `setContent { UukanshuApp() }` only. Shell lives in
+  `ui/AppNavHost.kt` (`UukanshuApp`); theme lives in `ui/AppTheme.kt`
+  (pure `isDark(theme, systemDark)`, JVM-tested) wrapping dynamic color on
+  `minSdk 31` with plain-scheme fallback, driven by `Prefs.theme`.
   - Bottom nav with 4 tabs: `home` (首頁), `search` (搜索), `library` (書架),
     `settings` (設定). Detail/Reader are full-screen destinations that hide
     the bottom bar.
-  - Hosts one shared `UpdateViewModel` (auto-check once per day) and overlays
+  - Hosts one shared `UpdateViewModel` (auto-check once per day via pure
+    `shouldAutoCheck`/`shouldOfferUpdate` policy) and overlays
     `UpdateDialog` on any tab.
   - Navigation uses `ui/Nav.kt` (`Routes` + `navigateToTab` /
     `navigateToBook` / `navigateToChapter`): route strings are constants
@@ -19,16 +21,17 @@ default with a global Simplified toggle (see below).
     state restore; books are single-top; chapters enforce one reader per
     book (`popUpTo(detail)`) and skip identical double-taps.
 - `App.kt`: `Application` subclass holding the shared singletons:
-  `UukanshuGate` + `BookRepo` + app-scoped `BookDownloadManager` +
-  `Prefs` + `T2S`. `di/AppContainer` (`RepoApi`/`PrefsApi`/`ConvertApi`/
-  `DownloadsApi`) is the only thing screens see: `MainActivity` provides
-  `RealAppContainer(app)` via `LocalContainer`, ViewModels take the
-  interfaces (faked in JVM tests, see `ContainerSeamTest`). Never
-  `Prefs(app)` / `T2S(app)` per-composition — and must construct ViewModels
-  via the single `ui/vmFactory { ... }` helper (`ui/VmFactory.kt`), so
-  wiring stays uniform and greppable instead of six hand-written factories.
-  No Hilt/Koin: one module / app-scoped singletons only. If scoped workers
-  or a second module appear, each `AppContainer` val maps 1:1 to a Hilt module.
+  `UukanshuGate` + `SiteApi` + `BookRepo` + app-scoped `BookDownloadManager` +
+  `Prefs` + `T2S` + `UpdateApi` + `UpdateDownloader`.
+  `di/AppContainer` (`RepoApi`/`PrefsApi`/`ConvertApi`/`DownloadsApi`/
+  `ReleaseFetcher`/`ApkDownloader`) is the only thing screens see:
+  `UukanshuApp` provides `RealAppContainer(app)` via `LocalContainer`,
+  ViewModels take the interfaces (faked in JVM tests, see `ContainerSeamTest`).
+  `RepoApi` is segregated (`BrowseApi`/`ReadingApi`/`LibraryApi`/`BulkApi`)
+  so screens take the narrowest facet. Never `Prefs(app)` / `T2S(app)` /
+  `UpdateApi()` per-composition — and must construct ViewModels via the
+  single `ui/vmFactory { ... }` helper (`ui/VmFactory.kt`). No Hilt/Koin:
+  one module / app-scoped singletons only.
 - `Site.kt`: `BASE_URL = https://uukanshu.cc` + fixed `CATEGORIES` list
   (ids 1–10, `/class_{id}_{page}.html`).
 
@@ -73,16 +76,24 @@ UI (ViewModels)
   run outside the gate (GitHub update traffic stays ungated), and
   `CancellationException` always propagates. Gate scope is per attempt — bulk
   loops release it during `crawlDelay()` so interactive taps interleave.
-- `data/parse/Parser.kt`: pure, unit-tested parsers. Non-obvious rules
-  (LAST-occurrence TOC dedup, `mulu-box*` + LAST nav-row cut,
-  urljoin-then-validate nav with `?query`/`#fragment` stripped to canonical,
-  `readcotent`/`readcontent` tolerance, canonical book URLs, `<span class=hot>` strip)
-  are documented in [SCRAPING.md](SCRAPING.md) — do not "simplify" them.
-- `data/repo/BookRepo.kt`: facade — cache-first reads (`cachedDetail`,
-  `cachedChapterContent`), network fetch + raw save, `crawlDelay()` between
-  bulk requests, pageId-based progress save, library stats, delete/clear.
-  Pure rules live in collaborators (`TocMerge`, `ShelfOrder`,
-  `BookmarkResolve`) so they are unit-testable without network/DB.
+- `data/parse/Parser.kt` (facade) + `BookIds`/`CardsParser`/`TocParser`/
+  `MetaParser`/`ChapterParser`: pure, unit-tested sub-parsers with
+  precompiled patterns (no per-row `Regex(...)` allocation). `Parser` keeps
+  the stable public API (data classes + `parse*`) delegating to them.
+  Non-obvious rules (LAST-occurrence TOC dedup, `mulu-box*` + LAST nav-row
+  cut, urljoin-then-validate nav with `?query`/`#fragment` stripped to
+  canonical, `readcotent`/`readcontent` tolerance, canonical book URLs,
+  `<span class=hot>` strip) are documented in [SCRAPING.md](SCRAPING.md) —
+  do not "simplify" them.
+- `data/repo/BookRepo.kt` (`SiteGateway` interface, not concrete `SiteApi`)
+  — facade: cache-first reads (`cachedDetail`, `cachedChapterContent`),
+  network fetch + raw save, `crawlDelay()` between bulk requests,
+  pageId-based progress save, library stats, delete/clear. Pure rules live
+  in collaborators (`TocMerge`, `ShelfOrder`, `BookmarkResolve`,
+  `DownloadPlan`) so they are unit-testable without network/DB.
+  `downloadAll` preloads `cachedPageIds` once (in-memory `DownloadPlan`)
+  instead of N+1 per-chapter queries. `bookEntry` returns domain
+  `BookInfo`, never Room `BookEntity`.
   `downloadAll` treats an
   empty fresh TOC as failure (cache fallback, else loud `IOException` — never
   silent success). Background TOC revalidation merges without wiping
@@ -98,18 +109,26 @@ UI (ViewModels)
   `room.schemaDirectory("$projectDir/schemas")` exports schemas; keep them
   in version control. DB v4 adds `progress.pageId` (MIGRATION_3_4) so
   continue-reading survives TOC shifts; `position` stays as display order +
-  pre-v4 fallback. Single write paths `AppDb.replaceToc/deleteBookFull/clearAllFull`
-  (`@Transaction`) own snapshot+delete+reinsert so callers cannot forget the
-  content merge (wiped downloads) or the delete (ghost rows); the repo `dbWrite`
-  Mutex serializes them against single-row content writes.
+  pre-v4 fallback. `ChapterDao.contents` (pageId+content projection) and
+  `cachedPageIds` avoid full-entity loads. Single write paths
+  `AppDb.replaceToc/deleteBookFull/clearAllFull` (`@Transaction`) own
+  snapshot+delete+reinsert so callers cannot forget the content merge
+  (wiped downloads) or the delete (ghost rows); the repo `dbWrite` Mutex
+  serializes them against single-row content writes. `BookDownloadManager`
+  `start`/`cancel`/`forget` synchronize check-then-act on `startLock` so
+  concurrent `start(id)` runs once (tested in `DownloadRobustnessTest`).
 - `core/Errors.kt`: single error-formatting policy. `message` (with
   `ClassName:` prefix) is for logs only; all dialog/snackbar/error-state
-  text goes through `userMessage` (raw detail, class-name fallback only
-  when blank). ViewModels/managers must not inline `"${e.javaClass...}"`;
-  cancellation always propagates via `messageOrThrow` / `userMessageOrThrow`
-  plus suspend helpers `runCatchingExceptCancel` / `suppressExceptCancel`
-  (`kotlin.runCatching` catches `CancellationException`; the helpers rethrow).
-  All suspend catch sites use them (unit-tested in `ErrorsTest` + `HardeningTest`).
+  text goes through `friendly` (Traditional Chinese mapping for HTTP
+  404/408/429/5xx, Cloudflare, timeouts, download reasons; URLs stripped,
+  class-name fallback only when blank) or `friendlyText` for
+  non-exception reasons (DownloadManager). `userMessage` stays as the raw
+  accessor for logs/tests. ViewModels/managers must not inline
+  `"${e.javaClass...}"`; cancellation always propagates via
+  `messageOrThrow` / `friendlyOrThrow` plus suspend helpers
+  `runCatchingExceptCancel` / `suppressExceptCancel`. All suspend catch
+  sites use them (unit-tested in `ErrorsTest` + `ErrorsFriendlyTest` +
+  `HardeningTest`).
 - `data/prefs/Prefs.kt` (DataStore `uukanshu`): `simplified: Boolean`
   (default false), `fontScale: Float` (default 1.0, single `FONT_MIN/MAX`
   bounds shared by read-clamp, write-clamp and reader step),
@@ -117,9 +136,10 @@ UI (ViewModels)
   `system`), `lastUpdateCheck: Long`,
   `skippedVersion: String`. All UI prefs are `Flow`s; screens collect them
   so a change in Settings re-renders everywhere live.
-- `data/convert/T2S.kt` (opencc4j): Traditional → Simplified is applied
-  **at render time only**; caches and DB always store raw Traditional.
-  Reader re-renders `currentRaw` on toggle with no network or spinner.
+- `data/convert/T2S.kt` (opencc4j, LRU-500 for short UI strings, bodies
+  >4k bypass): Traditional → Simplified is applied **at render time only**;
+  caches and DB always store raw Traditional. Reader re-renders `currentRaw`
+  on toggle with no network or spinner.
 - `core/Display.kt`: single `Display.text(t2s, raw, simplified)` rule — every
   `display()` delegates here so no screen can mix scripts while the rest
   follow the toggle.
@@ -142,8 +162,11 @@ UI (ViewModels)
 
 ## In-app update
 
-Files: `data/update/` (`UpdateApi`, `UpdateDownloader`, `VersionCompare`,
-`JsonMini` strict — trailing garbage fails the parse) + `ui/update/` (`UpdateViewModel`, `UpdateDialog`).
+Files: `data/update/` (`UpdateApi: ReleaseFetcher`, `UpdateDownloader:
+ApkDownloader`, `VersionCompare`, `JsonMini` strict) + `ui/update/`
+(`UpdateViewModel`, `UpdateDialog`). Gateways make the VM fakeable;
+pure `shouldAutoCheck`/`shouldOfferUpdate` policy is JVM-tested
+(`UpdatePolicyTest`).
 
 - Source: GitHub Releases API. Auto-check throttled to once per 24h
   (`AUTO_CHECK_INTERVAL_MS`, persisted `lastUpdateCheck`); manual check from
