@@ -27,8 +27,7 @@ default with a global Simplified toggle (see below).
   `ReleaseFetcher`/`ApkDownloader`) is the only thing screens see:
   `UukanshuApp` provides `RealAppContainer(app)` via `LocalContainer`,
   ViewModels take the interfaces (faked in JVM tests, see `ContainerSeamTest`).
-  `RepoApi` is segregated (`BrowseApi`/`ReadingApi`/`LibraryApi`/`BulkApi`)
-  so screens take the narrowest facet. Never `Prefs(app)` / `T2S(app)` /
+  Never `Prefs(app)` / `T2S(app)` /
   `UpdateApi()` per-composition — and must construct ViewModels via the
   single `ui/vmFactory { ... }` helper (`ui/VmFactory.kt`). No Hilt/Koin:
   one module / app-scoped singletons only.
@@ -94,10 +93,10 @@ UI (ViewModels)
   — facade: cache-first reads (`cachedDetail`, `cachedChapterContent`),
   network fetch + raw save, `crawlDelay()` between bulk requests,
   pageId-based progress save, library stats, delete/clear. Pure rules live
-  in collaborators (`TocDiff`, `ShelfOrder`, `BookmarkResolve`,
-  `DownloadPlan`) so they are unit-testable without network/DB.
-  `downloadAll` preloads `cachedPageIds` once and lets the pure `DownloadPlan`
-  missing-set drive fetching (cached chapters skipped, progress still spans
+  in collaborators (`TocDiff`, `ShelfOrder`) plus pure `BookRepo` companions
+  (`missing`, `resolveBookmark`) so they are unit-testable without network/DB.
+  `downloadAll` preloads `cachedPageIds` once and lets the pure `missing`
+  set drive fetching (cached chapters skipped, progress still spans
   all) instead of N+1 per-chapter queries; the mid-download delete-abort check
   is a cheap `BookDao.exists` probe, not a full entity load. The shrink-guard
   count and the `replaceToc` it authorizes are one atomic unit under the repo
@@ -131,18 +130,14 @@ UI (ViewModels)
   serializes them against single-row content writes. `BookDownloadManager`
   `start`/`cancel`/`forget` synchronize check-then-act on `startLock` so
   concurrent `start(id)` runs once (tested in `DownloadRobustnessTest`).
-- `core/Errors.kt`: single error-formatting policy. `message` (with
-  `ClassName:` prefix) is for logs only; all dialog/snackbar/error-state
+- `core/Errors.kt`: single error-formatting policy. All dialog/snackbar/error-state
   text goes through `friendly` (Traditional Chinese mapping for HTTP
   404/408/429/5xx, Cloudflare, timeouts, download reasons; URLs stripped,
   class-name fallback only when blank) or `friendlyText` for
-  non-exception reasons (DownloadManager). `userMessage` stays as the raw
-  accessor for logs/tests. ViewModels/managers must not inline
-  `"${e.javaClass...}"`; cancellation always propagates via
-  `messageOrThrow` / `friendlyOrThrow` plus suspend helpers
-  `runCatchingExceptCancel` / `suppressExceptCancel`. All suspend catch
-  sites use them (unit-tested in `ErrorsTest` + `ErrorsFriendlyTest` +
-  `HardeningTest`).
+  non-exception reasons (DownloadManager). Callers rethrow cancellation
+  before calling it; suspend helpers `runCatchingExceptCancel` /
+  `suppressExceptCancel` preserve it (unit-tested in `ErrorsTest` +
+  `ErrorsFriendlyTest` + `HardeningTest`).
 - `data/prefs/Prefs.kt` (DataStore `uukanshu`): `simplified: Boolean`
   (default false), `fontScale: Float` (default 1.0, single `FONT_MIN/MAX`
   bounds shared by read-clamp, write-clamp and reader step),

@@ -2,57 +2,22 @@ package cc.uukanshu.core
 
 import kotlinx.coroutines.CancellationException
 
-/**
- * Single error-formatting policy for the whole app.
- *
- * Ten call sites used to inline `"${e.javaClass.simpleName}: ${e.message}"`
- * with a hand-written `if (e is CancellationException) throw e` above it.
- * Forgetting the rethrow swallows coroutine cancellation (leaked jobs);
- * formatting inline meant divergent messages. All ViewModels and managers
- * go through here.
- */
+/** Single error-formatting policy: [friendly] for UI text, helpers below preserve cancellation. */
 object Errors {
-    /**
-     * Log-oriented one-liner (`ClassName: message`). Keep the class name
-     * here for debugging — never show this to users (see [userMessage]).
-     * Never call with cancellation.
-     */
-    fun message(e: Throwable): String = "${e.javaClass.simpleName}: ${e.message}"
-
-    /** Rethrow cancellation, return the message otherwise. Use in every `catch (e: Exception)`. */
-    fun messageOrThrow(e: Exception): String {
-        if (e is CancellationException) throw e
-        return message(e)
-    }
-
-    /**
-     * User-facing message: the raw detail without the `ClassName:` prefix.
-     * Falls back to the class name only when the throwable carries no
-     * message. All dialog/snackbar/error-state text must go through here
-     * (or [userMessageOrThrow]); [message] stays for logs.
-     */
-    fun userMessage(e: Throwable): String =
-        e.message?.takeIf { it.isNotBlank() } ?: e.javaClass.simpleName
-
-    /** Rethrow cancellation, return the user-facing message otherwise. */
-    fun userMessageOrThrow(e: Exception): String {
-        if (e is CancellationException) throw e
-        return userMessage(e)
-    }
-
     private val urlRegex = Regex("https?://\\S+")
     private val httpCodeRegex = Regex("HTTP\\s+(\\d{3})")
+
+    private fun rawMessage(e: Throwable): String =
+        e.message?.takeIf { it.isNotBlank() } ?: e.javaClass.simpleName
 
     /**
      * UI-facing message: mapped to short Traditional Chinese for known
      * network/site cases, URLs stripped so dialogs never show
-     * `https://uukanshu.cc/...` internals. Unknown errors fall back to the
-     * sanitized [userMessage]. All dialog/snackbar/error-state text should
-     * go through here (or [friendlyOrThrow]); [userMessage] stays as the
-     * raw accessor for logs/tests.
+     * `https://uukanshu.cc/...` internals. Callers rethrow CancellationException
+     * themselves (`if (e is CancellationException) throw e`) before calling here.
      */
     fun friendly(e: Throwable): String {
-        val raw = userMessage(e)
+        val raw = rawMessage(e)
         val lower = raw.lowercase()
         when {
             "blocked by cloudflare" in lower -> return "暫時被網站阻擋，請稍後再試或切換網路"
@@ -88,12 +53,6 @@ object Errors {
         return cleaned.ifBlank { e.javaClass.simpleName }
     }
 
-    /** Rethrow cancellation, return the UI-facing [friendly] message otherwise. */
-    fun friendlyOrThrow(e: Exception): String {
-        if (e is CancellationException) throw e
-        return friendly(e)
-    }
-
     /**
      * String overload for non-exception failure reasons (e.g.
      * `DownloadStatus.Failed.reason` from DownloadManager). Applies the
@@ -102,14 +61,7 @@ object Errors {
     fun friendlyText(raw: String): String =
         friendly(RuntimeException(raw))
 
-    /**
-     * `runCatching` for suspend blocks that must not swallow cancellation.
-     * `kotlin.runCatching` catches `CancellationException` (it is an
-     * `Exception`), which suppresses coroutine cancellation and turns a
-     * cancelled job into a normal failure. Use this instead for any
-     * suspend call (DB, network, DataStore): cancellation rethrows,
-     * other failures are captured in the `Result`.
-     */
+    /** Like `runCatching` but rethrows cancellation instead of capturing it. */
     suspend fun <T> runCatchingExceptCancel(block: suspend () -> T): Result<T> = try {
         Result.success(block())
     } catch (e: CancellationException) {
@@ -118,11 +70,7 @@ object Errors {
         Result.failure(e)
     }
 
-    /**
-     * Fire-and-forget variant: returns null on ordinary failure, rethrows
-     * cancellation. For optional reads (stale cache paint, best-effort
-     * revalidate) where `null`/skip is the failure mode.
-     */
+    /** Returns null on ordinary failure, rethrows cancellation. */
     suspend fun <T> suppressExceptCancel(block: suspend () -> T): T? = try {
         block()
     } catch (e: CancellationException) {
@@ -131,9 +79,3 @@ object Errors {
         null
     }
 }
-
-/** Shorthand for `catch (e: Exception) { userMessageOrThrow(e) }` sites. */
-fun Exception.userMessage(): String = Errors.userMessageOrThrow(this)
-
-/** UI-facing shorthand for `catch (e: Exception) { friendlyOrThrow(e) }` sites. */
-fun Exception.friendlyMessage(): String = Errors.friendlyOrThrow(this)

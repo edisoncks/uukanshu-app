@@ -1,10 +1,8 @@
 package cc.uukanshu
 
 import cc.uukanshu.core.Errors
-import kotlinx.coroutines.CancellationException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.fail
 import org.junit.Test
 import java.io.IOException
 
@@ -31,14 +29,5 @@ class ErrorsFriendlyTest {
     @Test fun friendlyTextMapsDownloadReasons() {
         assertEquals("下載失敗，請重試", Errors.friendlyText("download failed (reason 404)"))
         assertEquals("下載任務已失效，請重新下載", Errors.friendlyText("download not found"))
-    }
-
-    @Test fun friendlyOrThrowRethrowsCancellation() {
-        try {
-            Errors.friendlyOrThrow(CancellationException("stop"))
-            fail("must rethrow")
-        } catch (e: CancellationException) {
-            assertEquals("stop", e.message)
-        }
     }
 }
