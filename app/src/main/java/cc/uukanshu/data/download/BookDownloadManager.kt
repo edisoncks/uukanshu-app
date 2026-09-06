@@ -45,10 +45,14 @@ class BookDownloadManager(
     private val _states = MutableStateFlow<Map<String, State>>(emptyMap())
     val states: StateFlow<Map<String, State>> = _states
 
+    /**
+     * Dedup registry: at most one live job per book. Check-then-act goes
+     * through [ConcurrentHashMap] atomics ([putIfAbsent]/[replace]/remove-by-value)
+     * so concurrent `start(id)` runs the download exactly once with no separate
+     * lock. The only remaining lock is [slot] (the suspend FIFO queue — a
+     * different job from dedup). [_states] is publish-only, never a lock.
+     */
     private val jobs = ConcurrentHashMap<String, Job>()
-
-    /** Guards check-then-act (CHM get-check-put is not atomic; prevents duplicate starts). */
-    private val startLock = Any()
 
     /** Bulk slot: whole-book downloads queue here, one at a time. */
     private val slot = Mutex()
@@ -61,16 +65,17 @@ class BookDownloadManager(
 
     /** Idempotent start (second tap no-op). */
     fun start(bookId: String) {
-        synchronized(startLock) {
-            if (jobs[bookId]?.isActive == true) return
-            // Seed from retained progress: a failed done/total stays visible
-            // until fresh callbacks arrive instead of flashing 0/0 while the
-            // job queues behind the slot or fetches its TOC.
-            _states.update { cur ->
-                val prev = cur[bookId]
-                cur + (bookId to State(downloading = true, done = prev?.done ?: 0, total = prev?.total ?: 0, error = null))
-            }
-            val job = scope.launch {
+        if (jobs[bookId]?.isActive == true) return
+        // Seed from retained progress: a failed done/total stays visible
+        // until fresh callbacks arrive instead of flashing 0/0 while the
+        // job queues behind the slot or fetches its TOC. Idempotent: a racy
+        // second seeder must not regress live progress published in between.
+        _states.update { cur ->
+            val prev = cur[bookId]
+            if (prev?.downloading == true) cur
+            else cur + (bookId to State(downloading = true, done = prev?.done ?: 0, total = prev?.total ?: 0, error = null))
+        }
+        val job = scope.launch {
             val self = coroutineContext[Job]!!
             try {
                 slot.withLock {
@@ -114,13 +119,23 @@ class BookDownloadManager(
                 val self = coroutineContext[Job]
                 if (self != null) jobs.remove(bookId, self) else jobs.remove(bookId)
             }
-            }
-            jobs[bookId] = job
         }
+        // Atomic install: the loser cancels before doing real work (its body
+        // blocks on [slot] first, and terminal publishes are identity-guarded).
+        val prev = jobs.putIfAbsent(bookId, job)
+        if (prev == null) return
+        if (prev.isActive) {
+            job.cancel()
+            return
+        }
+        // Stale completed entry whose `finally` hasn't removed it yet: take over.
+        if (jobs.replace(bookId, prev, job)) return
+        // Another newcomer won the same window; back off (next tap retries).
+        job.cancel()
     }
 
     fun cancel(bookId: String) {
-        synchronized(startLock) { jobs.remove(bookId)?.cancel() }
+        jobs.remove(bookId)?.cancel()
         _states.update { cur ->
             val prev = cur[bookId] ?: return@update cur
             if (!prev.downloading) return@update cur
@@ -130,16 +145,17 @@ class BookDownloadManager(
 
     /** Drop retained terminal state (call on cache delete so re-open can't replay stale progress). */
     fun forget(bookId: String) {
-        synchronized(startLock) { jobs.remove(bookId)?.cancel() }
+        jobs.remove(bookId)?.cancel()
         _states.update { cur -> cur - bookId }
     }
 
     /** Drop all retained state (used by clear-all). */
     fun forgetAll() {
-        synchronized(startLock) {
-            jobs.values.forEach { runCatching { it.cancel() } }
-            jobs.clear()
-        }
+        // Weakly-consistent iteration is safe on CHM; per-entry remove-by-value
+        // cancels each job exactly once. A start() racing this wipe either lands
+        // before clear() (cancelled) or after (survives with fresh state) — both coherent.
+        jobs.forEach { (id, job) -> if (jobs.remove(id, job)) runCatching { job.cancel() } }
+        jobs.clear()
         _states.update { emptyMap() }
     }
 
