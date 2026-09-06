@@ -95,7 +95,7 @@ class UpdateApi(
             .header("User-Agent", "uukanshu-app (Android)")
             .build()
         client.newCall(req).execute().use { res ->
-            if (!res.isSuccessful) throw IOException("HTTP ${res.code} for $LATEST_URL")
+            if (!res.isSuccessful) throw cc.uukanshu.core.HttpStatusException(res.code, LATEST_URL)
             val body = res.body?.string() ?: throw IOException("empty release body")
             return parse(body) ?: throw IOException("no uukanshu-*.apk asset in latest release")
         }

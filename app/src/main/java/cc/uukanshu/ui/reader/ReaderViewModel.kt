@@ -8,6 +8,7 @@ import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.di.RepoApi
+import cc.uukanshu.core.EmptyChapterListException
 import cc.uukanshu.core.Errors
 import cc.uukanshu.data.net.BulkFetch
 import cc.uukanshu.data.repo.TocRevalidator
@@ -157,7 +158,7 @@ class ReaderViewModel(
                                 if (fresh.meta.title.isNotEmpty()) bookTitleRaw = fresh.meta.title
                                 setTotal(chapters.size)
                             } else if (chapters.isEmpty()) {
-                                throw java.io.IOException("empty chapter list — try again later")
+                                throw EmptyChapterListException()
                             }
                         } catch (e: Exception) {
                             if (e is kotlinx.coroutines.CancellationException) throw e

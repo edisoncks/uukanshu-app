@@ -1,16 +1,9 @@
 package cc.uukanshu.data.repo
 
 import cc.uukanshu.core.Errors
+import cc.uukanshu.core.TocShrunkException
 import cc.uukanshu.data.parse.Parser
 import kotlinx.coroutines.CancellationException
-
-/**
- * Fresh TOC shrank vs cache: truncated parse, not a real deletion.
- * Thrown by [BookRepo.detail] before touching the DB; mapped to
- * [TocRevalidator.Revalidate.RejectedShrink] without message sniffing.
- */
-class TocShrunkException(val cached: Int, val fresh: Int) :
-    java.io.IOException("chapter list shrank ($fresh < $cached) — refusing to wipe cache")
 
 /** Shared stale-while-revalidate rule: empty/shrunken fresh TOC never wipes cache. */
 class TocRevalidator(

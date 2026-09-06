@@ -1,6 +1,8 @@
 package cc.uukanshu.data.net
 
 import cc.uukanshu.BASE_URL
+import cc.uukanshu.core.CloudflareBlockedException
+import cc.uukanshu.core.HttpStatusException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -121,11 +123,11 @@ class SiteApi(
                                 http.newCall(call).execute().use { res ->
                                     val code = res.code
                                     if (code == 408 || code == 429 || code >= 500) {
-                                        throw IOException("HTTP $code for $label")
+                                        throw HttpStatusException(code, label)
                                     }
                                     // Deterministic client errors never heal on retry: fail
                                     // fast instead of burning backoff delays.
-                                    if (!res.isSuccessful) throw NonRetryable(IOException("HTTP $code for $label"))
+                                    if (!res.isSuccessful) throw NonRetryable(HttpStatusException(code, label))
                                     res.body?.string() ?: throw IOException(emptyBodyMessage)
                                 }
                             }
@@ -157,7 +159,7 @@ class SiteApi(
     private fun throwIfBlocked(page: String) {
         val title = titleRe.find(page)?.groupValues?.getOrNull(1) ?: return
         if ("Attention Required" in title || "Just a moment" in title || "you have been blocked" in title) {
-            throw NonRetryable(IOException("blocked by Cloudflare — try again later or from a different network"))
+            throw NonRetryable(CloudflareBlockedException())
         }
     }
 

@@ -1,6 +1,6 @@
 package cc.uukanshu
 
-import cc.uukanshu.data.repo.TocShrunkException
+import cc.uukanshu.core.TocShrunkException
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.repo.BookRepo
 import cc.uukanshu.data.repo.TocRevalidator

@@ -1,6 +1,9 @@
 package cc.uukanshu.data.repo
 
+import cc.uukanshu.core.BookDeletedDuringDownloadException
+import cc.uukanshu.core.EmptyChapterListException
 import cc.uukanshu.core.Errors
+import cc.uukanshu.core.TocShrunkException
 import cc.uukanshu.data.db.AppDb
 import cc.uukanshu.data.db.BookEntity
 import cc.uukanshu.data.db.ChapterEntity
@@ -285,14 +288,14 @@ class BookRepo(
             else {
                 withContext(ioDispatcher) { cachedDetail(bookId)?.chapters }
                     ?.takeIf { it.isNotEmpty() }
-                    ?: throw java.io.IOException("empty chapter list — try again later")
+                    ?: throw EmptyChapterListException()
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             withContext(ioDispatcher) { cachedDetail(bookId)?.chapters } ?: throw e
         }
-        if (chapters.isEmpty()) throw java.io.IOException("empty chapter list — try again later")
+        if (chapters.isEmpty()) throw EmptyChapterListException()
         // In-memory id set avoids N+1 queries; snapshot so concurrent clear can't fake hits.
         val cachedIds = withContext(ioDispatcher) {
             runCatching { db.chapters().cachedPageIds(bookId).toMutableSet() }
@@ -305,7 +308,7 @@ class BookRepo(
                 // Abort if the book was deleted mid-download (writes are no-ops on missing rows).
                 // Cheap EXISTS probe: the old full-entity load was N point queries per book.
                 if (!withContext(ioDispatcher) { db.books().exists(bookId) }) {
-                    throw java.io.IOException("book was deleted during download")
+                    throw BookDeletedDuringDownloadException()
                 }
                 if (ref.pageId in missingIds) {
                     if (fetchedAny) crawlDelay()
