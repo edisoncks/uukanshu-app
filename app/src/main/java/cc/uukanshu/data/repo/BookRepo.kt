@@ -140,22 +140,23 @@ class BookRepo(
             throw TocShrunkException(cachedCount, chapters.size)
         }
         // Preserve downloads + shelf order via AppDb.replaceToc (single transaction).
-        Errors.runCatchingExceptCancel {
-            dbWrite.withLock {
-                val existing = db.books().book(bookId)
-                val now = System.currentTimeMillis()
-                val book = preserveBookUpdatedAt(
-                    existing,
-                    BookEntity(bookId, meta.title, meta.author, meta.intro, meta.category, meta.latestChapterTitle),
-                    now,
-                )
-                val skeleton = chapters.map {
-                    ChapterEntity(bookId, it.position, it.pageId, it.title, it.url, content = "")
-                }
-                db.replaceToc(book, skeleton)
+        // DB failures propagate to the caller (stale + offline via
+        // TocRevalidator.Failed) — never silent success with a stale DB.
+        // Cancellation propagates out of the Mutex/Room calls untouched.
+        dbWrite.withLock {
+            val existing = db.books().book(bookId)
+            val now = System.currentTimeMillis()
+            val book = preserveBookUpdatedAt(
+                existing,
+                BookEntity(bookId, meta.title, meta.author, meta.intro, meta.category, meta.latestChapterTitle),
+                now,
+            )
+            val skeleton = chapters.map {
+                ChapterEntity(bookId, it.position, it.pageId, it.title, it.url, content = "")
             }
-        }.onFailure { if (it is CancellationException) throw it }
-            Detail(meta, chapters)
+            db.replaceToc(book, skeleton)
+        }
+        Detail(meta, chapters)
         }
     }
 
