@@ -20,11 +20,19 @@ android {
         versionName = "1.0.38"
         // Derived (not manual) so code/name cannot drift: 1.0.36 -> 1000036.
         // Monotonic from the legacy 34, so side-load updates never see a downgrade.
-        // Never hand-edit versionCode. Each component supports 0..999 (no 1.0.100 vs 1.1.0 collision).
+        // Never hand-edit versionCode. Each component supports 0..999 (no 1.0.100 vs 1.1.0
+        // collision) — enforced below so a typo'd versionName fails the build instead of
+        // silently colliding (1.0.1234 and 1.1.234 would both derive 1001234).
         versionCode = run {
             val name = versionName ?: "0.0.0"
             val parts = name.split(".").map { it.filter(Char::isDigit).toIntOrNull() ?: 0 }
             val (major, minor, patch) = Triple(parts.getOrElse(0) { 0 }, parts.getOrElse(1) { 0 }, parts.getOrElse(2) { 0 })
+            listOf(major, minor, patch).forEach {
+                require(it in 0..999) {
+                    "versionName \"$name\" component $it out of 0..999; " +
+                        "the versionCode mapping (n * 10^(6-k)) would collide or regress"
+                }
+            }
             major * 1000000 + minor * 1000 + patch
         }
     }
