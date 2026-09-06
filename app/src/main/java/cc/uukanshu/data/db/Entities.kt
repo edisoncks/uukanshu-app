@@ -85,6 +85,10 @@ interface BookDao {
     @Query("UPDATE books SET updatedAt = :now WHERE id = :id")
     suspend fun touch(id: String, now: Long)
 
+    /** Cheap existence probe for the mid-download delete-abort check (no entity load). */
+    @Query("SELECT EXISTS(SELECT 1 FROM books WHERE id = :id)")
+    suspend fun exists(id: String): Boolean
+
     /** Bulk wipe for clear-all (single statement, runs inside a transaction). */
     @Query("DELETE FROM books")
     suspend fun clearAll()

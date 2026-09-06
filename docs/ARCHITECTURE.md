@@ -96,8 +96,10 @@ UI (ViewModels)
   pageId-based progress save, library stats, delete/clear. Pure rules live
   in collaborators (`TocMerge`, `ShelfOrder`, `BookmarkResolve`,
   `DownloadPlan`) so they are unit-testable without network/DB.
-  `downloadAll` preloads `cachedPageIds` once (in-memory `DownloadPlan`)
-  instead of N+1 per-chapter queries. `bookEntry` returns domain
+  `downloadAll` preloads `cachedPageIds` once and lets the pure `DownloadPlan`
+  missing-set drive fetching (cached chapters skipped, progress still spans
+  all) instead of N+1 per-chapter queries; the mid-download delete-abort check
+  is a cheap `BookDao.exists` probe, not a full entity load. `bookEntry` returns domain
   `BookInfo`, never Room `BookEntity`.
   `downloadAll` treats an
   empty fresh TOC as failure (cache fallback, else loud `IOException` — never

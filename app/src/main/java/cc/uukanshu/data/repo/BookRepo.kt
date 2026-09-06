@@ -293,24 +293,24 @@ class BookRepo(
             runCatching { db.chapters().cachedPageIds(bookId).toMutableSet() }
                 .getOrDefault(mutableSetOf())
         }
-        // Pure planning helper keeps the missing-set rule testable.
-        @Suppress("UNUSED_VARIABLE")
-        val plannedMissing = DownloadPlan.missing(chapters, cachedIds)
+        // Pure planning helper keeps the missing-set rule testable: the loop
+        // reports progress over all chapters but fetches only the planned set.
+        val missingIds = DownloadPlan.missing(chapters, cachedIds).mapTo(mutableSetOf()) { it.pageId }
         try {
             var fetchedAny = false
             chapters.forEachIndexed { idx, ref ->
                 // Abort if the book was deleted mid-download (writes are no-ops on missing rows).
-                if (withContext(ioDispatcher) { db.books().book(bookId) } == null) {
+                // Cheap EXISTS probe: the old full-entity load was N point queries per book.
+                if (!withContext(ioDispatcher) { db.books().exists(bookId) }) {
                     throw java.io.IOException("book was deleted during download")
                 }
-                val has = ref.pageId in cachedIds
-                if (!has) {
+                if (ref.pageId in missingIds) {
                     if (fetchedAny) crawlDelay()
                     // Bulk lane: yields to interactive taps in the gate with
                     // short timeouts (see BulkFetch). Chapter parse stays shared.
                     val text = withContext(ioDispatcher + BulkFetch) { chapter(ref.url).text }
                     saveChapterContent(bookId, ref.pageId, text)
-                    cachedIds.add(ref.pageId)
+                    missingIds.remove(ref.pageId)
                     fetchedAny = true
                 }
                 onProgress(idx + 1, chapters.size)
