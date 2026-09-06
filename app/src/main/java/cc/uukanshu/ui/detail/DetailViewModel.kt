@@ -169,7 +169,7 @@ class DetailViewModel(
                                 load = l.copy(refreshing = false, offline = true),
                             )
                             else -> cur.copy(
-                                load = Load.Failed("empty chapter list — try again later"),
+                                load = Load.Failed("章節列表為空，請稍後再試"),
                             )
                         }
                     }
@@ -189,7 +189,7 @@ class DetailViewModel(
                     when (val l = cur.load) {
                         // Keep stale content visible, flag offline.
                         is Load.Ready -> cur.copy(load = l.copy(refreshing = false, offline = true))
-                        else -> cur.copy(load = Load.Failed(Errors.userMessage(e)))
+                        else -> cur.copy(load = Load.Failed(Errors.friendly(e)))
                     }
                 }
             }

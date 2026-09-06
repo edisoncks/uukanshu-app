@@ -107,8 +107,8 @@ class LibraryViewModel(
                 if (e is CancellationException) throw e
                 _ui.update { cur ->
                     when (val l = cur.load) {
-                        is Load.Shelf -> cur.copy(load = l.copy(error = Errors.userMessage(e)))
-                        else -> cur.copy(load = Load.Failed(Errors.userMessage(e)))
+                        is Load.Shelf -> cur.copy(load = l.copy(error = Errors.friendly(e)))
+                        else -> cur.copy(load = Load.Failed(Errors.friendly(e)))
                     }
                 }
             }
@@ -164,8 +164,8 @@ class LibraryViewModel(
                     // DB failure is a failure, not an empty shelf: footer
                     // when rows are on screen, full-screen when empty.
                     when (val l = cur.load) {
-                        is Load.Shelf -> cur.copy(load = l.copy(error = Errors.userMessage(e)))
-                        else -> cur.copy(load = Load.Failed(Errors.userMessage(e)))
+                        is Load.Shelf -> cur.copy(load = l.copy(error = Errors.friendly(e)))
+                        else -> cur.copy(load = Load.Failed(Errors.friendly(e)))
                     }
                 }
             }

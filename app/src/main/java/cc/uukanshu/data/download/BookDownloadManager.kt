@@ -127,7 +127,7 @@ class BookDownloadManager(
                         downloading = false,
                         done = prev?.done ?: 0,
                         total = prev?.total ?: 0,
-                        error = Errors.userMessage(e),
+                        error = Errors.friendly(e),
                     ))
                 }
             } finally {

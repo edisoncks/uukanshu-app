@@ -292,7 +292,7 @@ class ReaderViewModel(
                     _ui.value = Ui.Error(
                         position = effective,
                         total = total,
-                        message = "out of range",
+                        message = "章節超出範圍",
                         simplified = cur.simplified,
                         fontScale = cur.fontScale,
                         theme = cur.theme,
@@ -355,7 +355,7 @@ class ReaderViewModel(
                 _ui.value = Ui.Error(
                     position = cur.position,
                     total = cur.total,
-                    message = Errors.userMessage(e),
+                    message = Errors.friendly(e),
                     simplified = cur.simplified,
                     fontScale = cur.fontScale,
                     theme = cur.theme,

@@ -124,7 +124,7 @@ class UpdateViewModel(
             if (manual) {
                 _ui.update {
                     it.copy(checking = false, visible = true,
-                        error = Errors.userMessage(e))
+                        error = Errors.friendly(e))
                 }
             } else {
                 // Auto-check is best-effort: stay silent offline / rate-limited.
@@ -186,7 +186,7 @@ class UpdateViewModel(
                     _ui.update {
                         it.copy(
                             downloading = false,
-                            error = Errors.userMessage(e),
+                            error = Errors.friendly(e),
                             downloadId = null,
                         )
                     }
@@ -225,7 +225,7 @@ class UpdateViewModel(
                                         downloadId = null)
                                 }
                                 is DownloadStatus.Failed -> _ui.update {
-                                    it.copy(downloading = false, error = s.reason,
+                                    it.copy(downloading = false, error = Errors.friendlyText(s.reason),
                                         downloadId = null)
                                 }
                             }
@@ -236,7 +236,7 @@ class UpdateViewModel(
                         _ui.update {
                             it.copy(
                                 downloading = false,
-                                error = Errors.userMessage(e),
+                                error = Errors.friendly(e),
                                 downloadId = null,
                             )
                         }
