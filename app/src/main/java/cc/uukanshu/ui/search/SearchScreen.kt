@@ -76,7 +76,7 @@ fun SearchScreen(onBook: (String) -> Unit) {
             }
             is SearchViewModel.Ui.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(s.message)
+                    Text(vm.display(s.message))
                     Button({ vm.query(text) }, Modifier.padding(top = 12.dp)) { Text(vm.display("重試")) }
                 }
             }

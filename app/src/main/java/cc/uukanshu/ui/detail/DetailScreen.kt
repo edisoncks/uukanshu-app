@@ -59,7 +59,9 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int, page
         }
         is DetailViewModel.Load.Failed -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(load.message)
+                // Error text renders through display() like everything else
+                // (see Display): friendly() is Traditional-only.
+                Text(vm.displayTitle(load.message))
                 Button({ vm.refresh() }, Modifier.padding(top = 12.dp)) { Text(vm.displayTitle("重試")) }
             }
         }

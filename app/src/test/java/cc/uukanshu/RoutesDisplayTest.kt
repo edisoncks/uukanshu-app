@@ -29,4 +29,13 @@ class RoutesDisplayTest {
         assertEquals("S:raw", Display.text(t2s, "raw", simplified = true))
         assertEquals("", Display.text(t2s, "", simplified = false))
     }
+
+    @Test fun errorTextFollowsTheSameRenderRule() {
+        // Friendly errors are Traditional source strings; every screen must
+        // render them through display() so Simplified mode converts them too.
+        val t2s = TestConvert()
+        val err = "章節列表為空，請稍後再試"
+        assertEquals(err, Display.text(t2s, err, simplified = false))
+        assertEquals("S:$err", Display.text(t2s, err, simplified = true))
+    }
 }

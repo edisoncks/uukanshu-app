@@ -63,7 +63,7 @@ fun UpdateDialog(
                 TextButton(onClick = onDismiss) { Text(display("關閉")) }
             },
             title = { Text(display("檢查更新失敗")) },
-            text = { Text(ui.error) },
+            text = { Text(display(ui.error ?: "")) },
         )
 
         info != null -> {
@@ -152,7 +152,7 @@ fun UpdateDialog(
                         }
                         if (ui.error != null) {
                             Text(
-                                ui.error,
+                                display(ui.error),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.error,
                             )

@@ -80,7 +80,7 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L) {
                 }
                 is ReaderViewModel.Ui.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(s.message)
+                        Text(vm.display(s.message))
                         Button({ vm.load(s.position) }, Modifier.padding(top = 12.dp)) { Text(vm.display("重試")) }
                     }
                 }

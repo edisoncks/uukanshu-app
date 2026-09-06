@@ -116,7 +116,7 @@ fun LibraryScreen(onBook: (String) -> Unit) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        load.message,
+                        vm.display(load.message),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -216,7 +216,7 @@ fun LibraryScreen(onBook: (String) -> Unit) {
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
                             Text(
-                                footerError,
+                                vm.display(footerError),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.error,
                             )

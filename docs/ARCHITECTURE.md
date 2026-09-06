@@ -156,7 +156,9 @@ UI (ViewModels)
   on toggle with no network or spinner.
 - `core/Display.kt`: single `Display.text(t2s, raw, simplified)` rule — every
   `display()` delegates here so no screen can mix scripts while the rest
-  follow the toggle.
+  follow the toggle. Error text included: `friendly()` yields Traditional
+  source strings and every screen renders them through `display()`, so
+  Simplified mode converts errors too.
 
 ## Offline cache model
 

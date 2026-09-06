@@ -167,7 +167,7 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
                     }
                     if (updateUi.error != null && updateUi.info == null) {
                         Text(
-                            updateUi.error!!,
+                            display(updateUi.error!!),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.error,
                         )
