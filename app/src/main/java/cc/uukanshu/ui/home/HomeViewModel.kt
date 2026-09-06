@@ -158,7 +158,10 @@ class HomeViewModel(
         synchronized(pagers) {
             pagers[key]?.let { return it }
             if (pagers.size >= MAX_PAGERS) {
-                pagers.keys.firstOrNull { it != key }?.let { pagers.remove(it) }
+                // Deterministic victim (sorted-first, never the incoming key):
+                // ConcurrentHashMap order is unspecified, so an unordered pick
+                // evicts a random live pager per run.
+                pagers.keys.sorted().firstOrNull { it != key }?.let { pagers.remove(it) }
             }
             return pagers.computeIfAbsent(key) {
                 Pager(PagingConfig(pageSize = 20, enablePlaceholders = false)) {

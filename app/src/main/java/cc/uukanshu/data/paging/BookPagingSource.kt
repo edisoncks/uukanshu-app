@@ -27,7 +27,9 @@ class BookPagingSource(
     private val loadPage: suspend (page: Int) -> List<Parser.BookItem>,
 ) : PagingSource<Int, Parser.BookItem>() {
 
-    private val seenIds = mutableSetOf<String>()
+    // Concurrent set: two overlapping loads on one source must never corrupt
+    // the membership check (ConcurrentModificationException in the list).
+    private val seenIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     override suspend fun load(params: LoadParams<Int>): LoadResult<Int, Parser.BookItem> {
         val page = params.key ?: 1

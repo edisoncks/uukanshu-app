@@ -86,6 +86,20 @@ class HomeViewModelTest {
         assertEquals(HomeViewModel.MAX_PAGERS, vm.pagerCountForTest())
     }
 
+    @Test fun evictionVictimIsDeterministic() {
+        // Sorted-first victim among {recent, cat-1..cat-10} is always cat-1,
+        // never a random live pager per run (ConcurrentHashMap order).
+        val vm = HomeViewModel(MutableFakeRepo(), MutableFakePrefs(), TestConvert())
+        val cat1 = vm.pagingFor(1, 1)
+        val recent = vm.pagingFor(0, 1)
+        for (id in 2..10) vm.pagingFor(1, id)
+        assertEquals(HomeViewModel.MAX_PAGERS, vm.pagerCountForTest())
+        vm.pagingFor(1, 99)
+        assertEquals(HomeViewModel.MAX_PAGERS, vm.pagerCountForTest())
+        assertNotSame(cat1, vm.pagingFor(1, 1))
+        assertSame(recent, vm.pagingFor(0, 1))
+    }
+
     @Test fun selectTabMarksPendingTop() {
         val vm = HomeViewModel(MutableFakeRepo(), MutableFakePrefs(), TestConvert())
         vm.selectTab(1)
