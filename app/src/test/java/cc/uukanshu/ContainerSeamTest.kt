@@ -3,6 +3,10 @@ package cc.uukanshu
 import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.repo.BookRepo
+import cc.uukanshu.data.update.ApkDownloader
+import cc.uukanshu.data.update.DownloadStatus
+import cc.uukanshu.data.update.ReleaseFetcher
+import cc.uukanshu.data.update.UpdateInfo
 import cc.uukanshu.di.AppContainer
 import cc.uukanshu.di.ConvertApi
 import cc.uukanshu.di.DownloadsApi
@@ -39,7 +43,7 @@ class FakeRepo(
     override suspend fun getBookmark(bookId: String): BookRepo.Bookmark? = null
     override fun progressFlow(bookId: String): Flow<Int?> = flowOf(null)
     override suspend fun getProgress(bookId: String): Int? = null
-    override suspend fun bookEntry(bookId: String) = null
+    override suspend fun bookEntry(bookId: String): BookRepo.BookInfo? = null
     override suspend fun library() = emptyList<BookRepo.CachedBook>()
     override fun libraryFlow(): Flow<List<BookRepo.CachedBook>> = flowOf(emptyList())
     override suspend fun crawlDelay() = Unit
@@ -76,16 +80,34 @@ class FakeDownloads : DownloadsApi {
     override fun forgetAll() = Unit
 }
 
+class FakeReleaseFetcher(var info: UpdateInfo? = null) : ReleaseFetcher {
+    override fun fetchLatest(): UpdateInfo =
+        info ?: throw java.io.IOException("no release")
+}
+
+class FakeApkDownloader : ApkDownloader {
+    override fun apkFile(info: UpdateInfo): java.io.File =
+        java.io.File.createTempFile("uukanshu-test", ".apk")
+    override fun enqueue(info: UpdateInfo): Long = -1L
+    override fun cancel(downloadId: Long) = Unit
+    override fun observe(downloadId: Long): kotlinx.coroutines.flow.Flow<DownloadStatus> =
+        flowOf(DownloadStatus.Success)
+}
+
 class FakeContainer(
     repo: RepoApi = FakeRepo(),
     prefs: PrefsApi = FakePrefs(),
     t2s: ConvertApi = FakeConvert(),
     downloads: DownloadsApi = FakeDownloads(),
+    releaseApi: ReleaseFetcher = FakeReleaseFetcher(),
+    apkDownloader: ApkDownloader = FakeApkDownloader(),
 ) : AppContainer {
     override val repo: RepoApi = repo
     override val prefs: PrefsApi = prefs
     override val t2s: ConvertApi = t2s
     override val downloads: DownloadsApi = downloads
+    override val releaseApi: ReleaseFetcher = releaseApi
+    override val apkDownloader: ApkDownloader = apkDownloader
 }
 
 class ContainerSeamTest {

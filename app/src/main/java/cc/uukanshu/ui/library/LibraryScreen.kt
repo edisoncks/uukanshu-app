@@ -35,8 +35,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cc.uukanshu.core.Display
-import cc.uukanshu.data.convert.T2S
-import cc.uukanshu.data.db.BookEntity
 import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.data.repo.BookRepo

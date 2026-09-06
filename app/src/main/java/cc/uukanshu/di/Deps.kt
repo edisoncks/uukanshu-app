@@ -2,32 +2,35 @@ package cc.uukanshu.di
 
 import androidx.compose.runtime.staticCompositionLocalOf
 import cc.uukanshu.App
-import cc.uukanshu.data.convert.T2S
-import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.data.parse.Parser
-import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.data.repo.BookRepo
+import cc.uukanshu.data.download.BookDownloadManager
+import cc.uukanshu.data.update.ApkDownloader
+import cc.uukanshu.data.update.ReleaseFetcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Manual constructor DI (no framework).
  *
- * Screens used to call `ctx.app()` and pass `app.repo / app.prefs / app.t2s`
- * positionally into six hand-wired `vmFactory { … }` blocks. That hid what
- * each screen needs, made ViewModels untestable without an Application, and
- * blocked Compose previews. ViewModels now depend on these narrow
- * interfaces; [AppContainer] is provided once in MainActivity via
- * [LocalContainer] and faked in JVM tests / previews.
+ * ViewModels depend on these narrow interfaces; [AppContainer] is provided
+ * once in MainActivity via [LocalContainer] and faked in JVM tests /
+ * previews (see `ContainerSeamTest`).
  *
- * If the app ever grows to multiple modules or needs scoped workers, each
- * [AppContainer] val maps 1:1 to a Hilt `@Module` — no redesign needed.
+ * `RepoApi` is segregated (ISP): browse / reading / library / bulk facets
+ * so screens declare only what they use. `RepoApi` itself extends all four
+ * for the production [BookRepo]; ViewModels should take the narrowest
+ * facet (e.g. Home takes [BrowseApi]) to keep fakes small and prevent
+ * accidental coupling to unrelated repo surface.
  */
 
-interface RepoApi {
+interface BrowseApi {
     suspend fun category(categoryId: Int, page: Int): List<Parser.BookItem>
     suspend fun recent(page: Int): List<Parser.BookItem>
     suspend fun search(keyword: String): Parser.SearchResult
+}
+
+interface ReadingApi {
     suspend fun cachedDetail(bookId: String): BookRepo.Detail?
     suspend fun detail(bookId: String): BookRepo.Detail
     suspend fun chapter(url: String): Parser.ChapterContent
@@ -39,14 +42,24 @@ interface RepoApi {
     suspend fun getBookmark(bookId: String): BookRepo.Bookmark?
     suspend fun getProgress(bookId: String): Int?
     fun progressFlow(bookId: String): Flow<Int?>
-    suspend fun bookEntry(bookId: String): cc.uukanshu.data.db.BookEntity?
+}
+
+interface LibraryApi {
+    /** Domain view of a cached book row — never a Room entity. */
+    suspend fun bookEntry(bookId: String): BookRepo.BookInfo?
     suspend fun library(): List<BookRepo.CachedBook>
     fun libraryFlow(): Flow<List<BookRepo.CachedBook>>
-    suspend fun crawlDelay()
-    suspend fun downloadAll(bookId: String, onProgress: (Int, Int) -> Unit)
     suspend fun deleteBook(bookId: String)
     suspend fun clearAll()
 }
+
+interface BulkApi {
+    suspend fun crawlDelay()
+    suspend fun downloadAll(bookId: String, onProgress: (Int, Int) -> Unit)
+}
+
+/** Full repo contract (production [BookRepo] implements this). */
+interface RepoApi : BrowseApi, ReadingApi, LibraryApi, BulkApi
 
 interface PrefsApi {
     val simplified: Flow<Boolean>
@@ -80,15 +93,19 @@ interface AppContainer {
     val prefs: PrefsApi
     val t2s: ConvertApi
     val downloads: DownloadsApi
+    val releaseApi: ReleaseFetcher
+    val apkDownloader: ApkDownloader
 }
 
 class RealAppContainer(app: App) : AppContainer {
-    // App singletons already implement the narrow interfaces (see `: RepoApi`
-    // on BookRepo etc.), so this is delegation with zero new instances.
+    // App singletons already implement the narrow interfaces, so this is
+    // delegation with zero new instances.
     override val repo: RepoApi = app.repo as RepoApi
     override val prefs: PrefsApi = app.prefs as PrefsApi
     override val t2s: ConvertApi = app.t2s as ConvertApi
     override val downloads: DownloadsApi = app.downloadManager as DownloadsApi
+    override val releaseApi: ReleaseFetcher = app.updateApi
+    override val apkDownloader: ApkDownloader = app.updateDownloader
 }
 
 val LocalContainer = staticCompositionLocalOf<AppContainer> {

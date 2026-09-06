@@ -5,7 +5,7 @@ import cc.uukanshu.data.db.AppDb
 import cc.uukanshu.data.db.BookEntity
 import cc.uukanshu.data.db.ChapterEntity
 import cc.uukanshu.data.db.ProgressEntity
-import cc.uukanshu.data.net.SiteApi
+import cc.uukanshu.data.net.SiteGateway
 import cc.uukanshu.data.parse.Parser
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -27,7 +27,7 @@ import kotlin.random.Random
  * serialization, crawl pacing) and keeps a stable public API for screens.
  */
 class BookRepo(
-    private val site: SiteApi,
+    private val site: SiteGateway,
     private val db: AppDb,
 ) : cc.uukanshu.di.RepoApi {
     /**
@@ -230,9 +230,26 @@ class BookRepo(
         db.progress().progress(bookId)?.position
     }
 
+    /**
+     * Domain view of a cached book row for shelf rows of fresh downloads.
+     * Returns [BookInfo] (never the Room [BookEntity]) so `data.db` types
+     * cannot leak into `ui/`.
+     */
+    data class BookInfo(
+        val id: String,
+        val title: String,
+        val author: String = "",
+        val intro: String = "",
+        val category: String = "",
+        val lastChapterTitle: String = "",
+        val updatedAt: Long = 0L,
+    )
+
     /** Cached book meta (TOC skeleton) for shelf rows of fresh downloads. */
-    override suspend fun bookEntry(bookId: String): BookEntity? = withContext(Dispatchers.IO) {
-        db.books().book(bookId)
+    override suspend fun bookEntry(bookId: String): BookInfo? = withContext(Dispatchers.IO) {
+        db.books().book(bookId)?.let {
+            BookInfo(it.id, it.title, it.author, it.intro, it.category, it.lastChapterTitle, it.updatedAt)
+        }
     }
 
     // -- offline library (milestone 7): sequential, no hard cap ------------

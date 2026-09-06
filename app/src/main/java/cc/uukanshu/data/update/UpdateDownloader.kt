@@ -30,12 +30,12 @@ sealed interface DownloadStatus {
  * Files land in the app-private downloads dir, so no storage permission is
  * needed on minSdk 31; sharing with the installer goes through FileProvider.
  */
-class UpdateDownloader(private val context: Context) {
+class UpdateDownloader(private val context: Context) : ApkDownloader {
     private val dm: DownloadManager
         get() = context.getSystemService(DownloadManager::class.java)
 
     /** File the APK for [info] downloads to (deleted first if stale). */
-    fun apkFile(info: UpdateInfo): File =
+    override fun apkFile(info: UpdateInfo): File =
         File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), info.apkName)
 
     /**
@@ -45,7 +45,7 @@ class UpdateDownloader(private val context: Context) {
      * anything else (missing, empty, partial, or unknown size) is deleted
      * and re-downloaded. Length > 0 alone proves nothing after a kill.
      */
-    fun enqueue(info: UpdateInfo): Long {
+    override fun enqueue(info: UpdateInfo): Long {
         deleteStaleApks(keepName = info.apkName)
         val file = apkFile(info)
         if (isComplete(file, info.size)) return -1L
@@ -64,7 +64,7 @@ class UpdateDownloader(private val context: Context) {
         return dm.enqueue(req)
     }
 
-    fun cancel(downloadId: Long) {
+    override fun cancel(downloadId: Long) {
         runCatching { dm.remove(downloadId) }
     }
 
@@ -75,6 +75,8 @@ class UpdateDownloader(private val context: Context) {
      * here keeps all DownloadManager knowledge in one place and leaves
      * the VM as a pure collector that maps states to dialog state.
      */
+    override fun observe(downloadId: Long): Flow<DownloadStatus> = observe(downloadId, 500)
+
     fun observe(downloadId: Long, intervalMs: Long = 500): Flow<DownloadStatus> = flow {
         while (true) {
             val s = query(downloadId)

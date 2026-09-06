@@ -94,8 +94,9 @@ fun UukanshuApp() {
         )
         // Shared update state: auto-check fires once per day whatever tab is open;
         // the manual check button lives in Settings, the dialog overlays any tab.
+        // Wired from the container (not `UpdateApi()` inline) so fakes inject in tests.
         val updateVm: UpdateViewModel = viewModel(factory = vmFactory {
-            UpdateViewModel(app, prefs)
+            UpdateViewModel(app, prefs, container.releaseApi, container.apkDownloader)
         })
         val updateUi by updateVm.ui.collectAsState()
         LaunchedEffect(Unit) { updateVm.autoCheck() }

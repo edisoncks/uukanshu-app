@@ -34,7 +34,7 @@ class SiteApi(
         .readTimeout(30, TimeUnit.SECONDS)
         .build(),
     private val gate: UukanshuGate = UukanshuGate(),
-) {
+) : SiteGateway {
     private val headers = mapOf(
         "User-Agent" to "Mozilla/5.0 (Linux; Android 12; Pixel 5) " +
             "AppleWebKit/537.36 (KHTML, like Gecko) " +
@@ -48,7 +48,7 @@ class SiteApi(
     private class NonRetryable(val failure: IOException) : IOException(failure.message)
 
     @Throws(IOException::class, CancellationException::class)
-    suspend fun get(url: String): String {
+    override suspend fun get(url: String): String {
         val builder = request(url)
         headers.forEach { (k, v) -> builder.header(k, v) }
         return send(
@@ -60,7 +60,7 @@ class SiteApi(
     }
 
     @Throws(IOException::class, CancellationException::class)
-    suspend fun search(keyword: String): String {
+    override suspend fun search(keyword: String): String {
         val form = FormBody.Builder()
             .add("searchkey", keyword)
             .add("searchtype", "all")

@@ -8,6 +8,8 @@ import cc.uukanshu.data.net.SiteApi
 import cc.uukanshu.data.net.UukanshuGate
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.data.repo.BookRepo
+import cc.uukanshu.data.update.UpdateApi
+import cc.uukanshu.data.update.UpdateDownloader
 
 class App : Application() {
     val gate by lazy { UukanshuGate() }
@@ -23,6 +25,10 @@ class App : Application() {
     // divergent state; one instance also makes fakes injectable in tests.
     val prefs by lazy { Prefs(this) }
     val t2s by lazy { T2S(this) }
+    // Updater singletons: owned here (not per-ViewModel) so MainActivity
+    // and tests inject the same instances via RealAppContainer.
+    val updateApi by lazy { UpdateApi() }
+    val updateDownloader by lazy { UpdateDownloader(this) }
 }
 
 /** Single cast site for `applicationContext as App` (was copy-pasted per screen). */

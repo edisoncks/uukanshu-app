@@ -5,7 +5,9 @@ import android.app.Application
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cc.uukanshu.di.PrefsApi
+import cc.uukanshu.data.update.ApkDownloader
 import cc.uukanshu.data.update.DownloadStatus
+import cc.uukanshu.data.update.ReleaseFetcher
 import cc.uukanshu.data.update.UpdateApi
 import cc.uukanshu.data.update.UpdateDownloader
 import cc.uukanshu.data.update.UpdateInfo
@@ -21,12 +23,18 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** In-app update state machine (Tier B: DownloadManager + installer intent). */
+/**
+ * In-app update state machine (Tier B: DownloadManager + installer intent).
+ *
+ * Depends on [ReleaseFetcher]/[ApkDownloader] interfaces (not concretes)
+ * so JVM tests inject fakes. Production wires singletons from [cc.uukanshu.App]
+ * via `RealAppContainer` — never `UpdateApi()`/`UpdateDownloader(app)` inline.
+ */
 class UpdateViewModel(
     private val app: Application,
     private val prefs: PrefsApi,
-    private val api: UpdateApi = UpdateApi(),
-    private val downloader: UpdateDownloader = UpdateDownloader(app),
+    private val api: ReleaseFetcher,
+    private val downloader: ApkDownloader,
 ) : ViewModel() {
     data class Ui(
         /** Whether any update dialog is on screen. */

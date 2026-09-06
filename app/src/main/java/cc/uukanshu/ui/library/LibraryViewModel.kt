@@ -38,7 +38,6 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cc.uukanshu.core.Display
 import cc.uukanshu.di.ConvertApi
-import cc.uukanshu.data.db.BookEntity
 import cc.uukanshu.di.DownloadsApi
 import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.di.RepoApi
@@ -80,7 +79,8 @@ class LibraryViewModel(
         val simplified: Boolean = false,
         val downloading: Map<String, BookDownloadManager.State> = emptyMap(),
         // Titles for fresh downloads not yet qualified for library().
-        val pendingTitles: Map<String, BookEntity> = emptyMap(),
+        // Domain type (never Room entities — see BookRepo.BookInfo).
+        val pendingTitles: Map<String, BookRepo.BookInfo> = emptyMap(),
     )
 
     private val _ui = MutableStateFlow(Ui())

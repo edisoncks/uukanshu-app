@@ -63,10 +63,10 @@ class UpdateApi(
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build(),
-) {
+) : ReleaseFetcher {
     /** Blocking; call on Dispatchers.IO. Throws [IOException] on failure. */
     @Throws(IOException::class)
-    fun fetchLatest(): UpdateInfo {
+    override fun fetchLatest(): UpdateInfo {
         val req = Request.Builder()
             .url(LATEST_URL)
             .header("Accept", "application/vnd.github+json")
