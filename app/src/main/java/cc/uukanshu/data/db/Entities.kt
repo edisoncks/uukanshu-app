@@ -49,10 +49,12 @@ data class ProgressEntity(
     val updatedAt: Long = 0L,
 )
 
-/** Projection for TOC content preservation: pageId + text only (no titles/URLs). */
-data class ChapterContentRef(
+/** Projection for TOC metadata diff: everything except the body (see TocDiff). */
+data class ChapterMetaRef(
     val pageId: Long,
-    val content: String,
+    val position: Int,
+    val title: String,
+    val url: String,
 )
 
 /** Shelf stats per book, computed in SQL (see [ChapterDao.statsByBook]). */
@@ -145,13 +147,23 @@ interface ChapterDao {
     suspend fun countByBook(bookId: String): Int
 
     /**
-     * Content snapshot for [cc.uukanshu.data.db.AppDb.replaceToc]: pageId +
-     * text only. The old `chapters(bookId)` full-entity load pulled titles/
-     * URLs/positions (tens of MB transient for long novels) just to preserve
-     * downloads across a TOC refresh.
+     * Metadata snapshot for [TocDiff]: pageId + position/title/url, never
+     * bodies. The old full-entity load pulled tens of MB of chapter text
+     * just to preserve downloads across a refresh that no longer rewrites them.
      */
-    @Query("SELECT pageId, content FROM chapters WHERE bookId = :bookId")
-    suspend fun contents(bookId: String): List<ChapterContentRef>
+    @Query("SELECT pageId, position, title, url FROM chapters WHERE bookId = :bookId")
+    suspend fun metas(bookId: String): List<ChapterMetaRef>
+
+    /**
+     * In-place metadata refresh by stable pageId. Never touches `content`:
+     * TOC refreshes must not rewrite bodies (see TocDiff).
+     */
+    @Query("UPDATE chapters SET position = :position, title = :title, url = :url WHERE bookId = :bookId AND pageId = :pageId")
+    suspend fun updateMeta(bookId: String, pageId: Long, position: Int, title: String, url: String)
+
+    /** Prune pageIds absent from the accepted fresh TOC (see TocDiff). */
+    @Query("DELETE FROM chapters WHERE bookId = :bookId AND pageId IN (:pageIds)")
+    suspend fun deleteByPageIds(bookId: String, pageIds: List<Long>)
 
     /**
      * One-shot cached-id set for bulk planning (see `BookRepo.downloadAll`).

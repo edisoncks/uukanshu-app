@@ -75,11 +75,41 @@ class DbDaoTest {
         assertNull(db.progress().progress("b1"))
     }
 
+    @Test fun updateMetaChangesTitleKeepsContent() = runTest {
+        // TOC refresh path: bodies survive metadata-only updates without
+        // ever being read or rewritten (see TocDiff).
+        db.books().upsert(BookEntity("b1", "T", "A", "", "", ""))
+        db.chapters().upsertAll(
+            listOf(ChapterEntity("b1", 1, 101L, "c1", "u1", content = "saved")),
+        )
+        db.chapters().updateMeta("b1", 101L, 2, "c1-retitled", "u1-new")
+        val rows = db.chapters().chapters("b1")
+        assertEquals(1, rows.size)
+        assertEquals("c1-retitled", rows[0].title)
+        assertEquals(2, rows[0].position)
+        assertEquals("u1-new", rows[0].url)
+        assertEquals("saved", rows[0].content)
+    }
+
+    @Test fun replaceTocNoopKeepsRows() = runTest {
+        db.books().upsert(BookEntity("b1", "T", "A", "", "", ""))
+        db.chapters().upsertAll(
+            listOf(ChapterEntity("b1", 1, 101L, "c1", "u1", content = "saved")),
+        )
+        db.replaceToc(
+            BookEntity("b1", "T", "A", "", "", ""),
+            listOf(ChapterEntity("b1", 1, 101L, "c1", "u1", content = "")),
+        )
+        assertEquals("saved", db.chapters().chapterContent("b1", 101L))
+        assertEquals(1, db.chapters().chapters("b1").size)
+    }
+
     @Test fun detailPropagatesDbFailureInsteadOfSilentSuccess() = runTest {
         // A failed replaceToc must surface (stale + offline upstream), never
         // return fresh chapters over a stale DB. The trigger fails exactly
-        // the wipe step, so this guards the old swallow, not an earlier query.
-        val html = "<html><body><h1 class=\"booktitle\">T</h1>" +
+        // the metadata-write step on a retitle refresh, so this guards the
+        // old swallow, not an earlier query.
+        var html = "<html><body><h1 class=\"booktitle\">T</h1>" +
             "<a href=\"/book/1/101.html\">c1</a></body></html>"
         val site = object : SiteGateway {
             override suspend fun get(url: String) = html
@@ -89,9 +119,11 @@ class DbDaoTest {
         repo.detail("1")
         assertEquals(1, db.chapters().chapters("1").size)
         db.openHelper.writableDatabase.execSQL(
-            "CREATE TRIGGER fail_wipe BEFORE DELETE ON chapters " +
+            "CREATE TRIGGER fail_update BEFORE UPDATE ON chapters " +
                 "BEGIN SELECT RAISE(ABORT, 'boom'); END",
         )
+        html = "<html><body><h1 class=\"booktitle\">T</h1>" +
+            "<a href=\"/book/1/101.html\">c1-retitled</a></body></html>"
         try {
             repo.detail("1")
             fail("expected DB failure to propagate")

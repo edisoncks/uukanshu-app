@@ -7,6 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.Transaction
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import cc.uukanshu.data.repo.TocDiff
 
 /**
  * v1 -> v2: drop never-written `chapters.updatedAt` (no DROP COLUMN on minSdk SQLite). See SCRAPING.md.
@@ -73,16 +74,23 @@ abstract class AppDb : RoomDatabase() {
     abstract fun progress(): ProgressDao
 
     /**
-     * Atomic TOC replace preserving downloads by stable pageId.
+     * TOC refresh as a metadata diff (see TocDiff): inserts + in-place
+     * metadata updates + prune of absent pageIds, all in one transaction.
+     * The content column is never read or rewritten — an unchanged TOC costs
+     * one book upsert, and bodies survive refreshes without ever leaving the DB.
      * Callers must serialize against `updateContent` via repo `dbWrite` Mutex.
      * See ARCHITECTURE.md § Offline cache model.
      */
     @Transaction
     open suspend fun replaceToc(book: BookEntity, skeleton: List<ChapterEntity>) {
         books().upsert(book)
-        val cached = chapters().contents(book.id).associate { it.pageId to it.content }
-        chapters().deleteBook(book.id)
-        chapters().upsertAll(skeleton.map { it.copy(content = cached[it.pageId].orEmpty()) })
+        val d = TocDiff.diff(chapters().metas(book.id), skeleton)
+        if (d.isNoop()) return
+        if (d.deleteIds.isNotEmpty()) chapters().deleteByPageIds(book.id, d.deleteIds)
+        if (d.insert.isNotEmpty()) chapters().upsertAll(d.insert)
+        d.update.forEach {
+            chapters().updateMeta(book.id, it.pageId, it.position, it.title, it.url)
+        }
     }
 
     /** Atomic per-book wipe (single transaction). */

@@ -119,11 +119,13 @@ UI (ViewModels)
   `room.schemaDirectory("$projectDir/schemas")` exports schemas; keep them
   in version control. DB v4 adds `progress.pageId` (MIGRATION_3_4) so
   continue-reading survives TOC shifts; `position` stays as display order +
-  pre-v4 fallback. `ChapterDao.contents` (pageId+content projection) and
+  pre-v4 fallback. `ChapterDao.metas` (pageId/position/title/url, never bodies) and
   `cachedPageIds` avoid full-entity loads. Single write paths
-  `AppDb.replaceToc/deleteBookFull/clearAllFull` (`@Transaction`) own
-  snapshot+delete+reinsert so callers cannot forget the content merge
-  (wiped downloads) or the delete (ghost rows); the repo `dbWrite` Mutex
+  `AppDb.replaceToc/deleteBookFull/clearAllFull` (`@Transaction`) own the merge
+  so callers cannot forget content preservation (wiped downloads) or pruning
+  (ghost rows): `replaceToc` applies the pure `TocDiff` (inserts + in-place
+  metadata updates + prune) without ever reading or rewriting the content
+  column; the repo `dbWrite` Mutex
   serializes them against single-row content writes. `BookDownloadManager`
   `start`/`cancel`/`forget` synchronize check-then-act on `startLock` so
   concurrent `start(id)` runs once (tested in `DownloadRobustnessTest`).
