@@ -115,8 +115,11 @@ class DetailViewModel(
 
     companion object {
         /** Single empty-TOC guard — see [TocRevalidator]. */
-        fun shouldAcceptFresh(freshChapters: List<Parser.ChapterRef>): Boolean =
-            TocRevalidator.shouldAcceptFresh(freshChapters)
+        fun shouldAcceptFresh(
+            freshChapters: List<Parser.ChapterRef>,
+            cachedCount: Int = 0,
+        ): Boolean =
+            TocRevalidator.shouldAcceptFresh(freshChapters, cachedCount)
     }
 
     fun refresh() {
@@ -137,7 +140,10 @@ class DetailViewModel(
             } else {
                 _ui.update { it.copy(load = Load.Loading) }
             }
-            when (val res = toc.revalidate(bookId)) {
+            // Stale count guards against truncated parses (see TocRevalidator):
+            // a shrunken TOC never wipes painted cache.
+            val staleCount = (cached?.chapters?.size) ?: 0
+            when (val res = toc.revalidate(bookId, staleCount)) {
                 is TocRevalidator.Revalidate.Accepted -> {
                     val fresh = res.detail
                     _ui.update {
@@ -149,8 +155,9 @@ class DetailViewModel(
                         )
                     }
                 }
-                is TocRevalidator.Revalidate.RejectedEmpty -> {
-                    // Empty TOC never wipes painted cache.
+                is TocRevalidator.Revalidate.RejectedEmpty,
+                is TocRevalidator.Revalidate.RejectedShrink -> {
+                    // Empty/shrunken TOC never wipes painted cache.
                     _ui.update { cur ->
                         when (val l = cur.load) {
                             is Load.Ready -> cur.copy(

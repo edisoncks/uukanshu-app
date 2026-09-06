@@ -40,6 +40,13 @@ Mirrors CLI `fetch()`:
 Pure functions over HTML (Jsoup), covered by `ParserTest` fixtures. The
 rules below look odd — they encode real site quirks. **Do not "simplify".**
 
+- **TOC truncation guard (strict):** an empty fresh TOC is a failed parse (block page /
+  layout change), never a real empty book — and a *shrunken* fresh TOC (nonempty but
+  smaller than the cached row count) is the same failure shape (truncated parse).
+  Both fail closed via `TocRevalidator` (`RejectedEmpty` / `RejectedShrink`,
+  `TocShrunkException` from `BookRepo.detail` before any DB write) so a short parse
+  can never wipe downloaded chapters. Stale cache stays visible with the offline flag;
+  the next full fetch heals. **Do not "simplify" this into an empty-only check.**
 - **TOC dedup (LAST wins):** the chapter-list page leads with a "latest
   updates" duplicate block, so the parser keeps the **LAST** occurrence of
   each (book, chapter) pair. Links pointing at *other* books (recommendation

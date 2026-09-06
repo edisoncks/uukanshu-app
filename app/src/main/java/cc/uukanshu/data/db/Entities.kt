@@ -136,6 +136,10 @@ interface ChapterDao {
     @Query("SELECT COUNT(*) FROM chapters WHERE bookId = :bookId AND content != ''")
     suspend fun cachedCount(bookId: String): Int
 
+    /** Row count for the TOC shrink guard (see TocRevalidator): no entity load. */
+    @Query("SELECT COUNT(*) FROM chapters WHERE bookId = :bookId")
+    suspend fun countByBook(bookId: String): Int
+
     /**
      * Content snapshot for [cc.uukanshu.data.db.AppDb.replaceToc]: pageId +
      * text only. The old `chapters(bookId)` full-entity load pulled titles/

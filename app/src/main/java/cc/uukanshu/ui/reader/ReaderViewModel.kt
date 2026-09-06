@@ -208,7 +208,7 @@ class ReaderViewModel(
                         // (see TocRevalidator): keep stale, fail loudly on nothing.
                         try {
                             val fresh = repo.detail(bookId)
-                            if (TocRevalidator.shouldAcceptFresh(fresh.chapters)) {
+                            if (TocRevalidator.shouldAcceptFresh(fresh.chapters, chapters.size)) {
                                 chapters = fresh.chapters
                                 if (fresh.meta.title.isNotEmpty()) bookTitleRaw = fresh.meta.title
                                 _ui.update { it.copyWith(total = chapters.size) }
@@ -222,14 +222,16 @@ class ReaderViewModel(
                         }
                     } else if (cachedToc != null) {
                         // Serving from stale TOC: revalidate silently.
+                        // Stale size guards against truncated parses.
+                        val staleCount = chapters.size
                         revalidateJob = viewModelScope.launch {
-                            when (val res = toc.revalidate(bookId)) {
+                            when (val res = toc.revalidate(bookId, staleCount)) {
                                 is TocRevalidator.Revalidate.Accepted -> {
                                     chapters = res.detail.chapters
                                     if (res.detail.meta.title.isNotEmpty()) bookTitleRaw = res.detail.meta.title
                                     _ui.update { it.copyWith(total = chapters.size) }
                                 }
-                                else -> Unit // Empty/failed: keep stale, reading never breaks.
+                                else -> Unit // Empty/shrunken/failed: keep stale, reading never breaks.
                             }
                         }
                     }

@@ -132,6 +132,13 @@ class BookRepo(
         // never wipe the cached chapters on nothing. Return fresh (empty)
         // without touching the DB so offline content survives.
         if (chapters.isEmpty()) return@withContext Detail(meta, chapters)
+        // Shrunken TOC is the same failure shape (truncated parse): fail
+        // closed before replaceToc can delete downloaded chapters whose
+        // pageIds are absent from the short parse. See SCRAPING.md.
+        val cachedCount = db.chapters().countByBook(bookId)
+        if (!TocRevalidator.shouldAcceptFresh(chapters, cachedCount)) {
+            throw TocShrunkException(cachedCount, chapters.size)
+        }
         // Preserve downloads + shelf order via AppDb.replaceToc (single transaction).
         Errors.runCatchingExceptCancel {
             dbWrite.withLock {

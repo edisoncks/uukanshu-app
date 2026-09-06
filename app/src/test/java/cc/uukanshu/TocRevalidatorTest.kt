@@ -1,5 +1,6 @@
 package cc.uukanshu
 
+import cc.uukanshu.data.repo.TocShrunkException
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.repo.BookRepo
 import cc.uukanshu.data.repo.TocRevalidator
@@ -49,6 +50,19 @@ class TocRevalidatorTest {
         assertEquals(false, TocRevalidator.shouldAcceptFresh(emptyList()))
     }
 
+    @Test fun shrunkenFreshIsRejected() {
+        // Truncated parse (2 chapters vs 5 cached): never wipe.
+        val fresh = listOf(ref(1, 1L), ref(2, 2L))
+        assertEquals(false, TocRevalidator.shouldAcceptFresh(fresh, 5))
+    }
+
+    @Test fun equalOrGrownFreshIsAccepted() {
+        val fresh = listOf(ref(1, 1L), ref(2, 2L))
+        assertTrue(TocRevalidator.shouldAcceptFresh(fresh, 2))
+        assertTrue(TocRevalidator.shouldAcceptFresh(fresh, 1))
+        assertTrue(TocRevalidator.shouldAcceptFresh(fresh))
+    }
+
     @Test fun acceptedFreshPassesThrough() = runBlocking {
         val fresh = detail(101L, 102L)
         val res = TocRevalidator(fake(fresh = Result.success(fresh))).revalidate("1")
@@ -61,6 +75,24 @@ class TocRevalidatorTest {
         assertTrue(res is TocRevalidator.Revalidate.RejectedEmpty)
     }
 
+    @Test fun shrunkenFreshRevalidatesAsRejectedShrink() = runBlocking {
+        val res = TocRevalidator(fake(fresh = Result.success(detail(101L))))
+            .revalidate("1", cachedCount = 3)
+        assertTrue(res is TocRevalidator.Revalidate.RejectedShrink)
+    }
+
+    @Test fun grownFreshRevalidatesAsAccepted() = runBlocking {
+        val fresh = detail(101L, 102L, 103L)
+        val res = TocRevalidator(fake(fresh = Result.success(fresh)))
+            .revalidate("1", cachedCount = 2)
+        assertTrue(res is TocRevalidator.Revalidate.Accepted)
+    }
+
+    @Test fun repoThrownShrinkMapsToRejectedShrink() = runBlocking {
+        val err = TocShrunkException(cached = 5, fresh = 2)
+        val res = TocRevalidator(fake(fresh = Result.failure(err))).revalidate("1")
+        assertTrue(res is TocRevalidator.Revalidate.RejectedShrink)
+    }
     @Test fun networkFailureSurfacesAsFailed() = runBlocking {
         val err = IOException("network down")
         val res = TocRevalidator(fake(fresh = Result.failure(err))).revalidate("1")
