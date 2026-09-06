@@ -149,6 +149,9 @@ class HomeViewModel(
         const val MAX_PAGERS = 11
     }
 
+    /** Test seam: current pager cache size. */
+    fun pagerCountForTest(): Int = pagers.size
+
     fun pagingFor(tab: Int, categoryId: Int): Flow<PagingData<Parser.BookItem>> {
         val key = listKey(tab, categoryId)
         pagers[key]?.let { return it }

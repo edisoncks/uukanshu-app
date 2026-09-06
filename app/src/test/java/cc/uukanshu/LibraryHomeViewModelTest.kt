@@ -52,14 +52,14 @@ class LibraryViewModelTest {
         )
         val vm = LibraryViewModel(repo, MutableFakePrefs(), TestConvert(), RecordingDownloads())
         idle()
+        // Shelf painted from the flow; one-shot refresh fails → footer error, rows kept.
         vm.refresh()
         idle()
         val load = vm.ui.value.load
         assertTrue(load is LibraryViewModel.Load.Shelf)
-        // libraryFlow() throws on collection (init) or library() throws (refresh):
-        // either way the shelf keeps rows with an error or fails closed — never empty.
         load as LibraryViewModel.Load.Shelf
-        assertTrue(load.error != null || load.books.isNotEmpty())
+        assertEquals(listOf("a"), load.books.map { it.id })
+        assertTrue(load.error != null)
     }
 }
 
@@ -78,11 +78,12 @@ class HomeViewModelTest {
 
     @Test fun evictsBeyondMaxPagers() {
         val vm = HomeViewModel(MutableFakeRepo(), MutableFakePrefs(), TestConvert())
-        val first = vm.pagingFor(0, 1)
         // Fill recent + 10 categories (11 max), then one more forces eviction.
+        vm.pagingFor(0, 1)
         for (id in 1..10) vm.pagingFor(1, id)
+        assertEquals(HomeViewModel.MAX_PAGERS, vm.pagerCountForTest())
         vm.pagingFor(1, 99)
-        assertNotSame(first, vm.pagingFor(0, 1))
+        assertEquals(HomeViewModel.MAX_PAGERS, vm.pagerCountForTest())
     }
 
     @Test fun selectTabMarksPendingTop() {

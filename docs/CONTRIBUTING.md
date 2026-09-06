@@ -46,12 +46,17 @@ Common scopes in this repo: `home`, `search`, `detail`, `reader`, `library`,
 
 ## Tests
 
-- Location: `app/src/test/java/cc/uukanshu/`.
-- Pure JVM tests (JUnit + fixtures) — no device or emulator needed.
-- What's covered: `Parser` (home/category/search/detail/chapter fixtures),
-  `T2S` conversion, Home merge / Search dedup by stable id, reader title +
-  TOC-shift save guard, repo behaviour, updater version-compare / APK
-  completeness, `SiteApi` retry.
+- Location: `app/src/test/java/cc/uukanshu/` (JVM, runs in `mise run test`)
+  plus `app/src/androidTest/` (instrumented `MigrationTest`, needs emulator).
+- JVM includes Robolectric (Room in-memory DAO, DataStore prefs) — first run
+  downloads the SDK sandbox (~200MB).
+- What's covered: `Parser` fixtures, `T2S`, merge/dedup by stable id, reader
+  title + TOC-shift guard, `TocRevalidator`, VM orchestration
+  (Detail/Reader/Search/Library/Home/Update via shared fakes +
+  `MainDispatcherRule`), Room DAO merge/wipe, Prefs defaults/clamps,
+  `Routes`/render contract, updater, `SiteApi` retry.
+- Coverage report: `./gradlew :app:jacocoTestReport` →
+  `app/build/reports/jacoco/` (report-only, no gates).
 - Add or extend a fixture/test with any parser, merge, or updater change —
   the HTML quirks in [SCRAPING.md](SCRAPING.md) exist because the site
   really serves them; lock them in with tests.

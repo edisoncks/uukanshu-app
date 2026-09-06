@@ -35,6 +35,7 @@ class MutableFakeRepo(
     var libraryRows: List<BookRepo.CachedBook> = emptyList(),
     var libraryFlowRows: List<BookRepo.CachedBook> = emptyList(),
     var libraryFailure: Exception? = null,
+    var libraryFlowFailure: Exception? = null,
 ) : RepoApi {
     val savedProgress = mutableListOf<Triple<String, Int, Long>>()
     val savedContent = mutableListOf<Triple<String, Long, String>>()
@@ -74,7 +75,7 @@ class MutableFakeRepo(
     override suspend fun library(): List<BookRepo.CachedBook> =
         libraryFailure?.let { throw it } ?: libraryRows
     override fun libraryFlow(): Flow<List<BookRepo.CachedBook>> =
-        libraryFailure?.let { throw libraryFailure!! } ?: flowOf(libraryFlowRows)
+        libraryFlowFailure?.let { throw it } ?: flowOf(libraryFlowRows)
     override suspend fun crawlDelay() = Unit
     override suspend fun downloadAll(bookId: String, onProgress: (Int, Int) -> Unit) {
         downloadAllCalls++
