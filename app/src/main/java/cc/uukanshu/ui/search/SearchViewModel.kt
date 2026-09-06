@@ -92,9 +92,11 @@ class SearchViewModel(
 
     private val _ui = MutableStateFlow<Ui>(Ui.Idle())
     val ui: StateFlow<Ui> = _ui
-    // Raw keystrokes; the pipeline below debounces + cancels superseded
-    // searches, so no manual Job/activeQuery guard can be forgotten.
-    private val queries = MutableStateFlow("")
+    // Raw keystrokes, versioned; the pipeline below debounces + cancels superseded
+    // searches, so no manual Job/activeQuery guard can be forgotten. The version
+    // defeats StateFlow equality conflation: an identical-text retry (e.g. the
+    // error-screen button) must refire instead of collapsing into no emission.
+    private val queries = MutableStateFlow(0 to "")
 
     init {
         viewModelScope.launch {
@@ -107,7 +109,7 @@ class SearchViewModel(
         }
         viewModelScope.launch {
             @OptIn(FlowPreview::class)
-            queries.debounce(400).flatMapLatest { raw ->
+            queries.debounce(400).flatMapLatest { (_, raw) ->
                 val q = raw.trim()
                 if (q.isEmpty()) {
                     flowOf<Ui>(Ui.Idle(simplified = _ui.value.simplified))
@@ -160,7 +162,7 @@ class SearchViewModel(
     }
 
     fun query(q: String) {
-        queries.value = q
+        queries.update { (v, _) -> v + 1 to q }
         if (q.isBlank()) {
             // Clear instantly for snappy UX; the debounced pipeline re-emits
             // the same empty state idempotently.

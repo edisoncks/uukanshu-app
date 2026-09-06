@@ -44,6 +44,34 @@ class SearchViewModelTest {
         assertEquals(listOf("1", "2"), (ui as SearchViewModel.Ui.Success).books.map { it.id })
     }
 
+    @Test fun retryAfterErrorRefiresSearch() = runTest {
+        // Identical-text retry must refire, not conflate away in the query flow.
+        val books = listOf(Parser.BookItem(id = "1", title = "A"))
+        val base = MutableFakeRepo(searchResult = Parser.SearchResult(1, books))
+        var calls = 0
+        var failNext = true
+        val repo = object : RepoApi by base {
+            override suspend fun search(keyword: String): Parser.SearchResult {
+                calls++
+                if (failNext) {
+                    failNext = false
+                    throw IOException("offline")
+                }
+                return base.search(keyword)
+            }
+        }
+        val vm = SearchViewModel(repo, MutableFakePrefs(), TestConvert())
+        main.dispatcher.scheduler.advanceUntilIdle()
+        vm.query("key")
+        advanceSearch()
+        assertTrue(vm.ui.value is SearchViewModel.Ui.Error)
+        assertEquals(1, calls)
+        vm.query("key")
+        advanceSearch()
+        assertEquals(2, calls)
+        assertTrue(vm.ui.value is SearchViewModel.Ui.Success)
+    }
+
     @Test fun failureShowsError() = runTest {
         val repo = MutableFakeRepo(searchFailure = IOException("offline"))
         val vm = SearchViewModel(repo, MutableFakePrefs(), TestConvert())
