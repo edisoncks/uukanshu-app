@@ -109,6 +109,7 @@ app/src/main/java/cc/uukanshu/
     update/              # UpdateApi, UpdateDownloader, VersionCompare, JsonMini
   ui/
     home/ detail/ search/ reader/ library/ settings/ update/
+      # each: *Screen.kt (composable) + *ViewModel.kt (StateFlow UI state)
 app/src/main/res/        # launcher icons, theme, FileProvider paths
 app/schemas/             # Room schema exports
 app/src/test/            # unit tests (see above)
