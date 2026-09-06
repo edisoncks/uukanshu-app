@@ -44,6 +44,7 @@ import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.di.RepoApi
 import cc.uukanshu.core.Errors
+import cc.uukanshu.data.repo.TocRevalidator
 import cc.uukanshu.ui.ThemeIconButton
 import cc.uukanshu.ui.vmFactory
 import kotlinx.coroutines.CancellationException
@@ -159,6 +160,7 @@ class ReaderViewModel(
     private var loadJob: Job? = null
     private var prefetchJob: Job? = null
     private var revalidateJob: Job? = null
+    private val toc = TocRevalidator(repo)
     // Last rendered raw chapter: language toggle re-renders from this with
     // no network, no spinner, and no extra prefetch spawn.
     private var currentRaw: Parser.ChapterContent? = null
@@ -216,31 +218,20 @@ class ReaderViewModel(
             )
             try {
                 if (chapters.isEmpty()) {
-                    // Stale-while-revalidate for TOC: paint cached TOC instantly
-                    // so cached chapters render without waiting for network,
-                    // then refresh silently in the background.
-                    val cachedToc = try {
-                        repo.cachedDetail(bookId)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (_: Exception) {
-                        null
-                    }
+                    // Stale-while-revalidate for TOC (see TocRevalidator):
+                    // paint cached TOC instantly, then refresh silently.
+                    val cachedToc = toc.cached(bookId)
                     if (cachedToc != null) {
                         chapters = cachedToc.chapters
                         if (cachedToc.meta.title.isNotEmpty()) bookTitleRaw = cachedToc.meta.title
                     }
                     if (chapters.isEmpty() || position < 1 || position > chapters.size) {
-                        // First open (no cache) or stale TOC can't cover the
-                        // requested position: blocking fetch before rendering.
-                        // This fetch doubles as the revalidation — no extra
-                        // background request, so no concurrent double-fetch.
-                        // Empty fresh TOC is a failed parse, never a real book:
-                        // keep stale when we have it, fail loudly (not
-                        // "out of range") when we have nothing.
+                        // Blocking fetch doubles as the revalidation — no extra
+                        // background request. Empty fresh TOC is rejected
+                        // (see TocRevalidator): keep stale, fail loudly on nothing.
                         try {
                             val fresh = repo.detail(bookId)
-                            if (fresh.chapters.isNotEmpty()) {
+                            if (TocRevalidator.shouldAcceptFresh(fresh.chapters)) {
                                 chapters = fresh.chapters
                                 if (fresh.meta.title.isNotEmpty()) bookTitleRaw = fresh.meta.title
                                 _ui.update { it.copyWith(total = chapters.size) }
@@ -254,25 +245,15 @@ class ReaderViewModel(
                         }
                     } else if (cachedToc != null) {
                         // Serving from stale TOC: revalidate silently.
-                        // Never blocks reading, never wipes content (mergeToc
-                        // preserves downloads by pageId). Cancellation rethrows
-                        // (a superseded revalidate must stay cancelled); ordinary
-                        // failures are ignored so reading never breaks.
                         revalidateJob = viewModelScope.launch {
-                            val fresh = try {
-                                repo.detail(bookId)
-                            } catch (e: CancellationException) {
-                                throw e
-                            } catch (_: Exception) {
-                                return@launch
+                            when (val res = toc.revalidate(bookId)) {
+                                is TocRevalidator.Revalidate.Accepted -> {
+                                    chapters = res.detail.chapters
+                                    if (res.detail.meta.title.isNotEmpty()) bookTitleRaw = res.detail.meta.title
+                                    _ui.update { it.copyWith(total = chapters.size) }
+                                }
+                                else -> Unit // Empty/failed: keep stale, reading never breaks.
                             }
-                            // Empty TOC is a failed parse, never a real book:
-                            // accepting it would zero `total` mid-read and turn
-                            // the next tap into a bogus "out of range".
-                            if (fresh.chapters.isEmpty()) return@launch
-                            chapters = fresh.chapters
-                            if (fresh.meta.title.isNotEmpty()) bookTitleRaw = fresh.meta.title
-                            _ui.update { it.copyWith(total = chapters.size) }
                         }
                     }
                 }

@@ -184,20 +184,34 @@ class HomeViewModel(
      * Thread-safe like [scrolls]: `pagingFor` is called from the composable
      * (`remember(key)`) and may race across recompositions; use the atomic
      * `computeIfAbsent` so two threads never build two Pagers for one key
-     * (which would fork seen-id sets and refetch page 1 twice).
+     * (which would fork seen-id sets and refetch page 1 twice). Bounded to
+     * [MAX_PAGERS] (recent + 10 categories): evicts another key when full so
+     * the map cannot grow without bound.
      */
     private val pagers =
         java.util.concurrent.ConcurrentHashMap<String, Flow<PagingData<Parser.BookItem>>>()
 
+    companion object {
+        /** recent + 10 category lists. */
+        const val MAX_PAGERS = 11
+    }
+
     fun pagingFor(tab: Int, categoryId: Int): Flow<PagingData<Parser.BookItem>> {
         val key = listKey(tab, categoryId)
-        return pagers.computeIfAbsent(key) {
-            Pager(PagingConfig(pageSize = 20, enablePlaceholders = false)) {
-                BookPagingSource { page ->
-                    if (tab == 0) repo.recent(page)
-                    else repo.category(categoryId, page)
-                }
-            }.flow.cachedIn(viewModelScope)
+        pagers[key]?.let { return it }
+        synchronized(pagers) {
+            pagers[key]?.let { return it }
+            if (pagers.size >= MAX_PAGERS) {
+                pagers.keys.firstOrNull { it != key }?.let { pagers.remove(it) }
+            }
+            return pagers.computeIfAbsent(key) {
+                Pager(PagingConfig(pageSize = 20, enablePlaceholders = false)) {
+                    BookPagingSource { page ->
+                        if (tab == 0) repo.recent(page)
+                        else repo.category(categoryId, page)
+                    }
+                }.flow.cachedIn(viewModelScope)
+            }
         }
     }
 }

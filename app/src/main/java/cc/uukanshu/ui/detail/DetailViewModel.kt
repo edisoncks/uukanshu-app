@@ -35,6 +35,7 @@ import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.di.RepoApi
 import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.core.Errors
+import cc.uukanshu.data.repo.TocRevalidator
 import cc.uukanshu.ui.vmFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -85,6 +86,7 @@ class DetailViewModel(
     // wholesale TOC replaces never run concurrently (last-tapped wins).
     // Never touched by downloadAll/cancelDownload — those are independent.
     private var refreshJob: kotlinx.coroutines.Job? = null
+    private val toc = TocRevalidator(repo)
 
     init {
         viewModelScope.launch {
@@ -122,13 +124,9 @@ class DetailViewModel(
     }
 
     companion object {
-        /**
-         * An empty fresh TOC is never a book with zero chapters — it's a
-         * failed parse (block page / captive portal / layout change) and
-         * must not overwrite painted cache. Accept only non-empty TOCs.
-         */
+        /** Single empty-TOC guard — see [TocRevalidator]. */
         fun shouldAcceptFresh(freshChapters: List<Parser.ChapterRef>): Boolean =
-            freshChapters.isNotEmpty()
+            TocRevalidator.shouldAcceptFresh(freshChapters)
     }
 
     fun refresh() {
@@ -138,13 +136,7 @@ class DetailViewModel(
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
             // Stale-while-revalidate: paint cache instantly, refresh silently.
-            val cached = try {
-                repo.cachedDetail(bookId)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                null
-            }
+            val cached = toc.cached(bookId)
             if (cached != null) {
                 _ui.update {
                     it.copy(
@@ -157,11 +149,20 @@ class DetailViewModel(
             } else {
                 _ui.update { it.copy(load = Load.Loading) }
             }
-            try {
-                val fresh = repo.detail(bookId)
-                if (!shouldAcceptFresh(fresh.chapters)) {
-                    // Empty TOC: keep stale content visible, flag offline
-                    // when we have something; error only when we have nothing.
+            when (val res = toc.revalidate(bookId)) {
+                is TocRevalidator.Revalidate.Accepted -> {
+                    val fresh = res.detail
+                    _ui.update {
+                        it.copy(
+                            load = Load.Ready(
+                                meta = fresh.meta, chapters = fresh.chapters,
+                                offline = false, refreshing = false,
+                            ),
+                        )
+                    }
+                }
+                is TocRevalidator.Revalidate.RejectedEmpty -> {
+                    // Empty TOC never wipes painted cache.
                     _ui.update { cur ->
                         when (val l = cur.load) {
                             is Load.Ready -> cur.copy(
@@ -172,23 +173,15 @@ class DetailViewModel(
                             )
                         }
                     }
-                } else {
-                    _ui.update {
-                        it.copy(
-                            load = Load.Ready(
-                                meta = fresh.meta, chapters = fresh.chapters,
-                                offline = false, refreshing = false,
-                            ),
-                        )
-                    }
                 }
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                _ui.update { cur ->
-                    when (val l = cur.load) {
-                        // Keep stale content visible, flag offline.
-                        is Load.Ready -> cur.copy(load = l.copy(refreshing = false, offline = true))
-                        else -> cur.copy(load = Load.Failed(Errors.friendly(e)))
+                is TocRevalidator.Revalidate.Failed -> {
+                    val e = res.error
+                    _ui.update { cur ->
+                        when (val l = cur.load) {
+                            // Keep stale content visible, flag offline.
+                            is Load.Ready -> cur.copy(load = l.copy(refreshing = false, offline = true))
+                            else -> cur.copy(load = Load.Failed(Errors.friendly(e)))
+                        }
                     }
                 }
             }
