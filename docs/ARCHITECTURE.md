@@ -176,6 +176,10 @@ UI (ViewModels)
   misfile text (no caller-side shift guard needed). Prefetch (next 5) and
   full download are sequential with `crawlDelay()` and never break reading
   on failure.
+- Backups: `data_extraction_rules.xml` excludes the `database` domain from
+  cloud backup and device-to-device transfer — the chapter cache is
+  re-downloadable site content and would blow the ~25 MB backup quota;
+  bookshelf/progress do not restore to a new device by design.
 
 ## In-app update
 

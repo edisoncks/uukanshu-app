@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Explicit backup policy (minSdk 31: dataExtractionRules governs both
+    cloud backup and device-to-device transfer; fullBackupContent is ignored).
+
+    The Room database holds the downloaded chapter cache — re-downloadable
+    site content that can exceed the ~25 MB per-app backup quota — so the
+    whole `database` domain (uukanshu.db plus its -wal/-shm journals) is
+    excluded: backups stay small and reliable, at the cost of bookshelf and
+    reading progress not restoring to a new device. Everything else (e.g.
+    DataStore prefs) follows the platform defaults. See
+    docs/ARCHITECTURE.md § Offline cache model.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="database" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="database" />
+    </device-transfer>
+</data-extraction-rules>
