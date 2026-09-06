@@ -17,7 +17,7 @@ android {
         minSdk = 31
         targetSdk = 34
         // Single source of truth for `uukanshu-{version}.apk`.
-        versionName = "1.0.34"
+        versionName = "1.0.35"
         // Derived (not manual) so code/name cannot drift: 1.0.34 -> 10034.
         // Monotonic from the legacy 34 (10034 > 34), so side-load updates
         // never see a downgrade. Never hand-edit versionCode.
