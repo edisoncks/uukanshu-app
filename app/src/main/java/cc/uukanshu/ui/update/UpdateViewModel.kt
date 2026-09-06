@@ -57,6 +57,31 @@ class UpdateViewModel(
     companion object {
         /** Auto-check at most once per launch-window of this long. */
         const val AUTO_CHECK_INTERVAL_MS = 24L * 60 * 60 * 1000
+
+        /**
+         * Pure throttle decision (JVM-testable): auto-check only when the
+         * last check is older than [AUTO_CHECK_INTERVAL_MS]. Extracted so
+         * the timing rule has a unit test instead of living inline in a
+         * coroutine that needs Android + DataStore.
+         */
+        fun shouldAutoCheck(lastCheckMs: Long, nowMs: Long): Boolean =
+            nowMs - lastCheckMs >= AUTO_CHECK_INTERVAL_MS
+
+        /**
+         * Pure offer decision (JVM-testable): newer-than-current and not
+         * skipped (manual checks ignore skip). Returns false for
+         * up-to-date / skipped-auto so callers stay a thin `when`.
+         */
+        fun shouldOfferUpdate(
+            remoteVersion: String,
+            currentVersion: String,
+            skippedVersion: String?,
+            manual: Boolean,
+        ): Boolean {
+            if (!VersionCompare.isNewer(remoteVersion, currentVersion)) return false
+            if (!manual && remoteVersion == skippedVersion) return false
+            return true
+        }
     }
 
     private val _ui = MutableStateFlow(Ui())
@@ -67,7 +92,7 @@ class UpdateViewModel(
     fun autoCheck() {
         viewModelScope.launch {
             val last = prefs.lastUpdateCheck.first()
-            if (System.currentTimeMillis() - last < AUTO_CHECK_INTERVAL_MS) return@launch
+            if (!shouldAutoCheck(last, System.currentTimeMillis())) return@launch
             if (!markChecking(manual = false)) return@launch
             checkBody(manual = false)
         }
@@ -98,15 +123,19 @@ class UpdateViewModel(
                 UpdateDownloader.currentVersion(app)
             }
             val skipped = prefs.skippedVersion.first()
-            if (!VersionCompare.isNewer(info.version, current)) {
+            if (!shouldOfferUpdate(info.version, current, skipped, manual)) {
+                // Distinguish up-to-date (manual shows a note) from
+                // skipped-auto (silent) without duplicating the version
+                // comparison at the call site.
+                val upToDate = !VersionCompare.isNewer(info.version, current)
                 _ui.update {
-                    it.copy(checking = false, visible = manual, upToDate = manual,
-                        info = null)
+                    it.copy(
+                        checking = false,
+                        visible = manual && upToDate,
+                        upToDate = manual && upToDate,
+                        info = null,
+                    )
                 }
-                return
-            }
-            if (!manual && info.version == skipped) {
-                _ui.update { it.copy(checking = false) }
                 return
             }
             // Same-version APK already downloaded (e.g. process died mid-flow):

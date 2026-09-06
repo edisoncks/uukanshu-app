@@ -114,14 +114,15 @@ class LibraryViewModel(
             }
         }
         // Live download progress: update rows directly from done/total
-        // (no DB hit per chapter); refresh library stats only when a job
-        // appears or finishes so cached/total/bytes catch up.
+        // (no DB hit per chapter). Shelf stats come from `libraryFlow`
+        // (chapters/stats flows emit on every write), so no manual
+        // `refresh()` here — the old start/finish refresh duplicated the
+        // flow with an extra one-shot `library()` query per event.
         viewModelScope.launch {
             downloads.states.collect { states ->
                 val prevActive = _ui.value.downloading.filterValues { it.downloading }.keys
                 val nextActive = states.filterValues { it.downloading }.keys
                 val newActive = nextActive - prevActive
-                val justFinished = prevActive - nextActive
                 _ui.update { it.copy(downloading = states) }
                 if (newActive.isNotEmpty()) {
                     viewModelScope.launch {
@@ -136,10 +137,6 @@ class LibraryViewModel(
                             }
                         }
                     }
-                    refresh()
-                }
-                if (justFinished.isNotEmpty()) {
-                    refresh()
                 }
             }
         }

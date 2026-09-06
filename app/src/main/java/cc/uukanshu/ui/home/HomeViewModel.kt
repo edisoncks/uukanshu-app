@@ -86,11 +86,12 @@ class HomeViewModel(
      * One entry per list (recent + each category) so lists never clobber
      * each other — the old single shared LazyListState did.
      *
-     * Main-thread confined: plain `mutableMap` with all reads/writes from
-     * Main (composable `snapshotFlow` collectors, `selectTab`/`selectCategory`
-     * taps, `scrollFor`/`saveScroll`). Never touch from `Dispatchers.IO`.
+     * Thread-safe: `ConcurrentHashMap` because `snapshotFlow` collectors
+     * and composable `remember(key)` reads can race tab switches on
+     * different dispatchers. Plain `mutableMap` lost updates under rapid
+     * tab/category flapping.
      */
-    private val scrolls = mutableMapOf<String, Pair<Int, Int>>()
+    private val scrolls = java.util.concurrent.ConcurrentHashMap<String, Pair<Int, Int>>()
 
     /**
      * Explicit tab/category switches that want top. Consumed once by the
@@ -100,10 +101,12 @@ class HomeViewModel(
      * one-shot flag exists. detail->back never sets it, so back keeps
      * position.
      *
-     * Main-thread confined like [scrolls]: mutated only by Main-thread
-     * `selectTab`/`selectCategory` and `consumePendingTop`.
+     * Thread-safe set backed by a `ConcurrentHashMap` for the same reason
+     * as [scrolls]: one-shot top-scroll flags must survive concurrent
+     * produce/consume without lost updates.
      */
-    private val pendingTop = mutableSetOf<String>()
+    private val pendingTop: MutableSet<String> =
+        java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     fun listKey(tab: Int, categoryId: Int): String =
         if (tab == 0) "recent" else "cat-$categoryId"
@@ -179,14 +182,17 @@ class HomeViewModel(
      * come from Paging — the old hand-rolled loadMore/refresh/stale-drop
      * methods are gone.
      *
-     * Main-thread confined like [scrolls]: `pagingFor` is called from the
-     * composable (`remember(key)`), never from background threads.
+     * Thread-safe like [scrolls]: `pagingFor` is called from the composable
+     * (`remember(key)`) and may race across recompositions; use the atomic
+     * `computeIfAbsent` so two threads never build two Pagers for one key
+     * (which would fork seen-id sets and refetch page 1 twice).
      */
-    private val pagers = mutableMapOf<String, Flow<PagingData<Parser.BookItem>>>()
+    private val pagers =
+        java.util.concurrent.ConcurrentHashMap<String, Flow<PagingData<Parser.BookItem>>>()
 
     fun pagingFor(tab: Int, categoryId: Int): Flow<PagingData<Parser.BookItem>> {
         val key = listKey(tab, categoryId)
-        return pagers.getOrPut(key) {
+        return pagers.computeIfAbsent(key) {
             Pager(PagingConfig(pageSize = 20, enablePlaceholders = false)) {
                 BookPagingSource { page ->
                     if (tab == 0) repo.recent(page)

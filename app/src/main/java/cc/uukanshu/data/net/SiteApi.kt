@@ -126,9 +126,11 @@ class SiteApi(
         throw IOException("$failurePrefix: $last")
     }
 
+    private val titleRe =
+        Regex("<title>(.*?)</title>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+
     private fun throwIfBlocked(page: String) {
-        val title = Regex("<title>(.*?)</title>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
-            .find(page)?.groupValues?.getOrNull(1) ?: return
+        val title = titleRe.find(page)?.groupValues?.getOrNull(1) ?: return
         if ("Attention Required" in title || "Just a moment" in title || "you have been blocked" in title) {
             throw IOException("blocked by Cloudflare — try again later or from a different network")
         }
