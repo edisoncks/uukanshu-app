@@ -1,5 +1,7 @@
 package cc.uukanshu.data.parse
 
+import cc.uukanshu.BASE_URL
+
 /**
  * Pure HTML parsers — Kotlin port of uukanshu-cli (`__init__.py`).
  *
@@ -14,7 +16,8 @@ package cc.uukanshu.data.parse
  * canonical book URLs, `<span class=hot>` strip. Text only.
  */
 object Parser {
-    const val BASE = "https://uukanshu.cc"
+    /** Canonical host — single source is [BASE_URL]; this alias keeps call sites stable. */
+    const val BASE = BASE_URL
 
     data class BookItem(
         val id: String,
