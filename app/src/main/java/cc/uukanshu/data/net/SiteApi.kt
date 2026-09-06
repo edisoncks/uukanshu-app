@@ -24,11 +24,11 @@ import kotlin.coroutines.coroutineContext
  * Cloudflare interstitial sniff on <title>. No images are ever fetched:
  * callers only request HTML pages.
  *
- * Concurrency: every HTTP attempt holds [UukanshuGate] only for the
- * blocking execute itself. Retry backoff (`delay`) and HTML sniffing run
- * outside the gate so one failing request never head-of-line blocks taps.
- * Bulk crawl work (under [BulkFetch]) uses shorter timeouts and releases
- * the gate during backoff/crawlDelay, so taps interleave.
+ * Concurrency: every HTTP attempt holds [UukanshuGate] (plain single-flight
+ * Mutex) only for the blocking execute itself. Retry backoff (`delay`) and
+ * HTML sniffing run outside the gate so one failing request never
+ * head-of-line blocks taps. Bulk crawl work (under [BulkFetch]) uses shorter
+ * timeouts and releases the gate during backoff/crawlDelay, so taps interleave.
  * Cancellation propagates immediately —
  * `CancellationException` is never swallowed by the retry loop.
  */
@@ -109,14 +109,13 @@ class SiteApi(
     ): String {
         val bulk = coroutineContext[BulkFetch.Key] != null
         val http = if (bulk) bulkClient else client
-        val priority = if (bulk) FetchPriority.BULK else FetchPriority.INTERACTIVE
         val deadline = if (bulk) bulkDeadlineMs else interactiveDeadlineMs
         var last: IOException? = null
         return withTimeout(deadline) {
             repeat(3) { attempt ->
                 coroutineContext.ensureActive()
                 try {
-                    val body: String = gate.withPermit(priority) {
+                    val body: String = gate.withPermit {
                         withContext(ioDispatcher) {
                             runInterruptible {
                                 http.newCall(call).execute().use { res ->

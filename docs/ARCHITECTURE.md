@@ -61,7 +61,7 @@ child of its load, so a superseded revalidate can never commit stale totals. Bot
 UI (ViewModels)
  └─ BookRepo            # orchestration: cache-first, prefetch, downloadAll, progress
      ├─ SiteApi         # raw HTTP (GET pages, POST /search), owns UukanshuGate per attempt
-     ├─ UukanshuGate    # single-flight Mutex + interactive priority lane (bulk yields, never preempts)
+     ├─ UukanshuGate    # plain single-flight Mutex (bulk vs interactive differ only in timeouts)
      ├─ BookDownloadManager # app-scoped full-book jobs, one at a time (survive detail)
      ├─ Parser          # pure HTML → data classes (BookItem, BookMeta, ChapterRef, ChapterContent)
      ├─ Room (AppDb)    # cached TOC/chapters/progress; schemas in app/schemas/
@@ -79,10 +79,10 @@ UI (ViewModels)
   the blocking execute (`runInterruptible`); backoff delays and body sniffing
   run outside the gate (GitHub update traffic stays ungated), and
   `CancellationException` always propagates. Gate scope is per attempt — bulk
-  loops release it during `crawlDelay()` so interactive taps interleave, and bulk
-  chapters additionally yield to *waiting* taps inside the gate (`BulkFetch` lane).
+  loops release it during `crawlDelay()` so interactive taps interleave.
+  Bulk chapters run under `BulkFetch` (shorter timeouts only — no preemption).
   Timeouts are profiled: interactive 30s/30s + 90s total deadline, bulk 15s/15s +
-  60s (a dead network fails instead of wedging the lane for minutes).
+  60s (a dead network fails instead of wedging the gate for minutes).
 - `data/parse/Parser.kt` (facade) + `BookIds`/`CardsParser`/`TocParser`/
   `MetaParser`/`ChapterParser`: pure, unit-tested sub-parsers with
   precompiled patterns (no per-row `Regex(...)` allocation). `Parser` keeps

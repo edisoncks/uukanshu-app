@@ -29,17 +29,17 @@ Mirrors CLI `fetch()`:
   `Accept: text/html,…`, `Accept-Language: zh-TW,zh;q=0.9,en;q=0.8`,
   `Upgrade-Insecure-Requests: 1`. Gzip handled transparently by OkHttp.
 - Timeouts: connect 30s, read 30s (interactive); bulk crawl work runs 15s/15s
-  so a stuck background fetch cannot wedge the lane. Socket-level `callTimeout`
-  per lane (interactive 90s, bulk 45s) aborts interrupt-ignoring reads at the
+  so a stuck background fetch cannot wedge the gate. Socket-level `callTimeout`
+  per profile (interactive 90s, bulk 45s) aborts interrupt-ignoring reads at the
   socket layer — `withTimeout` alone cannot unblock those. Total deadlines bound the
   whole 3-attempt policy (interactive 90s, bulk 60s) — a dead network fails
   instead of spinning minutes per call.
-- Priority lane (`UukanshuGate`, `BulkFetch`): at most one uukanshu.cc request
+- Single-flight (`UukanshuGate`): at most one uukanshu.cc request
   in flight, always. Bulk chapters (full download, prefetch) run under
-  `withContext(BulkFetch)`: they yield to *waiting* interactive taps in the gate
-  and use the bulk timeouts above. In-flight is never preempted (preempting would
-  abort user downloads); a tap waits at most one bounded bulk attempt. New bulk
-  loops must opt into `BulkFetch` — the default lane is interactive.
+  `withContext(BulkFetch)` and use the bulk timeouts above. In-flight is never
+  preempted (preempting would abort user downloads); a tap waits at most one
+  bounded bulk attempt because backoff and `crawlDelay` run outside the gate.
+  New bulk loops must opt into `BulkFetch` — the default is interactive timeouts.
 - Retry: **3 attempts** with cancellable backoff (`1500ms × attempt`, `delay` outside
   the single-flight gate) on transport errors and HTTP `408 / 429 / 5xx`. Deterministic client errors (e.g. 404)
   fail fast with no retry.

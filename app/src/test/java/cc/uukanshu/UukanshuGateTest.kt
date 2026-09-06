@@ -1,6 +1,5 @@
 package cc.uukanshu
 
-import cc.uukanshu.data.net.FetchPriority
 import cc.uukanshu.data.net.UukanshuGate
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -16,18 +15,18 @@ import java.util.concurrent.atomic.AtomicInteger
 class UukanshuGateTest {
     @Test fun queuedRequestsSerializeFIFO() = runTest {
         // Plain mutex: whoever queued first runs first. Interleaving comes
-        // from bulk releasing the permit during crawlDelay/backoff, not priority.
+        // from bulk releasing the permit during crawlDelay/backoff.
         val gate = UukanshuGate()
         val order = mutableListOf<String>()
         val release = CompletableDeferred<Unit>()
         val holder = async { gate.withPermit { release.await() } }
         runCurrent()
         val bulk = async {
-            gate.withPermit(FetchPriority.BULK) { order += "bulk" }
+            gate.withPermit { order += "bulk" }
         }
         runCurrent()
         val tap = async {
-            gate.withPermit(FetchPriority.INTERACTIVE) { order += "tap" }
+            gate.withPermit { order += "tap" }
         }
         runCurrent()
         release.complete(Unit)
@@ -36,13 +35,13 @@ class UukanshuGateTest {
     }
 
     @Test fun bulkWaitIsCancellable() = runTest {
-        // cancelDownload must never wedge in the yield spin.
+        // A cancelled waiter must never wedge the gate.
         val gate = UukanshuGate()
         val release = CompletableDeferred<Unit>()
         val holder = async { gate.withPermit { release.await() } }
         runCurrent()
         val bulk = async {
-            gate.withPermit(FetchPriority.BULK) { error("must not run") }
+            gate.withPermit { error("must not run") }
         }
         runCurrent()
         bulk.cancel()
