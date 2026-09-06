@@ -131,10 +131,15 @@ class SiteApi(
     private val titleRe =
         Regex("<title>(.*?)</title>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
 
+    /**
+     * Cloudflare blocks never clear within the retry window: fail fast via
+     * [NonRetryable] instead of burning 3 attempts + backoff against a host
+     * that just told us to go away (see SCRAPING.md).
+     */
     private fun throwIfBlocked(page: String) {
         val title = titleRe.find(page)?.groupValues?.getOrNull(1) ?: return
         if ("Attention Required" in title || "Just a moment" in title || "you have been blocked" in title) {
-            throw IOException("blocked by Cloudflare — try again later or from a different network")
+            throw NonRetryable(IOException("blocked by Cloudflare — try again later or from a different network"))
         }
     }
 }

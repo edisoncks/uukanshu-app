@@ -33,7 +33,8 @@ Mirrors CLI `fetch()`:
   the single-flight gate) on transport errors and HTTP `408 / 429 / 5xx`. Deterministic client errors (e.g. 404)
   fail fast with no retry.
 - Cloudflare interstitial sniff: response bodies whose `<title>` indicates a
-  challenge/block are treated as failures (surfaced, retried per above).
+  challenge/block fail fast with no retry (a block never clears inside the
+  backoff window; retrying hammers a hostile host for nothing).
 
 ## Parse (`data/parse/Parser.kt`)
 

@@ -15,17 +15,18 @@ import org.junit.Test
 
 /**
  * Retry policy: 408/429/5xx + transport errors retry 3x with backoff;
- * deterministic client errors (404 and friends) fail fast on attempt 1.
+ * deterministic client errors (404 and friends) and Cloudflare blocks fail
+ * fast on attempt 1 (a block never clears inside the retry window).
  */
 class SiteApiRetryTest {
-    private fun clientFor(code: Int, counter: () -> Unit) = OkHttpClient.Builder()
+    private fun clientFor(code: Int, body: String = "", counter: () -> Unit) = OkHttpClient.Builder()
         .addInterceptor(Interceptor { chain ->
             counter()
             Response.Builder()
                 .request(chain.request())
                 .protocol(Protocol.HTTP_1_1)
                 .code(code).message("status")
-                .body("".toResponseBody(null))
+                .body(body.toResponseBody(null))
                 .build()
         })
         .build()
@@ -50,6 +51,18 @@ class SiteApiRetryTest {
             assertTrue(e.message!!.contains("500"))
         }
         assertEquals(3, attempts)
+    }
+
+    @Test fun cloudflareBlockFailsFastWithoutRetry() = runBlocking {
+        var attempts = 0
+        val challenge = "<html><head><title>Just a moment...</title></head><body>cf</body></html>"
+        try {
+            SiteApi(clientFor(200, challenge) { attempts++ }).get("https://uukanshu.cc/book/1/")
+            fail("expected IOException")
+        } catch (e: IOException) {
+            assertTrue(e.message!!.contains("Cloudflare"))
+        }
+        assertEquals("Cloudflare block must not be retried", 1, attempts)
     }
 
     @Test fun searchNotFoundFailsFastWithoutRetry() = runBlocking {
