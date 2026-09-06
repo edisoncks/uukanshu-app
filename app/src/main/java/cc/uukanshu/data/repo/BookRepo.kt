@@ -21,7 +21,7 @@ import kotlin.random.Random
 
 /**
  * Network-first facade with Room fallback. Raw Traditional cached; T2S at render.
- * Pure rules in TocMerge/TocDiff/ShelfOrder/BookmarkResolve/DownloadPlan/TocRevalidator.
+ * Pure rules in TocDiff/ShelfOrder/BookmarkResolve/DownloadPlan/TocRevalidator.
  * See ARCHITECTURE.md.
  */
 class BookRepo(
@@ -61,13 +61,6 @@ class BookRepo(
     data class Detail(val meta: Parser.BookMeta, val chapters: List<Parser.ChapterRef>)
 
     companion object {
-        /** Delegates to [TocMerge.merge] (stable pageId, never position). */
-        fun mergeToc(
-            bookId: String,
-            refs: List<Parser.ChapterRef>,
-            cachedByPageId: Map<Long, String>,
-        ): List<ChapterEntity> = TocMerge.merge(bookId, refs, cachedByPageId)
-
         /** Delegates to [ShelfOrder.lastActivity]. */
         fun lastActivity(bookAt: Long, progressAt: Long?): Long =
             ShelfOrder.lastActivity(bookAt, progressAt)

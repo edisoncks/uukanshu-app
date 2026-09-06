@@ -115,7 +115,7 @@ app/src/main/java/cc/uukanshu/
   data/
     net/SiteApi.kt + SiteGateway.kt  # HTTP client behind a fakeable interface
     parse/Parser.kt (facade) + BookIds/CardsParser/TocParser/MetaParser/ChapterParser
-    repo/BookRepo.kt + TocMerge/ShelfOrder/BookmarkResolve/DownloadPlan
+    repo/BookRepo.kt + TocDiff/ShelfOrder/BookmarkResolve/DownloadPlan
     db/                  # Room: AppDb, Entities (+metas/cachedPageIds), DAOs
     prefs/Prefs.kt       # DataStore: theme, simplified, fontScale, update check state
     convert/T2S.kt       # Traditional → Simplified (opencc4j) + LRU

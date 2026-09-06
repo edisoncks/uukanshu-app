@@ -94,7 +94,7 @@ UI (ViewModels)
   — facade: cache-first reads (`cachedDetail`, `cachedChapterContent`),
   network fetch + raw save, `crawlDelay()` between bulk requests,
   pageId-based progress save, library stats, delete/clear. Pure rules live
-  in collaborators (`TocMerge`, `ShelfOrder`, `BookmarkResolve`,
+  in collaborators (`TocDiff`, `ShelfOrder`, `BookmarkResolve`,
   `DownloadPlan`) so they are unit-testable without network/DB.
   `downloadAll` preloads `cachedPageIds` once and lets the pure `DownloadPlan`
   missing-set drive fetching (cached chapters skipped, progress still spans
