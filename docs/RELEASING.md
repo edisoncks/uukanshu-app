@@ -97,4 +97,6 @@ releases:
   plain Markdown, no huge dumps — the dialog scrolls at ~220dp).
 - Non-matching APK assets fail closed (no update offered, never a partial
   install) — see `UpdateViewModel` / `UpdateDownloader.isComplete` /
-  `isInstallable` (byte-exact when size known, non-empty Success file when size unknown).
+  `isInstallable` (byte-exact when size known; unknown size installs only with
+  a fresh DownloadManager Success receipt for that download — a stale file or a
+  bare user tap never qualifies).

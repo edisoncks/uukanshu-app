@@ -52,6 +52,14 @@ class UpdateViewModel(
         val progress: Float? = null,
         val downloadId: Long? = null,
         val fileReady: Boolean = false,
+        /**
+         * Fresh DownloadManager SUCCESS receipt for the current [info].
+         * Gates the sizeless install path (see `isInstallable`): set only on
+         * `DownloadStatus.Success`, cleared whenever [info] changes, so a
+         * killed-process partial with unknown size can never ride an old
+         * receipt (or a user tap alone) into the installer.
+         */
+        val downloadSucceeded: Boolean = false,
         val needsUnknownSources: Boolean = false,
         val error: String? = null,
     )
@@ -136,6 +144,7 @@ class UpdateViewModel(
                         visible = manual && upToDate,
                         upToDate = manual && upToDate,
                         info = null,
+                        downloadSucceeded = false,
                     )
                 }
                 return
@@ -148,7 +157,7 @@ class UpdateViewModel(
             }
             _ui.update {
                 it.copy(checking = false, visible = true, info = info,
-                    fileReady = alreadyHave)
+                    fileReady = alreadyHave, downloadSucceeded = false)
             }
         } catch (e: Exception) {
             if (e is CancellationException) throw e
@@ -181,7 +190,7 @@ class UpdateViewModel(
         // Skipping means go away: clear the pending update so the Settings
         // banner and dialog don't come straight back. Next manual check
         // re-fetches (manual ignores skipped); auto stays suppressed.
-        _ui.update { it.copy(visible = false, upToDate = false, error = null, info = null) }
+        _ui.update { it.copy(visible = false, upToDate = false, error = null, info = null, downloadSucceeded = false) }
     }
 
     fun startDownload() {
@@ -253,11 +262,11 @@ class UpdateViewModel(
                                 }
                                 is DownloadStatus.Success -> _ui.update {
                                     it.copy(downloading = false, fileReady = true,
-                                        downloadId = null)
+                                        downloadId = null, downloadSucceeded = true)
                                 }
                                 is DownloadStatus.Failed -> _ui.update {
                                     it.copy(downloading = false, error = Errors.friendlyText(s.reason),
-                                        downloadId = null)
+                                        downloadId = null, downloadSucceeded = false)
                                 }
                             }
                         }
@@ -291,7 +300,7 @@ class UpdateViewModel(
     fun install() {
         val info = _ui.value.info ?: return
         val file = downloader.apkFile(info)
-        if (!UpdateDownloader.isInstallable(file, info.size)) {
+        if (!UpdateDownloader.isInstallable(file, info.size, _ui.value.downloadSucceeded)) {
             _ui.update { it.copy(fileReady = false, error = "APK file missing or incomplete, please re-download") }
             return
         }

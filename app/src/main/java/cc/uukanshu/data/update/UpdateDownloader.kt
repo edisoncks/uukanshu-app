@@ -161,15 +161,14 @@ class UpdateDownloader(private val context: Context) : ApkDownloader {
 
         /**
          * Install gate: byte-exact when the release reports a size, otherwise
-         * any non-empty file that DownloadManager just reported SUCCESS for.
-         * The strict [isComplete] path stays for alreadyHave/enqueue (no DM
-         * receipt there); this lenient path only runs after a fresh Success
-         * or an explicit user tap, so a killed-process partial can never
-         * sneak through alreadyHave, but a sizeless release stays installable.
+         * only a non-empty file with a fresh DownloadManager SUCCESS receipt
+         * for this download id ([dmSuccess]). The strict [isComplete] path stays
+         * for alreadyHave/enqueue (no receipt there); callers must pass whether
+         * the current file actually just succeeded — never hardcode true, or a
+         * killed-process partial with unknown size sneaks into the installer.
          */
-        fun isInstallable(file: File, expectedSize: Long?): Boolean =
-            // Explicit user tap / post-SUCCESS: treat unknown size leniently.
-            apkState(file, expectedSize, dmSuccess = true) == ApkState.Ready
+        fun isInstallable(file: File, expectedSize: Long?, dmSuccess: Boolean): Boolean =
+            apkState(file, expectedSize, dmSuccess) == ApkState.Ready
 
         /** Local version via PackageManager (no BuildConfig flag needed). */
         fun currentVersion(context: Context): String = runCatching {

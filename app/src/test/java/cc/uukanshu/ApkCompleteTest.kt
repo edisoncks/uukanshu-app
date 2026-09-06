@@ -27,18 +27,22 @@ class ApkCompleteTest {
     @Test fun installableAllowsSizelessSuccess() {
         val f = File.createTempFile("apk", ".apk").apply { writeBytes(ByteArray(10)) }
         try {
-            // Byte-exact when size known.
-            assertTrue(UpdateDownloader.isInstallable(f, 10L))
-            assertFalse(UpdateDownloader.isInstallable(f, 11L))
-            // Sizeless release: any non-empty file from a DM Success is installable
-            // (alreadyHave/enqueue stay strict via isComplete).
-            assertTrue(UpdateDownloader.isInstallable(f, null))
+            // Byte-exact when size known (receipt irrelevant).
+            assertTrue(UpdateDownloader.isInstallable(f, 10L, dmSuccess = false))
+            assertFalse(UpdateDownloader.isInstallable(f, 11L, dmSuccess = false))
+            assertFalse(UpdateDownloader.isInstallable(f, 11L, dmSuccess = true))
+            // Sizeless release: only a non-empty file with a fresh DM Success
+            // receipt is installable — a killed-process partial with unknown
+            // size and no receipt must re-download, never install.
+            assertTrue(UpdateDownloader.isInstallable(f, null, dmSuccess = true))
+            assertFalse(UpdateDownloader.isInstallable(f, null, dmSuccess = false))
         } finally {
             f.delete()
         }
         val empty = File.createTempFile("apk", ".apk")
         try {
-            assertFalse(UpdateDownloader.isInstallable(empty, null))
+            assertFalse(UpdateDownloader.isInstallable(empty, null, dmSuccess = true))
+            assertFalse(UpdateDownloader.isInstallable(empty, null, dmSuccess = false))
         } finally {
             empty.delete()
         }
