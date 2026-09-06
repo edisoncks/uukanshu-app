@@ -136,36 +136,36 @@ class BookRepo(
         return withContext(ioDispatcher) {
             val meta = Parser.parseBookMeta(html, url)
             val chapters = Parser.parseToc(html, bookId)
-        // Empty TOC means a block page / layout change, not an empty book:
-        // never wipe the cached chapters on nothing. Return fresh (empty)
-        // without touching the DB so offline content survives.
-        if (chapters.isEmpty()) return@withContext Detail(meta, chapters)
-        // Preserve downloads + shelf order via AppDb.replaceToc (single transaction).
-        // DB failures propagate to the caller (stale + offline via
-        // TocRevalidator.Failed) — never silent success with a stale DB.
-        // Cancellation propagates out of the Mutex/Room calls untouched.
-        // Guard read + replace are atomic under dbWrite (see its KDoc).
-        dbWrite.withLock {
-            // Shrunken TOC is the same failure shape (truncated parse): fail
-            // closed before replaceToc can delete downloaded chapters whose
-            // pageIds are absent from the short parse. See SCRAPING.md.
-            val cachedCount = db.chapters().countByBook(bookId)
-            if (!TocRevalidator.shouldAcceptFresh(chapters, cachedCount)) {
-                throw TocShrunkException(cachedCount, chapters.size)
+            // Empty TOC means a block page / layout change, not an empty book:
+            // never wipe the cached chapters on nothing. Return fresh (empty)
+            // without touching the DB so offline content survives.
+            if (chapters.isEmpty()) return@withContext Detail(meta, chapters)
+            // Preserve downloads + shelf order via AppDb.replaceToc (single transaction).
+            // DB failures propagate to the caller (stale + offline via
+            // TocRevalidator.Failed) — never silent success with a stale DB.
+            // Cancellation propagates out of the Mutex/Room calls untouched.
+            // Guard read + replace are atomic under dbWrite (see its KDoc).
+            dbWrite.withLock {
+                // Shrunken TOC is the same failure shape (truncated parse): fail
+                // closed before replaceToc can delete downloaded chapters whose
+                // pageIds are absent from the short parse. See SCRAPING.md.
+                val cachedCount = db.chapters().countByBook(bookId)
+                if (!TocRevalidator.shouldAcceptFresh(chapters, cachedCount)) {
+                    throw TocShrunkException(cachedCount, chapters.size)
+                }
+                val existing = db.books().book(bookId)
+                val now = System.currentTimeMillis()
+                val book = preserveBookUpdatedAt(
+                    existing,
+                    BookEntity(bookId, meta.title, meta.author, meta.intro, meta.category, meta.latestChapterTitle),
+                    now,
+                )
+                val skeleton = chapters.map {
+                    ChapterEntity(bookId, it.position, it.pageId, it.title, it.url, content = "")
+                }
+                db.replaceToc(book, skeleton)
             }
-            val existing = db.books().book(bookId)
-            val now = System.currentTimeMillis()
-            val book = preserveBookUpdatedAt(
-                existing,
-                BookEntity(bookId, meta.title, meta.author, meta.intro, meta.category, meta.latestChapterTitle),
-                now,
-            )
-            val skeleton = chapters.map {
-                ChapterEntity(bookId, it.position, it.pageId, it.title, it.url, content = "")
-            }
-            db.replaceToc(book, skeleton)
-        }
-        Detail(meta, chapters)
+            Detail(meta, chapters)
         }
     }
 
