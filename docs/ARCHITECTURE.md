@@ -187,7 +187,9 @@ pure `shouldAutoCheck`/`shouldOfferUpdate` policy is JVM-tested
   with receipt after a fresh Success so sizeless releases stay installable), FileProvider +
   installer intent handoff. Same-version file already on disk skips straight
   to install. `REQUEST_INSTALL_PACKAGES` permission + system "unknown sources"
-  grant required (first in-app update prompts once).
+  grant required (first in-app update prompts once). Intent fires go through the
+  `ActivityLauncher` seam (production `app.startActivity`, throwing fake in tests)
+  so a missing handler or blocked install surfaces as a dialog error, never a crash.
 - Skipped versions (`skippedVersion`) suppress auto-prompts but stay
   re-openable from Settings; browser-download fallback always offered on
   error; release body is shown verbatim as the changelog (kept concise).

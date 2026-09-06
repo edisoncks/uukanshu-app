@@ -5,6 +5,7 @@ import android.app.Application
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cc.uukanshu.di.PrefsApi
+import cc.uukanshu.data.update.ActivityLauncher
 import cc.uukanshu.data.update.ApkDownloader
 import cc.uukanshu.data.update.DownloadStatus
 import cc.uukanshu.data.update.ReleaseFetcher
@@ -35,6 +36,7 @@ class UpdateViewModel(
     private val prefs: PrefsApi,
     private val api: ReleaseFetcher,
     private val downloader: ApkDownloader,
+    private val launcher: ActivityLauncher = ActivityLauncher { app.startActivity(it) },
 ) : ViewModel() {
     data class Ui(
         /** Whether any update dialog is on screen. */
@@ -293,12 +295,26 @@ class UpdateViewModel(
             _ui.update { it.copy(fileReady = false, error = "APK file missing or incomplete, please re-download") }
             return
         }
-        app.startActivity(UpdateDownloader.installIntent(app, file))
+        // Firing the installer can throw (no handler, FileProvider
+        // misconfiguration, install blocked): surface it in the dialog,
+        // never crash the app out of an update tap.
+        try {
+            launcher.start(UpdateDownloader.installIntent(app, file))
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            _ui.update { it.copy(error = Errors.friendly(e)) }
+        }
     }
 
     /** Direct the user to the "allow unknown apps" toggle, then continue. */
     fun openUnknownSources() {
-        app.startActivity(UpdateDownloader.unknownSourcesIntent(app))
+        try {
+            launcher.start(UpdateDownloader.unknownSourcesIntent(app))
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            _ui.update { it.copy(error = Errors.friendly(e)) }
+            return
+        }
         // Don't download yet: the user returns via back navigation, and the
         // dialog's update button retries with permission granted.
         _ui.update { it.copy(needsUnknownSources = true) }
@@ -309,6 +325,11 @@ class UpdateViewModel(
         val url = _ui.value.info?.apkUrl
             ?: _ui.value.info?.htmlUrl
             ?: "https://github.com/${UpdateApi.REPO}/releases/latest"
-        app.startActivity(UpdateDownloader.browserIntent(url))
+        try {
+            launcher.start(UpdateDownloader.browserIntent(url))
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            _ui.update { it.copy(error = Errors.friendly(e)) }
+        }
     }
 }
