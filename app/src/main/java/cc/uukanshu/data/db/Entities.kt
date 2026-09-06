@@ -71,6 +71,10 @@ interface BookDao {
     @Query("SELECT * FROM books ORDER BY updatedAt DESC")
     suspend fun cachedBooks(): List<BookEntity>
 
+    /** Reactive shelf source for [cc.uukanshu.data.repo.BookRepo.libraryFlow] (no migration). */
+    @Query("SELECT * FROM books ORDER BY updatedAt DESC")
+    fun cachedBooksFlow(): Flow<List<BookEntity>>
+
     /** Bump shelf order without touching meta; no-op when the row is missing. */
     @Query("UPDATE books SET updatedAt = :now WHERE id = :id")
     suspend fun touch(id: String, now: Long)
@@ -138,6 +142,15 @@ interface ChapterDao {
             "FROM chapters GROUP BY bookId",
     )
     suspend fun statsByBook(): List<ChapterStats>
+
+    /** Reactive stats source for libraryFlow (same SQL as [statsByBook]). */
+    @Query(
+        "SELECT bookId, COUNT(*) AS total, " +
+            "SUM(CASE WHEN content != '' THEN 1 ELSE 0 END) AS cached, " +
+            "COALESCE(SUM(LENGTH(CAST(content AS BLOB))), 0) AS bytes " +
+            "FROM chapters GROUP BY bookId",
+    )
+    fun statsByBookFlow(): Flow<List<ChapterStats>>
 }
 
 @Dao
@@ -153,6 +166,10 @@ interface ProgressDao {
 
     @Query("SELECT * FROM progress")
     suspend fun all(): List<ProgressEntity>
+
+    /** Reactive shelf-order source for libraryFlow. */
+    @Query("SELECT * FROM progress")
+    fun allFlow(): Flow<List<ProgressEntity>>
 
     @Query("DELETE FROM progress WHERE bookId = :bookId")
     suspend fun deleteBook(bookId: String)

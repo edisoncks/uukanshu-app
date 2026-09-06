@@ -41,6 +41,7 @@ class FakeRepo(
     override suspend fun getProgress(bookId: String): Int? = null
     override suspend fun bookEntry(bookId: String) = null
     override suspend fun library() = emptyList<BookRepo.CachedBook>()
+    override fun libraryFlow(): Flow<List<BookRepo.CachedBook>> = flowOf(emptyList())
     override suspend fun crawlDelay() = Unit
     override suspend fun downloadAll(bookId: String, onProgress: (Int, Int) -> Unit) = Unit
     override suspend fun deleteBook(bookId: String) = Unit

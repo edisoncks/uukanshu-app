@@ -90,6 +90,29 @@ class LibraryViewModel(
         viewModelScope.launch {
             _ui.value = _ui.value.copy(simplified = prefs.simplified.first())
         }
+        // Reactive shelf: DB bumps (read/download/delete/clear) re-render
+        // rows without manual refresh. Stale-while-revalidate: keep rows on
+        // flow success, spinner only for the initial empty load.
+        viewModelScope.launch {
+            try {
+                repo.libraryFlow().collect { books ->
+                    _ui.update { cur ->
+                        when (val l = cur.load) {
+                            is Load.Shelf -> cur.copy(load = l.copy(books = books, error = null))
+                            else -> cur.copy(load = Load.Shelf(books))
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                _ui.update { cur ->
+                    when (val l = cur.load) {
+                        is Load.Shelf -> cur.copy(load = l.copy(error = Errors.userMessage(e)))
+                        else -> cur.copy(load = Load.Failed(Errors.userMessage(e)))
+                    }
+                }
+            }
+        }
         // Live download progress: update rows directly from done/total
         // (no DB hit per chapter); refresh library stats only when a job
         // appears or finishes so cached/total/bytes catch up.

@@ -248,18 +248,27 @@ class BookRepo(
 
     override suspend fun library(): List<CachedBook> = withContext(Dispatchers.IO) {
         val rows = db.books().cachedBooks()
-        val bookAt = rows.associate { it.id to it.updatedAt }
+        val stats = db.chapters().statsByBook()
         val progressAt = db.progress().all().associate { it.bookId to it.updatedAt }
-        // Three round trips total, zero content strings loaded (was N+1
-        // queries plus every cached byte). Books without chapter rows or
-        // without cached content stay off the shelf, as before.
-        val stats = db.chapters().statsByBook().associateBy { it.bookId }
-        rows.mapNotNull { b ->
-            val s = stats[b.id] ?: return@mapNotNull null
-            if (s.cached == 0) return@mapNotNull null
-            CachedBook(b.id, b.title, b.author, total = s.total, cached = s.cached, bytes = s.bytes)
-        }.let { sortShelf(it, bookAt, progressAt) }
+        // Zero content strings loaded. Books without chapter rows or without
+        // cached content stay off the shelf, as before.
+        ShelfOrder.assemble(rows, stats, progressAt)
     }
+
+    /**
+     * Reactive shelf: books + stats + progress as Flows, assembled by the
+     * same pure [ShelfOrder.assemble] as one-shot [library]. The shelf
+     * re-renders on read/download bumps without manual refresh; failures
+     * are the VM's footer-retry/full-screen split, not an empty list.
+     */
+    override fun libraryFlow(): Flow<List<CachedBook>> =
+        kotlinx.coroutines.flow.combine(
+            db.books().cachedBooksFlow(),
+            db.chapters().statsByBookFlow(),
+            db.progress().allFlow(),
+        ) { rows, stats, progress ->
+            ShelfOrder.assemble(rows, stats, progress.associate { it.bookId to it.updatedAt })
+        }
 
     /**
      * Polite crawl delay between chapter fetches: random 1-3s,

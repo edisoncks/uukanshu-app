@@ -41,6 +41,7 @@ interface RepoApi {
     fun progressFlow(bookId: String): Flow<Int?>
     suspend fun bookEntry(bookId: String): cc.uukanshu.data.db.BookEntity?
     suspend fun library(): List<BookRepo.CachedBook>
+    fun libraryFlow(): Flow<List<BookRepo.CachedBook>>
     suspend fun crawlDelay()
     suspend fun downloadAll(bookId: String, onProgress: (Int, Int) -> Unit)
     suspend fun deleteBook(bookId: String)
