@@ -99,7 +99,9 @@ UI (ViewModels)
   `downloadAll` preloads `cachedPageIds` once and lets the pure `DownloadPlan`
   missing-set drive fetching (cached chapters skipped, progress still spans
   all) instead of N+1 per-chapter queries; the mid-download delete-abort check
-  is a cheap `BookDao.exists` probe, not a full entity load. `bookEntry` returns domain
+  is a cheap `BookDao.exists` probe, not a full entity load. The shrink-guard
+  count and the `replaceToc` it authorizes are one atomic unit under the repo
+  `dbWrite` Mutex, so concurrent same-book refreshes cannot regress the TOC. `bookEntry` returns domain
   `BookInfo`, never Room `BookEntity`.
   `downloadAll` treats an
   empty fresh TOC as failure (cache fallback, else loud `IOException` — never

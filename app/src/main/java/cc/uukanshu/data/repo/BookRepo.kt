@@ -21,14 +21,20 @@ import kotlin.random.Random
 
 /**
  * Network-first facade with Room fallback. Raw Traditional cached; T2S at render.
- * Pure rules in TocMerge/ShelfOrder/BookmarkResolve. See ARCHITECTURE.md.
+ * Pure rules in TocMerge/TocDiff/ShelfOrder/BookmarkResolve/DownloadPlan/TocRevalidator.
+ * See ARCHITECTURE.md.
  */
 class BookRepo(
     private val site: SiteGateway,
     private val db: AppDb,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : cc.uukanshu.di.RepoApi {
-    /** Serializes TOC replace vs single-row writes (lost-update guard). */
+    /**
+     * Serializes TOC guard-read + replace vs single-row writes (lost-update guard).
+     * The shrink-guard count and the replace it authorizes are one atomic unit:
+     * a concurrent same-book refresh must not slip a short parse past a stale
+     * count and regress the TOC size. See ARCHITECTURE.md (offline cache).
+     */
     private val dbWrite = Mutex()
     override suspend fun category(categoryId: Int, page: Int): List<Parser.BookItem> =
         withContext(ioDispatcher) {
@@ -133,18 +139,19 @@ class BookRepo(
         // never wipe the cached chapters on nothing. Return fresh (empty)
         // without touching the DB so offline content survives.
         if (chapters.isEmpty()) return@withContext Detail(meta, chapters)
-        // Shrunken TOC is the same failure shape (truncated parse): fail
-        // closed before replaceToc can delete downloaded chapters whose
-        // pageIds are absent from the short parse. See SCRAPING.md.
-        val cachedCount = db.chapters().countByBook(bookId)
-        if (!TocRevalidator.shouldAcceptFresh(chapters, cachedCount)) {
-            throw TocShrunkException(cachedCount, chapters.size)
-        }
         // Preserve downloads + shelf order via AppDb.replaceToc (single transaction).
         // DB failures propagate to the caller (stale + offline via
         // TocRevalidator.Failed) — never silent success with a stale DB.
         // Cancellation propagates out of the Mutex/Room calls untouched.
+        // Guard read + replace are atomic under dbWrite (see its KDoc).
         dbWrite.withLock {
+            // Shrunken TOC is the same failure shape (truncated parse): fail
+            // closed before replaceToc can delete downloaded chapters whose
+            // pageIds are absent from the short parse. See SCRAPING.md.
+            val cachedCount = db.chapters().countByBook(bookId)
+            if (!TocRevalidator.shouldAcceptFresh(chapters, cachedCount)) {
+                throw TocShrunkException(cachedCount, chapters.size)
+            }
             val existing = db.books().book(bookId)
             val now = System.currentTimeMillis()
             val book = preserveBookUpdatedAt(
