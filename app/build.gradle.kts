@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.room)
+    jacoco
 }
 
 android {
@@ -85,6 +86,13 @@ android {
         }
     }
 
+    testOptions {
+        unitTests.apply {
+            isIncludeAndroidResources = true
+            isReturnDefaultValues = true
+        }
+    }
+
     buildFeatures {
         compose = true
     }
@@ -134,8 +142,30 @@ dependencies {
     ksp(libs.androidx.room.compiler)
 
     testImplementation(libs.junit)
+    testImplementation(libs.coroutines.test)
+    testImplementation(libs.arch.core.testing)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.turbine)
     androidTestImplementation(libs.junit)
     androidTestImplementation(libs.androidx.room.testing)
     androidTestImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.test.ext.junit)
+}
+
+tasks.register<org.gradle.testing.jacoco.tasks.JacocoReport>("jacocoTestReport") {
+    dependsOn("testDebugUnitTest")
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+    }
+    val buildDir = layout.buildDirectory.get().asFile
+    val classDirs = files(
+        "${buildDir}/tmp/kotlin-classes/debug",
+        "${buildDir}/intermediates/javac/debug/classes",
+    )
+    classDirectories.setFrom(files(classDirs.map {
+        fileTree(it) { exclude("**/R.class", "**/R\$*.class", "**/BuildConfig.*") }
+    }))
+    sourceDirectories.setFrom(files("${projectDir}/src/main/java"))
+    executionData.setFrom(files("${buildDir}/jacoco/testDebugUnitTest.exec"))
 }
