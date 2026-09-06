@@ -3,6 +3,7 @@ package cc.uukanshu
 import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.repo.BookRepo
+import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.di.ConvertApi
 import cc.uukanshu.di.DownloadsApi
 import cc.uukanshu.di.PrefsApi
@@ -11,9 +12,12 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import org.junit.Assert.assertEquals
+import org.junit.Test
 
 fun testMeta(title: String = "T") =
     Parser.BookMeta(title, "A", "", "", "", "", "", null, "")
@@ -98,8 +102,9 @@ class MutableFakePrefs(
     var lastCheckSet: Long? = null
     private val _simplified = MutableStateFlow(simplified)
     override val simplified: Flow<Boolean> = _simplified
+    private val _theme = MutableStateFlow(Prefs.SYSTEM)
+    override val theme: Flow<String> = _theme
     override val fontScale: Flow<Float> = flowOf(1f)
-    override val theme: Flow<String> = flowOf("system")
     override val lastUpdateCheck: Flow<Long> = flowOf(lastCheck)
     override val skippedVersion: Flow<String?> = flowOf(null)
     override suspend fun setSimplified(v: Boolean) {
@@ -107,7 +112,11 @@ class MutableFakePrefs(
         _simplified.value = v
     }
     override suspend fun setFontScale(v: Float) = Unit
-    override suspend fun setTheme(v: String) = Unit
+    override suspend fun setTheme(v: String) {
+        // Mirror production write-normalization so tests cannot pass on the
+        // fake while failing on Prefs (see PrefsStoreTest.themeWriteNormalizesUnknown).
+        _theme.value = Prefs.normalizeTheme(v)
+    }
     override suspend fun setLastUpdateCheck(now: Long) {
         lastCheckSet = now
     }
@@ -147,4 +156,15 @@ class RecordingDownloads : DownloadsApi {
 
 class TestConvert : ConvertApi {
     override fun convert(s: String) = "S:$s"
+}
+
+/** Fake fidelity: MutableFakePrefs must mirror production write contracts. */
+class MutableFakePrefsContractTest {
+    @Test fun themeWriteNormalizesLikeProduction() = kotlinx.coroutines.runBlocking {
+        val p = MutableFakePrefs()
+        p.setTheme("dark-mode")
+        assertEquals(Prefs.SYSTEM, p.theme.first())
+        p.setTheme(Prefs.DARK)
+        assertEquals(Prefs.DARK, p.theme.first())
+    }
 }
