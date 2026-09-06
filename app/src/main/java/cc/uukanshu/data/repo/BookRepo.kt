@@ -323,6 +323,19 @@ class BookRepo(
             withContext(Dispatchers.IO) { cachedDetail(bookId)?.chapters } ?: throw e
         }
         if (chapters.isEmpty()) throw java.io.IOException("empty chapter list — try again later")
+        // One-shot cached-id set: membership checks below are in-memory.
+        // The old per-chapter `cachedChapterContent()` query was N+1 DB
+        // round trips for a 2000-chapter book. The set is a snapshot: newly
+        // fetched chapters are added locally so a concurrent cache clear
+        // cannot resurrect a "has" hit (writes are UPDATE-only no-ops on
+        // missing rows, and the delete-mid-download guard below aborts).
+        val cachedIds = withContext(Dispatchers.IO) {
+            runCatching { db.chapters().cachedPageIds(bookId).toMutableSet() }
+                .getOrDefault(mutableSetOf())
+        }
+        // Pure planning helper keeps the missing-set rule testable.
+        @Suppress("UNUSED_VARIABLE")
+        val plannedMissing = DownloadPlan.missing(chapters, cachedIds)
         try {
             var fetchedAny = false
             chapters.forEachIndexed { idx, ref ->
@@ -334,13 +347,12 @@ class BookRepo(
                 if (withContext(Dispatchers.IO) { db.books().book(bookId) } == null) {
                     throw java.io.IOException("book was deleted during download")
                 }
-                val has = withContext(Dispatchers.IO) {
-                    cachedChapterContent(bookId, ref.pageId) != null
-                }
+                val has = ref.pageId in cachedIds
                 if (!has) {
                     if (fetchedAny) crawlDelay()
                     val text = withContext(Dispatchers.IO) { chapter(ref.url).text }
                     saveChapterContent(bookId, ref.pageId, text)
+                    cachedIds.add(ref.pageId)
                     fetchedAny = true
                 }
                 onProgress(idx + 1, chapters.size)

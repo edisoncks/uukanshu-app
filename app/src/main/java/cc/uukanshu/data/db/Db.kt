@@ -99,7 +99,9 @@ abstract class AppDb : RoomDatabase() {
     @Transaction
     open suspend fun replaceToc(book: BookEntity, skeleton: List<ChapterEntity>) {
         books().upsert(book)
-        val cached = chapters().chapters(book.id).associate { it.pageId to it.content }
+        // Projected snapshot (pageId+content only): same merge semantics as
+        // before without materializing titles/URLs/positions for the whole book.
+        val cached = chapters().contents(book.id).associate { it.pageId to it.content }
         chapters().deleteBook(book.id)
         chapters().upsertAll(skeleton.map { it.copy(content = cached[it.pageId].orEmpty()) })
     }

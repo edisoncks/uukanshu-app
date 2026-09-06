@@ -49,6 +49,12 @@ data class ProgressEntity(
     val updatedAt: Long = 0L,
 )
 
+/** Projection for TOC content preservation: pageId + text only (no titles/URLs). */
+data class ChapterContentRef(
+    val pageId: Long,
+    val content: String,
+)
+
 /** Shelf stats per book, computed in SQL (see [ChapterDao.statsByBook]). */
 data class ChapterStats(
     val bookId: String,
@@ -129,6 +135,23 @@ interface ChapterDao {
 
     @Query("SELECT COUNT(*) FROM chapters WHERE bookId = :bookId AND content != ''")
     suspend fun cachedCount(bookId: String): Int
+
+    /**
+     * Content snapshot for [cc.uukanshu.data.db.AppDb.replaceToc]: pageId +
+     * text only. The old `chapters(bookId)` full-entity load pulled titles/
+     * URLs/positions (tens of MB transient for long novels) just to preserve
+     * downloads across a TOC refresh.
+     */
+    @Query("SELECT pageId, content FROM chapters WHERE bookId = :bookId")
+    suspend fun contents(bookId: String): List<ChapterContentRef>
+
+    /**
+     * One-shot cached-id set for bulk planning (see `BookRepo.downloadAll`).
+     * Lets the download loop check membership in memory instead of one
+     * `chapterContent()` query per chapter (N+1).
+     */
+    @Query("SELECT pageId FROM chapters WHERE bookId = :bookId AND content != ''")
+    suspend fun cachedPageIds(bookId: String): List<Long>
 
     /**
      * Shelf stats in one round trip, without loading chapter contents.

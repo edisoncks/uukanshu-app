@@ -59,6 +59,16 @@ class BookDownloadManager(
 
     private val jobs = ConcurrentHashMap<String, Job>()
 
+    /**
+     * Guards check-then-act in [start]/[cancel]/[forget]/[forgetAll].
+     * `ConcurrentHashMap` alone does not make `get-check-put` atomic:
+     * two concurrent `start(id)` could both see no live job and launch
+     * duplicates (first leaks holding [slot]). All job-map mutations that
+     * decide on current state synchronize here; `scope.launch` itself is
+     * non-blocking so holding this monitor briefly is safe.
+     */
+    private val startLock = Any()
+
     /** Bulk slot: whole-book downloads queue here, one at a time. */
     private val slot = Mutex()
 
@@ -70,10 +80,10 @@ class BookDownloadManager(
 
     /** Idempotent start: a live job for [bookId] wins, second tap is a no-op. */
     override fun start(bookId: String) {
-        val existing = jobs[bookId]
-        if (existing?.isActive == true) return
-        _states.update { it + (bookId to State(downloading = true, done = 0, total = 0, error = null)) }
-        val job = scope.launch {
+        synchronized(startLock) {
+            if (jobs[bookId]?.isActive == true) return
+            _states.update { it + (bookId to State(downloading = true, done = 0, total = 0, error = null)) }
+            val job = scope.launch {
             // Identity for the forget-race guard below.
             val self = coroutineContext[Job]!!
             try {
@@ -126,12 +136,13 @@ class BookDownloadManager(
                 val self = coroutineContext[Job]
                 if (self != null) jobs.remove(bookId, self) else jobs.remove(bookId)
             }
+            }
+            jobs[bookId] = job
         }
-        jobs[bookId] = job
     }
 
     override fun cancel(bookId: String) {
-        jobs.remove(bookId)?.cancel()
+        synchronized(startLock) { jobs.remove(bookId)?.cancel() }
         _states.update { cur ->
             val prev = cur[bookId] ?: return@update cur
             if (!prev.downloading) return@update cur
@@ -146,14 +157,16 @@ class BookDownloadManager(
      * cached bytes). Cancels any live job for the id first.
      */
     override fun forget(bookId: String) {
-        jobs.remove(bookId)?.cancel()
+        synchronized(startLock) { jobs.remove(bookId)?.cancel() }
         _states.update { cur -> cur - bookId }
     }
 
     /** Drop all retained state (used by clear-all). */
     override fun forgetAll() {
-        jobs.values.forEach { runCatching { it.cancel() } }
-        jobs.clear()
+        synchronized(startLock) {
+            jobs.values.forEach { runCatching { it.cancel() } }
+            jobs.clear()
+        }
         _states.update { emptyMap() }
     }
 }
