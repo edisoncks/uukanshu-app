@@ -37,10 +37,12 @@ class SiteApi(
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(INTERACTIVE_CALL_TIMEOUT_S, TimeUnit.SECONDS)
         .build(),
     private val bulkClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(BULK_CONNECT_TIMEOUT_S, TimeUnit.SECONDS)
         .readTimeout(BULK_READ_TIMEOUT_S, TimeUnit.SECONDS)
+        .callTimeout(BULK_CALL_TIMEOUT_S, TimeUnit.SECONDS)
         .build(),
     private val gate: UukanshuGate = UukanshuGate(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -165,6 +167,15 @@ class SiteApi(
         /** Bulk per-attempt timeouts: background work fails fast, never wedges the lane. */
         const val BULK_CONNECT_TIMEOUT_S = 15L
         const val BULK_READ_TIMEOUT_S = 15L
+        /**
+         * Socket-level per-attempt bound. `withTimeout` below cannot unblock
+         * an interrupt-ignoring socket read (blocking OkHttp IO); `callTimeout`
+         * aborts at the socket layer itself, so the deadline underneath is a
+         * real bound, not an aspiration. Each sits above its lane's
+         * connect+read sum so healthy-but-slow networks never trip it.
+         */
+        const val INTERACTIVE_CALL_TIMEOUT_S = 90L
+        const val BULK_CALL_TIMEOUT_S = 45L
         /**
          * Total deadline around the whole 3-attempt policy. Without this a
          * dead network costs ~3min per call (30s+30s per attempt + backoff),

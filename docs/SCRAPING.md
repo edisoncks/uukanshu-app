@@ -29,7 +29,9 @@ Mirrors CLI `fetch()`:
   `Accept: text/html,…`, `Accept-Language: zh-TW,zh;q=0.9,en;q=0.8`,
   `Upgrade-Insecure-Requests: 1`. Gzip handled transparently by OkHttp.
 - Timeouts: connect 30s, read 30s (interactive); bulk crawl work runs 15s/15s
-  so a stuck background fetch cannot wedge the lane. Total deadlines bound the
+  so a stuck background fetch cannot wedge the lane. Socket-level `callTimeout`
+  per lane (interactive 90s, bulk 45s) aborts interrupt-ignoring reads at the
+  socket layer — `withTimeout` alone cannot unblock those. Total deadlines bound the
   whole 3-attempt policy (interactive 90s, bulk 60s) — a dead network fails
   instead of spinning minutes per call.
 - Priority lane (`UukanshuGate`, `BulkFetch`): at most one uukanshu.cc request

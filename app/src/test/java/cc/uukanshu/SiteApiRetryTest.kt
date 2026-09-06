@@ -55,6 +55,17 @@ class SiteApiRetryTest {
         assertEquals(3, attempts)
     }
 
+    @Test fun callTimeoutsBoundLanesAboveLegitimateWorstCase() {
+        // Socket-level bound per lane (see SiteApi companion): each sits above
+        // its connect+read sum so healthy-but-slow networks never trip it,
+        // with bulk strictly tighter than interactive.
+        assertTrue(SiteApi.BULK_CALL_TIMEOUT_S > SiteApi.BULK_CONNECT_TIMEOUT_S + SiteApi.BULK_READ_TIMEOUT_S)
+        assertTrue(SiteApi.INTERACTIVE_CALL_TIMEOUT_S > 30L + 30L)
+        assertTrue(SiteApi.INTERACTIVE_CALL_TIMEOUT_S > SiteApi.BULK_CALL_TIMEOUT_S)
+        assertEquals(90_000L, SiteApi.INTERACTIVE_DEADLINE_MS)
+        assertEquals(60_000L, SiteApi.BULK_DEADLINE_MS)
+    }
+
     @Test fun cloudflareBlockFailsFastWithoutRetry() = runBlocking {
         var attempts = 0
         val challenge = "<html><head><title>Just a moment...</title></head><body>cf</body></html>"
