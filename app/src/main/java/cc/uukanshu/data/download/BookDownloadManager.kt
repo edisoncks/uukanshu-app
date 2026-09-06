@@ -151,11 +151,23 @@ class BookDownloadManager(
 
     /** Drop all retained state (used by clear-all). */
     fun forgetAll() {
-        // Weakly-consistent iteration is safe on CHM; per-entry remove-by-value
-        // cancels each job exactly once. A start() racing this wipe either lands
-        // before clear() (cancelled) or after (survives with fresh state) — both coherent.
-        jobs.forEach { (id, job) -> if (jobs.remove(id, job)) runCatching { job.cancel() } }
-        jobs.clear()
+        // Remove-by-value sweeps until the map is empty — never a blanket
+        // clear(). A clear() would untrack a start() that landed mid-wipe
+        // WITHOUT cancelling it: a live job whose publishes are dropped
+        // (`jobs[bookId] !== self` guards) and which keeps crawling into the
+        // cache the wipe just deleted. Sweeping by value, a racing start()
+        // is either removed + cancelled by a later pass, or lands after the
+        // loop exits (tracked, publishes flow — coherent). remove-by-value
+        // never evicts a newer job that replaced an old entry.
+        while (true) {
+            // Weakly-consistent snapshot is safe on CHM; each entry is
+            // cancelled exactly once via remove-by-value.
+            val snapshot = jobs.entries.toList()
+            if (snapshot.isEmpty()) break
+            for ((id, job) in snapshot) {
+                if (jobs.remove(id, job)) runCatching { job.cancel() }
+            }
+        }
         _states.update { emptyMap() }
     }
 

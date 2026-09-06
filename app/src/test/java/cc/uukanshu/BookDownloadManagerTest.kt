@@ -2,7 +2,10 @@ package cc.uukanshu
 
 import cc.uukanshu.data.download.BookDownloadManager
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
@@ -10,6 +13,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 class BookDownloadManagerTest {
     @Test fun secondDownloadWaitsForFirst() = runBlocking {
@@ -65,6 +69,44 @@ class BookDownloadManagerTest {
         // Let A finish and give B a chance to (incorrectly) run.
         delay(100)
         assertFalse("cancelled queued download must not run", bRan.get())
+    }
+
+    @Test fun forgetAllRacingStartNeverLeavesALiveUntrackedDownload() = runBlocking {
+        val entered = AtomicInteger(0)
+        val exited = AtomicInteger(0)
+        val manager = BookDownloadManager(
+            downloadFn = { _, _ ->
+                entered.incrementAndGet()
+                // Park forever: cancellation must be the only exit, so
+                // `exited` counts exactly the cancelled downloads.
+                try {
+                    awaitCancellation()
+                } finally {
+                    exited.incrementAndGet()
+                }
+            },
+            scope = this,
+        )
+        // Hammer the start-vs-wipe window: start() and forgetAll() racing
+        // round after round. A blanket jobs.clear() could drop a just-started
+        // job from the registry WITHOUT cancelling it — a live download whose
+        // publishes are dropped and whose only exit is gone.
+        repeat(200) {
+            val start = launch(Dispatchers.Default) { manager.start("b") }
+            val wipe = launch(Dispatchers.Default) { manager.forgetAll() }
+            start.join()
+            wipe.join()
+        }
+        // Drain: every started download must terminate by cancellation. If
+        // any job survived a wipe untracked, `exited` never catches up.
+        withTimeout(5000) {
+            while (entered.get() != exited.get()) {
+                manager.forgetAll()
+                delay(10)
+            }
+        }
+        assertEquals("untracked live download leaked", entered.get(), exited.get())
+        assertEquals(0, manager.states.value.size)
     }
 
     @Test fun restartPreservesLastKnownProgress() = runBlocking {
