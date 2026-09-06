@@ -2,6 +2,7 @@ package cc.uukanshu
 
 import cc.uukanshu.data.convert.T2S
 
+import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.data.repo.BookRepo
 import cc.uukanshu.di.RepoApi
 import cc.uukanshu.ui.reader.ReaderViewModel
@@ -11,6 +12,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import java.io.IOException
 
 class ReaderViewModelTest {
     @get:Rule val main = MainDispatcherRule()
@@ -87,5 +89,68 @@ class ReaderViewModelTest {
         val ui = vm.ui.value
         assertTrue(ui is ReaderViewModel.Ui.Content)
         assertEquals(2, (ui as ReaderViewModel.Ui.Content).position)
+    }
+
+    @Test fun toggleSimplifiedRerendersWithoutRefetch() = runTest {
+        val trad = "生命不息，奮鬥不止"
+        val simp = "生命不息，奋斗不止"
+        val repo = MutableFakeRepo(
+            cached = testDetail(101L),
+            fresh = testDetail(101L),
+            chaptersText = mutableMapOf(101L to trad),
+        )
+        val vm = ReaderViewModel(repo, T2S(), MutableFakePrefs(), "1", 1, 101L)
+        idle()
+        assertEquals(trad, (vm.ui.value as ReaderViewModel.Ui.Content).text)
+        // Break the network: a refetch would now fail, so success proves re-render from currentRaw.
+        repo.failure = IOException("network down")
+        vm.toggleSimplified()
+        idle()
+        val ui = vm.ui.value
+        assertTrue(ui is ReaderViewModel.Ui.Content)
+        assertEquals(simp, (ui as ReaderViewModel.Ui.Content).text)
+        assertEquals(true, ui.simplified)
+    }
+
+    @Test fun doubleToggleReturnsToStart() = runTest {
+        val repo = MutableFakeRepo(
+            fresh = testDetail(101L),
+            chaptersText = mutableMapOf(101L to "t1"),
+        )
+        val vm = ReaderViewModel(repo, T2S(), MutableFakePrefs(), "1", 1, 101L)
+        idle()
+        vm.toggleSimplified()
+        vm.toggleSimplified()
+        idle()
+        assertEquals(false, vm.ui.value.simplified)
+    }
+
+    @Test fun fontStepClampsAtBounds() = runTest {
+        val repo = MutableFakeRepo(
+            fresh = testDetail(101L),
+            chaptersText = mutableMapOf(101L to "t1"),
+        )
+        val vm = ReaderViewModel(repo, T2S(), MutableFakePrefs(), "1", 1, 101L)
+        idle()
+        vm.font(10f)
+        assertEquals(Prefs.FONT_MAX, vm.ui.value.fontScale)
+        vm.font(-10f)
+        assertEquals(Prefs.FONT_MIN, vm.ui.value.fontScale)
+    }
+
+    @Test fun cycleThemeRotatesSystemLightDark() = runTest {
+        val repo = MutableFakeRepo(
+            fresh = testDetail(101L),
+            chaptersText = mutableMapOf(101L to "t1"),
+        )
+        val vm = ReaderViewModel(repo, T2S(), MutableFakePrefs(), "1", 1, 101L)
+        idle()
+        assertEquals(Prefs.SYSTEM, vm.ui.value.theme)
+        vm.cycleTheme()
+        assertEquals(Prefs.LIGHT, vm.ui.value.theme)
+        vm.cycleTheme()
+        assertEquals(Prefs.DARK, vm.ui.value.theme)
+        vm.cycleTheme()
+        assertEquals(Prefs.SYSTEM, vm.ui.value.theme)
     }
 }
