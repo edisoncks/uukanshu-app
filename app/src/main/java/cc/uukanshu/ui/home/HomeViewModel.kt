@@ -42,7 +42,7 @@ import androidx.paging.compose.itemKey
 import cc.uukanshu.CATEGORIES
 import cc.uukanshu.core.Errors
 import cc.uukanshu.core.Display
-import cc.uukanshu.di.ConvertApi
+import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.paging.BookPagingSource
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.di.RepoApi
@@ -59,7 +59,7 @@ import kotlinx.coroutines.launch
 class HomeViewModel(
     private val repo: RepoApi,
     private val prefs: PrefsApi,
-    private val t2s: ConvertApi,
+    private val t2s: T2S,
 ) : ViewModel() {
     /**
      * Chrome state only (tab, category, display prefs). Page bookkeeping

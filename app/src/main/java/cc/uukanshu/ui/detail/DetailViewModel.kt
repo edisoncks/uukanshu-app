@@ -29,8 +29,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cc.uukanshu.core.Display
-import cc.uukanshu.di.ConvertApi
-import cc.uukanshu.di.DownloadsApi
+import cc.uukanshu.data.convert.T2S
+import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.di.RepoApi
 import cc.uukanshu.di.PrefsApi
@@ -47,9 +47,9 @@ import kotlinx.coroutines.launch
 class DetailViewModel(
     private val repo: RepoApi,
     private val prefs: PrefsApi,
-    private val t2s: ConvertApi,
+    private val t2s: T2S,
     private val bookId: String,
-    private val downloads: DownloadsApi,
+    private val downloads: BookDownloadManager,
 ) : ViewModel() {
     /** Load split from live overlays (progress/badges/bookmark compose orthogonally). */
     sealed interface Load {

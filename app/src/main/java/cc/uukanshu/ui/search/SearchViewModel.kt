@@ -28,7 +28,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cc.uukanshu.core.Display
-import cc.uukanshu.di.ConvertApi
+import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.di.RepoApi
@@ -49,7 +49,7 @@ import kotlinx.coroutines.launch
 class SearchViewModel(
     private val repo: RepoApi,
     private val prefs: PrefsApi,
-    private val t2s: ConvertApi,
+    private val t2s: T2S,
 ) : ViewModel() {
     /**
      * Sealed states: impossible combinations (loading + error, error +

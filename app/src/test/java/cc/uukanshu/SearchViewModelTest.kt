@@ -1,5 +1,7 @@
 package cc.uukanshu
 
+import cc.uukanshu.data.convert.T2S
+
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.di.RepoApi
 import cc.uukanshu.ui.search.SearchViewModel
@@ -21,7 +23,7 @@ class SearchViewModelTest {
     }
 
     @Test fun blankQueryStaysIdle() = runTest {
-        val vm = SearchViewModel(MutableFakeRepo(), MutableFakePrefs(), TestConvert())
+        val vm = SearchViewModel(MutableFakeRepo(), MutableFakePrefs(), T2S())
         main.dispatcher.scheduler.advanceUntilIdle()
         vm.query("   ")
         main.dispatcher.scheduler.advanceUntilIdle()
@@ -35,7 +37,7 @@ class SearchViewModelTest {
             Parser.BookItem(id = "2", title = "B"),
         )
         val repo = MutableFakeRepo(searchResult = Parser.SearchResult(3, books))
-        val vm = SearchViewModel(repo, MutableFakePrefs(), TestConvert())
+        val vm = SearchViewModel(repo, MutableFakePrefs(), T2S())
         main.dispatcher.scheduler.advanceUntilIdle()
         vm.query("key")
         advanceSearch()
@@ -60,7 +62,7 @@ class SearchViewModelTest {
                 return base.search(keyword)
             }
         }
-        val vm = SearchViewModel(repo, MutableFakePrefs(), TestConvert())
+        val vm = SearchViewModel(repo, MutableFakePrefs(), T2S())
         main.dispatcher.scheduler.advanceUntilIdle()
         vm.query("key")
         advanceSearch()
@@ -74,7 +76,7 @@ class SearchViewModelTest {
 
     @Test fun failureShowsError() = runTest {
         val repo = MutableFakeRepo(searchFailure = IOException("offline"))
-        val vm = SearchViewModel(repo, MutableFakePrefs(), TestConvert())
+        val vm = SearchViewModel(repo, MutableFakePrefs(), T2S())
         main.dispatcher.scheduler.advanceUntilIdle()
         vm.query("key")
         advanceSearch()
@@ -94,7 +96,7 @@ class SearchViewModelTest {
                 return base.search(keyword)
             }
         }
-        val vm = SearchViewModel(repo, MutableFakePrefs(), TestConvert())
+        val vm = SearchViewModel(repo, MutableFakePrefs(), T2S())
         main.dispatcher.scheduler.advanceUntilIdle()
         vm.query("first")
         advanceSearch()
@@ -121,7 +123,7 @@ class SearchViewModelTest {
                 return base.search(keyword)
             }
         }
-        val vm = SearchViewModel(repo, MutableFakePrefs(), TestConvert())
+        val vm = SearchViewModel(repo, MutableFakePrefs(), T2S())
         main.dispatcher.scheduler.advanceUntilIdle()
         vm.query("key")
         main.dispatcher.scheduler.advanceTimeBy(500)

@@ -26,7 +26,7 @@ import java.util.concurrent.ConcurrentHashMap
 class BookDownloadManager(
     private val downloadFn: suspend (String, (Int, Int) -> Unit) -> Unit,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
-) : cc.uukanshu.di.DownloadsApi {
+) {
     constructor(
         repo: cc.uukanshu.di.RepoApi,
         scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
@@ -43,7 +43,7 @@ class BookDownloadManager(
     )
 
     private val _states = MutableStateFlow<Map<String, State>>(emptyMap())
-    override val states: StateFlow<Map<String, State>> = _states
+    val states: StateFlow<Map<String, State>> = _states
 
     private val jobs = ConcurrentHashMap<String, Job>()
 
@@ -53,14 +53,14 @@ class BookDownloadManager(
     /** Bulk slot: whole-book downloads queue here, one at a time. */
     private val slot = Mutex()
 
-    override fun observe(bookId: String): Flow<State?> =
+    fun observe(bookId: String): Flow<State?> =
         _states.map { it[bookId] }.distinctUntilChanged()
 
-    override fun isDownloading(bookId: String): Boolean =
+    fun isDownloading(bookId: String): Boolean =
         jobs[bookId]?.isActive == true
 
     /** Idempotent start (second tap no-op). */
-    override fun start(bookId: String) {
+    fun start(bookId: String) {
         synchronized(startLock) {
             if (jobs[bookId]?.isActive == true) return
             // Seed from retained progress: a failed done/total stays visible
@@ -119,7 +119,7 @@ class BookDownloadManager(
         }
     }
 
-    override fun cancel(bookId: String) {
+    fun cancel(bookId: String) {
         synchronized(startLock) { jobs.remove(bookId)?.cancel() }
         _states.update { cur ->
             val prev = cur[bookId] ?: return@update cur
@@ -129,17 +129,22 @@ class BookDownloadManager(
     }
 
     /** Drop retained terminal state (call on cache delete so re-open can't replay stale progress). */
-    override fun forget(bookId: String) {
+    fun forget(bookId: String) {
         synchronized(startLock) { jobs.remove(bookId)?.cancel() }
         _states.update { cur -> cur - bookId }
     }
 
     /** Drop all retained state (used by clear-all). */
-    override fun forgetAll() {
+    fun forgetAll() {
         synchronized(startLock) {
             jobs.values.forEach { runCatching { it.cancel() } }
             jobs.clear()
         }
         _states.update { emptyMap() }
+    }
+
+    /** Test-only seed for retained progress (avoids hand-mirrored fakes). */
+    fun seedForTest(bookId: String, state: State) {
+        _states.update { it + (bookId to state) }
     }
 }

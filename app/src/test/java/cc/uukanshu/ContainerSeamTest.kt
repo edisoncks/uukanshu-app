@@ -7,14 +7,11 @@ import cc.uukanshu.data.update.ApkDownloader
 import cc.uukanshu.data.update.DownloadStatus
 import cc.uukanshu.data.update.ReleaseFetcher
 import cc.uukanshu.data.update.UpdateInfo
+import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.di.AppContainer
-import cc.uukanshu.di.ConvertApi
-import cc.uukanshu.di.DownloadsApi
 import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.di.RepoApi
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -65,21 +62,6 @@ class FakePrefs : PrefsApi {
     override suspend fun setSkippedVersion(v: String?) = Unit
 }
 
-class FakeConvert : ConvertApi {
-    override fun convert(s: String) = "S:$s"
-}
-
-class FakeDownloads : DownloadsApi {
-    override val states: StateFlow<Map<String, BookDownloadManager.State>> =
-        MutableStateFlow(emptyMap())
-    override fun observe(bookId: String): Flow<BookDownloadManager.State?> = flowOf(null)
-    override fun isDownloading(bookId: String) = false
-    override fun start(bookId: String) = Unit
-    override fun cancel(bookId: String) = Unit
-    override fun forget(bookId: String) = Unit
-    override fun forgetAll() = Unit
-}
-
 class FakeReleaseFetcher(var info: UpdateInfo? = null) : ReleaseFetcher {
     override fun fetchLatest(): UpdateInfo =
         info ?: throw java.io.IOException("no release")
@@ -97,15 +79,15 @@ class FakeApkDownloader : ApkDownloader {
 class FakeContainer(
     repo: RepoApi = FakeRepo(),
     prefs: PrefsApi = FakePrefs(),
-    t2s: ConvertApi = FakeConvert(),
-    downloads: DownloadsApi = FakeDownloads(),
+    t2s: T2S = T2S(),
+    downloads: BookDownloadManager = BookDownloadManager({ _, _ -> }),
     releaseApi: ReleaseFetcher = FakeReleaseFetcher(),
     apkDownloader: ApkDownloader = FakeApkDownloader(),
 ) : AppContainer {
     override val repo: RepoApi = repo
     override val prefs: PrefsApi = prefs
-    override val t2s: ConvertApi = t2s
-    override val downloads: DownloadsApi = downloads
+    override val t2s: T2S = t2s
+    override val downloads: BookDownloadManager = downloads
     override val releaseApi: ReleaseFetcher = releaseApi
     override val apkDownloader: ApkDownloader = apkDownloader
 }
@@ -130,9 +112,9 @@ class ContainerSeamTest {
         }
     }
 
-    @Test fun fakeConvertAppliesAtRender() {
+    @Test fun realConvertAppliesAtRender() {
         val container: AppContainer = FakeContainer()
-        assertEquals("S:raw", container.t2s.convert("raw"))
+        assertEquals("生命不息，奋斗不止", container.t2s.convert("生命不息，奮鬥不止"))
         assertTrue(!container.downloads.isDownloading("1"))
     }
 }

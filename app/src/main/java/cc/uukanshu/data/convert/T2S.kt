@@ -13,7 +13,7 @@ package cc.uukanshu.data.convert
  * (>4k chars) bypass the cache to bound memory. Pure eviction logic lives
  * in [CachePolicy] for JVM tests (no Android needed).
  */
-class T2S : cc.uukanshu.di.ConvertApi {
+class T2S {
     object CachePolicy {
         const val MAX_ENTRIES = 500
         const val MAX_CACHED_LEN = 4000
@@ -27,7 +27,7 @@ class T2S : cc.uukanshu.di.ConvertApi {
             size > CachePolicy.MAX_ENTRIES
     }
 
-    override fun convert(s: String): String {
+    fun convert(s: String): String {
         if (s.isEmpty()) return s
         if (!CachePolicy.shouldCache(s)) return convertUncached(s)
         synchronized(cache) { cache[s]?.let { return it } }

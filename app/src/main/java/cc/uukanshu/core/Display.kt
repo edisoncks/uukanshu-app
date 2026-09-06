@@ -1,6 +1,6 @@
 package cc.uukanshu.core
 
-import cc.uukanshu.di.ConvertApi
+import cc.uukanshu.data.convert.T2S
 
 /**
  * Single Traditional/Simplified rendering rule for the whole app.
@@ -11,6 +11,6 @@ import cc.uukanshu.di.ConvertApi
  * scripts while the rest follow the toggle.
  */
 object Display {
-    fun text(t2s: ConvertApi, raw: String, simplified: Boolean): String =
+    fun text(t2s: T2S, raw: String, simplified: Boolean): String =
         if (simplified) t2s.convert(raw) else raw
 }

@@ -2,13 +2,13 @@ package cc.uukanshu.di
 
 import androidx.compose.runtime.staticCompositionLocalOf
 import cc.uukanshu.App
+import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.repo.BookRepo
 import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.data.update.ApkDownloader
 import cc.uukanshu.data.update.ReleaseFetcher
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.StateFlow
 
 /** Manual constructor DI (no framework). App singletons, faked in JVM tests. */
 interface RepoApi {
@@ -48,25 +48,11 @@ interface PrefsApi {
     suspend fun setSkippedVersion(v: String?)
 }
 
-interface ConvertApi {
-    fun convert(s: String): String
-}
-
-interface DownloadsApi {
-    val states: StateFlow<Map<String, BookDownloadManager.State>>
-    fun observe(bookId: String): Flow<BookDownloadManager.State?>
-    fun isDownloading(bookId: String): Boolean
-    fun start(bookId: String)
-    fun cancel(bookId: String)
-    fun forget(bookId: String)
-    fun forgetAll()
-}
-
 interface AppContainer {
     val repo: RepoApi
     val prefs: PrefsApi
-    val t2s: ConvertApi
-    val downloads: DownloadsApi
+    val t2s: T2S
+    val downloads: BookDownloadManager
     val releaseApi: ReleaseFetcher
     val apkDownloader: ApkDownloader
 }
@@ -74,8 +60,8 @@ interface AppContainer {
 class RealAppContainer(app: App) : AppContainer {
     override val repo: RepoApi = app.repo as RepoApi
     override val prefs: PrefsApi = app.prefs as PrefsApi
-    override val t2s: ConvertApi = app.t2s as ConvertApi
-    override val downloads: DownloadsApi = app.downloadManager as DownloadsApi
+    override val t2s: T2S = app.t2s
+    override val downloads: BookDownloadManager = app.downloadManager
     override val releaseApi: ReleaseFetcher = app.updateApi
     override val apkDownloader: ApkDownloader = app.updateDownloader
 }

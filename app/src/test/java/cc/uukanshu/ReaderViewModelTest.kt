@@ -1,5 +1,7 @@
 package cc.uukanshu
 
+import cc.uukanshu.data.convert.T2S
+
 import cc.uukanshu.data.repo.BookRepo
 import cc.uukanshu.di.RepoApi
 import cc.uukanshu.ui.reader.ReaderViewModel
@@ -23,7 +25,7 @@ class ReaderViewModelTest {
             fresh = testDetail(101L, 102L),
             chaptersText = mutableMapOf(101L to "cached-text"),
         )
-        val vm = ReaderViewModel(repo, TestConvert(), MutableFakePrefs(), "1", 1, 101L)
+        val vm = ReaderViewModel(repo, T2S(), MutableFakePrefs(), "1", 1, 101L)
         idle()
         val ui = vm.ui.value
         assertTrue(ui is ReaderViewModel.Ui.Content)
@@ -33,7 +35,7 @@ class ReaderViewModelTest {
 
     @Test fun outOfRangeShowsError() = runTest {
         val repo = MutableFakeRepo(fresh = testDetail(101L))
-        val vm = ReaderViewModel(repo, TestConvert(), MutableFakePrefs(), "1", 99, 0L)
+        val vm = ReaderViewModel(repo, T2S(), MutableFakePrefs(), "1", 99, 0L)
         idle()
         val ui = vm.ui.value
         assertTrue(ui is ReaderViewModel.Ui.Error)
@@ -62,7 +64,7 @@ class ReaderViewModelTest {
                 return testDetail(101L, 102L)
             }
         }
-        val vm = ReaderViewModel(repo, TestConvert(), MutableFakePrefs(), "1", 1, 101L)
+        val vm = ReaderViewModel(repo, T2S(), MutableFakePrefs(), "1", 1, 101L)
         main.dispatcher.scheduler.runCurrent()
         main.dispatcher.scheduler.runCurrent()
         assertEquals(1, detailCalls)
@@ -80,7 +82,7 @@ class ReaderViewModelTest {
             fresh = testDetail(101L, 102L),
             chaptersText = mutableMapOf(101L to "t1", 102L to "t2"),
         )
-        val vm = ReaderViewModel(repo, TestConvert(), MutableFakePrefs(), "1", 1, 102L)
+        val vm = ReaderViewModel(repo, T2S(), MutableFakePrefs(), "1", 1, 102L)
         idle()
         val ui = vm.ui.value
         assertTrue(ui is ReaderViewModel.Ui.Content)

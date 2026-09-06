@@ -1,21 +1,15 @@
 package cc.uukanshu
 
-import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.repo.BookRepo
 import cc.uukanshu.data.prefs.Prefs
-import cc.uukanshu.di.ConvertApi
-import cc.uukanshu.di.DownloadsApi
 import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.di.RepoApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.update
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -123,39 +117,6 @@ class MutableFakePrefs(
     override suspend fun setSkippedVersion(v: String?) {
         skipped += v
     }
-}
-
-class RecordingDownloads : DownloadsApi {
-    private val _states = MutableStateFlow<Map<String, BookDownloadManager.State>>(emptyMap())
-    override val states: StateFlow<Map<String, BookDownloadManager.State>> = _states.asStateFlow()
-    val started = mutableListOf<String>()
-    val cancelled = mutableListOf<String>()
-    val forgotten = mutableListOf<String>()
-    var forgetAllCalls = 0
-
-    fun publish(bookId: String, state: BookDownloadManager.State) {
-        _states.update { it + (bookId to state) }
-    }
-
-    override fun observe(bookId: String): Flow<BookDownloadManager.State?> =
-        _states.map { it[bookId] }
-    override fun isDownloading(bookId: String) = _states.value[bookId]?.downloading == true
-    override fun start(bookId: String) {
-        started += bookId
-    }
-    override fun cancel(bookId: String) {
-        cancelled += bookId
-    }
-    override fun forget(bookId: String) {
-        forgotten += bookId
-    }
-    override fun forgetAll() {
-        forgetAllCalls++
-    }
-}
-
-class TestConvert : ConvertApi {
-    override fun convert(s: String) = "S:$s"
 }
 
 /** Fake fidelity: MutableFakePrefs must mirror production write contracts. */

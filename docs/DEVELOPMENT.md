@@ -109,7 +109,7 @@ app/src/main/java/cc/uukanshu/
   MainActivity.kt        # setContent only; shell lives in ui/AppNavHost.kt
   App.kt                 # Application singletons (gate/db/site/repo/downloads/prefs/t2s/update)
   Site.kt                # BASE_URL + fixed category catalogue (ids 1..10)
-  di/Deps.kt             # RepoApi/PrefsApi/ConvertApi/DownloadsApi + container
+  di/Deps.kt             # RepoApi/PrefsApi + T2S/BookDownloadManager + container
   core/Errors.kt         # friendly (UI Chinese, URL-stripped) + cancellation-safe helpers
   core/Display.kt        # single T2S render rule
   data/

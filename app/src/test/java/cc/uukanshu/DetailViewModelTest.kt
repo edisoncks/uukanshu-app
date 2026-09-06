@@ -1,8 +1,11 @@
 package cc.uukanshu
 
+import cc.uukanshu.data.convert.T2S
+import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.data.repo.BookRepo
 import cc.uukanshu.di.RepoApi
 import cc.uukanshu.ui.detail.DetailViewModel
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -15,10 +18,15 @@ import java.io.IOException
 class DetailViewModelTest {
     @get:Rule val main = MainDispatcherRule()
 
+    private fun manager(
+        scope: CoroutineScope,
+        downloadFn: suspend (String, (Int, Int) -> Unit) -> Unit = { _, _ -> },
+    ) = BookDownloadManager(downloadFn = downloadFn, scope = scope)
+
     private fun vm(
         repo: RepoApi,
-        downloads: RecordingDownloads = RecordingDownloads(),
-    ) = DetailViewModel(repo, MutableFakePrefs(), TestConvert(), "1", downloads)
+        downloads: BookDownloadManager,
+    ) = DetailViewModel(repo, MutableFakePrefs(), T2S(), "1", downloads)
 
     private fun idle() {
         main.dispatcher.scheduler.advanceUntilIdle()
@@ -26,7 +34,7 @@ class DetailViewModelTest {
 
     @Test fun freshPaintsReady() = runTest {
         val repo = MutableFakeRepo(fresh = testDetail(101L, 102L))
-        val vm = vm(repo)
+        val vm = vm(repo, manager(this))
         idle()
         val load = vm.ui.value.load
         assertTrue(load is DetailViewModel.Load.Ready)
@@ -37,7 +45,7 @@ class DetailViewModelTest {
     @Test fun emptyFreshKeepsStaleWithOfflineFlag() = runTest {
         val cached = testDetail(101L)
         val repo = MutableFakeRepo(cached = cached, fresh = testDetail())
-        val vm = vm(repo)
+        val vm = vm(repo, manager(this))
         idle()
         val load = vm.ui.value.load
         assertTrue(load is DetailViewModel.Load.Ready)
@@ -48,7 +56,7 @@ class DetailViewModelTest {
 
     @Test fun failureWithoutCacheShowsFailed() = runTest {
         val repo = MutableFakeRepo(failure = IOException("network down"))
-        val vm = vm(repo)
+        val vm = vm(repo, manager(this))
         idle()
         val load = vm.ui.value.load
         assertTrue(load is DetailViewModel.Load.Failed)
@@ -57,18 +65,24 @@ class DetailViewModelTest {
     @Test fun restartSeedsRetainedManagerProgress() = runTest {
         // A failed 500/1000 must show 500/1000 on restart, never flash 0/0.
         val repo = MutableFakeRepo(fresh = testDetail(101L))
-        val downloads = RecordingDownloads()
-        downloads.publish("1", cc.uukanshu.data.download.BookDownloadManager.State(
-            downloading = false, done = 500, total = 1000, error = "boom",
-        ))
+        val downloads = manager(this, downloadFn = { _, _ ->
+            kotlinx.coroutines.awaitCancellation()
+        })
+        downloads.seedForTest(
+            "1",
+            BookDownloadManager.State(downloading = false, done = 500, total = 1000, error = "boom"),
+        )
         val vm = vm(repo, downloads)
         idle()
         vm.downloadAll()
-        assertEquals(listOf("1"), downloads.started)
+        idle()
+        assertTrue(downloads.isDownloading("1"))
         assertEquals(true, vm.ui.value.downloading)
         assertEquals(500, vm.ui.value.done)
         assertEquals(1000, vm.ui.value.downloadTotal)
         assertEquals(null, vm.ui.value.downloadError)
+        downloads.cancel("1")
+        idle()
     }
 
     @Test fun vanishedBookmarkHidesContinue() = runTest {
@@ -78,7 +92,7 @@ class DetailViewModelTest {
             override fun bookmarkFlow(bookId: String): Flow<BookRepo.Bookmark?> =
                 flowOf(BookRepo.Bookmark(position = 1, pageId = 999L))
         }
-        val vm = vm(repo)
+        val vm = vm(repo, manager(this))
         idle()
         val load = vm.ui.value.load
         assertTrue(load is DetailViewModel.Load.Ready)
@@ -88,12 +102,16 @@ class DetailViewModelTest {
 
     @Test fun downloadDelegatesToManager() = runTest {
         val repo = MutableFakeRepo(fresh = testDetail(101L))
-        val downloads = RecordingDownloads()
+        val downloads = manager(this, downloadFn = { _, _ ->
+            kotlinx.coroutines.awaitCancellation()
+        })
         val vm = vm(repo, downloads)
         idle()
         vm.downloadAll()
-        assertEquals(listOf("1"), downloads.started)
+        idle()
+        assertTrue(downloads.isDownloading("1"))
         vm.cancelDownload()
-        assertEquals(listOf("1"), downloads.cancelled)
+        idle()
+        assertEquals(false, downloads.isDownloading("1"))
     }
 }

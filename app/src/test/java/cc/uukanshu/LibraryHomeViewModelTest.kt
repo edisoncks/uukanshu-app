@@ -1,11 +1,14 @@
 package cc.uukanshu
 
+import cc.uukanshu.data.convert.T2S
+import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.data.repo.BookRepo
 import cc.uukanshu.ui.home.HomeViewModel
 import cc.uukanshu.ui.library.LibraryViewModel
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -23,7 +26,7 @@ class LibraryViewModelTest {
 
     @Test fun shelfRendersRows() = runTest {
         val repo = MutableFakeRepo(libraryFlowRows = listOf(book("a"), book("b")))
-        val vm = LibraryViewModel(repo, MutableFakePrefs(), TestConvert(), RecordingDownloads())
+        val vm = LibraryViewModel(repo, MutableFakePrefs(), T2S(), BookDownloadManager({ _, _ -> }, this))
         idle()
         val load = vm.ui.value.load
         assertTrue(load is LibraryViewModel.Load.Shelf)
@@ -35,13 +38,14 @@ class LibraryViewModelTest {
             libraryRows = listOf(book("a")),
             libraryFlowRows = listOf(book("a")),
         )
-        val downloads = RecordingDownloads()
-        val vm = LibraryViewModel(repo, MutableFakePrefs(), TestConvert(), downloads)
+        val downloads = BookDownloadManager({ _, _ -> }, this)
+        downloads.seedForTest("a", BookDownloadManager.State(downloading = false, done = 2, total = 2))
+        val vm = LibraryViewModel(repo, MutableFakePrefs(), T2S(), downloads)
         idle()
         vm.delete("a")
         idle()
         assertEquals(listOf("a"), repo.deleted)
-        assertEquals(listOf("a"), downloads.forgotten)
+        assertNull(downloads.states.value["a"])
     }
 
     @Test fun refreshFailureWithRowsIsFooterError() = runTest {
@@ -50,7 +54,7 @@ class LibraryViewModelTest {
             libraryRows = listOf(book("a")),
             libraryFailure = IOException("db down"),
         )
-        val vm = LibraryViewModel(repo, MutableFakePrefs(), TestConvert(), RecordingDownloads())
+        val vm = LibraryViewModel(repo, MutableFakePrefs(), T2S(), BookDownloadManager({ _, _ -> }, this))
         idle()
         // Shelf painted from the flow; one-shot refresh fails → footer error, rows kept.
         vm.refresh()
@@ -67,17 +71,17 @@ class HomeViewModelTest {
     @get:Rule val main = MainDispatcherRule()
 
     @Test fun sameKeyReturnsSameFlow() {
-        val vm = HomeViewModel(MutableFakeRepo(), MutableFakePrefs(), TestConvert())
+        val vm = HomeViewModel(MutableFakeRepo(), MutableFakePrefs(), T2S())
         assertSame(vm.pagingFor(0, 1), vm.pagingFor(0, 1))
     }
 
     @Test fun differentKeysDiffer() {
-        val vm = HomeViewModel(MutableFakeRepo(), MutableFakePrefs(), TestConvert())
+        val vm = HomeViewModel(MutableFakeRepo(), MutableFakePrefs(), T2S())
         assertNotSame(vm.pagingFor(0, 1), vm.pagingFor(1, 2))
     }
 
     @Test fun evictsBeyondMaxPagers() {
-        val vm = HomeViewModel(MutableFakeRepo(), MutableFakePrefs(), TestConvert())
+        val vm = HomeViewModel(MutableFakeRepo(), MutableFakePrefs(), T2S())
         // Fill recent + 10 categories (11 max), then one more forces eviction.
         vm.pagingFor(0, 1)
         for (id in 1..10) vm.pagingFor(1, id)
@@ -89,7 +93,7 @@ class HomeViewModelTest {
     @Test fun evictionVictimIsDeterministic() {
         // Sorted-first victim among {recent, cat-1..cat-10} is always cat-1,
         // never a random live pager per run (ConcurrentHashMap order).
-        val vm = HomeViewModel(MutableFakeRepo(), MutableFakePrefs(), TestConvert())
+        val vm = HomeViewModel(MutableFakeRepo(), MutableFakePrefs(), T2S())
         val cat1 = vm.pagingFor(1, 1)
         val recent = vm.pagingFor(0, 1)
         for (id in 2..10) vm.pagingFor(1, id)
@@ -101,7 +105,7 @@ class HomeViewModelTest {
     }
 
     @Test fun selectTabMarksPendingTop() {
-        val vm = HomeViewModel(MutableFakeRepo(), MutableFakePrefs(), TestConvert())
+        val vm = HomeViewModel(MutableFakeRepo(), MutableFakePrefs(), T2S())
         vm.selectTab(1)
         assertEquals(true, vm.consumePendingTop(vm.listKey(1, 1)))
         assertEquals(false, vm.consumePendingTop(vm.listKey(1, 1)))

@@ -23,7 +23,7 @@ default with a global Simplified toggle (see below).
 - `App.kt`: `Application` subclass holding the shared singletons:
   `UukanshuGate` + `SiteApi` + `BookRepo` + app-scoped `BookDownloadManager` +
   `Prefs` + `T2S` + `UpdateApi` + `UpdateDownloader`.
-  `di/AppContainer` (`RepoApi`/`PrefsApi`/`ConvertApi`/`DownloadsApi`/
+  `di/AppContainer` (`RepoApi`/`PrefsApi`/`T2S`/`BookDownloadManager`/
   `ReleaseFetcher`/`ApkDownloader`) is the only thing screens see:
   `UukanshuApp` provides `RealAppContainer(app)` via `LocalContainer`,
   ViewModels take the interfaces (faked in JVM tests, see `ContainerSeamTest`).

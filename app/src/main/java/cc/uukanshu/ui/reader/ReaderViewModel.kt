@@ -38,7 +38,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cc.uukanshu.core.Display
-import cc.uukanshu.di.ConvertApi
+import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.data.prefs.Prefs
@@ -59,7 +59,7 @@ import kotlinx.coroutines.withContext
 
 class ReaderViewModel(
     private val repo: RepoApi,
-    private val t2s: ConvertApi,
+    private val t2s: T2S,
     private val prefs: PrefsApi,
     private val bookId: String,
     startPosition: Int,
