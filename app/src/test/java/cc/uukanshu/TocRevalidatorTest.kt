@@ -4,9 +4,10 @@ import cc.uukanshu.data.repo.TocShrunkException
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.repo.BookRepo
 import cc.uukanshu.data.repo.TocRevalidator
-import cc.uukanshu.di.ReadingApi
+import cc.uukanshu.di.RepoApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -30,7 +31,10 @@ class TocRevalidatorTest {
     private fun fake(
         cached: BookRepo.Detail? = null,
         fresh: Result<BookRepo.Detail>? = null,
-    ): ReadingApi = object : ReadingApi {
+    ): RepoApi = object : RepoApi {
+        override suspend fun category(categoryId: Int, page: Int) = emptyList<Parser.BookItem>()
+        override suspend fun recent(page: Int) = emptyList<Parser.BookItem>()
+        override suspend fun search(keyword: String) = Parser.SearchResult(null, emptyList())
         override suspend fun cachedDetail(bookId: String) = cached
         override suspend fun detail(bookId: String): BookRepo.Detail =
             fresh?.getOrThrow() ?: error("no fresh stub")
@@ -43,6 +47,13 @@ class TocRevalidatorTest {
         override suspend fun getBookmark(bookId: String) = null
         override suspend fun getProgress(bookId: String) = null
         override fun progressFlow(bookId: String): Flow<Int?> = emptyFlow()
+        override suspend fun bookEntry(bookId: String) = null
+        override suspend fun library() = emptyList<BookRepo.CachedBook>()
+        override fun libraryFlow(): Flow<List<BookRepo.CachedBook>> = flowOf(emptyList())
+        override suspend fun deleteBook(bookId: String) = Unit
+        override suspend fun clearAll() = Unit
+        override suspend fun crawlDelay() = Unit
+        override suspend fun downloadAll(bookId: String, onProgress: (Int, Int) -> Unit) = Unit
     }
 
     @Test fun emptyFreshIsRejected() {

@@ -10,29 +10,11 @@ import cc.uukanshu.data.update.ReleaseFetcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
-/**
- * Manual constructor DI (no framework).
- *
- * ViewModels depend on these narrow interfaces; [AppContainer] is created
- * once in MainActivity and provided via [LocalContainer] (the only seam
- * screens may use, faked in JVM tests / previews — see `ContainerSeamTest`).
- * Never construct `Prefs` / `T2S` / `UpdateApi` per-composition; always use
- * the app singletons exposed here.
- *
- * `RepoApi` is segregated (ISP): browse / reading / library / bulk facets
- * so screens declare only what they use. `RepoApi` itself extends all four
- * for the production [BookRepo]; ViewModels should take the narrowest
- * facet (e.g. Home takes [BrowseApi]) to keep fakes small and prevent
- * accidental coupling to unrelated repo surface.
- */
-
-interface BrowseApi {
+/** Manual constructor DI (no framework). App singletons, faked in JVM tests. */
+interface RepoApi {
     suspend fun category(categoryId: Int, page: Int): List<Parser.BookItem>
     suspend fun recent(page: Int): List<Parser.BookItem>
     suspend fun search(keyword: String): Parser.SearchResult
-}
-
-interface ReadingApi {
     suspend fun cachedDetail(bookId: String): BookRepo.Detail?
     suspend fun detail(bookId: String): BookRepo.Detail
     suspend fun chapter(url: String): Parser.ChapterContent
@@ -44,24 +26,14 @@ interface ReadingApi {
     suspend fun getBookmark(bookId: String): BookRepo.Bookmark?
     suspend fun getProgress(bookId: String): Int?
     fun progressFlow(bookId: String): Flow<Int?>
-}
-
-interface LibraryApi {
-    /** Domain view of a cached book row — never a Room entity. */
     suspend fun bookEntry(bookId: String): BookRepo.BookInfo?
     suspend fun library(): List<BookRepo.CachedBook>
     fun libraryFlow(): Flow<List<BookRepo.CachedBook>>
     suspend fun deleteBook(bookId: String)
     suspend fun clearAll()
-}
-
-interface BulkApi {
     suspend fun crawlDelay()
     suspend fun downloadAll(bookId: String, onProgress: (Int, Int) -> Unit)
 }
-
-/** Full repo contract (production [BookRepo] implements this). */
-interface RepoApi : BrowseApi, ReadingApi, LibraryApi, BulkApi
 
 interface PrefsApi {
     val simplified: Flow<Boolean>
@@ -100,8 +72,6 @@ interface AppContainer {
 }
 
 class RealAppContainer(app: App) : AppContainer {
-    // App singletons already implement the narrow interfaces, so this is
-    // delegation with zero new instances.
     override val repo: RepoApi = app.repo as RepoApi
     override val prefs: PrefsApi = app.prefs as PrefsApi
     override val t2s: ConvertApi = app.t2s as ConvertApi
@@ -111,5 +81,5 @@ class RealAppContainer(app: App) : AppContainer {
 }
 
 val LocalContainer = staticCompositionLocalOf<AppContainer> {
-    error("AppContainer not provided — wrap in CompositionLocalProvider(LocalContainer provides …)")
+    error("AppContainer not provided")
 }

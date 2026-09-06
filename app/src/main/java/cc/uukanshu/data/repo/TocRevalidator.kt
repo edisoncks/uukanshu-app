@@ -12,17 +12,9 @@ import kotlinx.coroutines.CancellationException
 class TocShrunkException(val cached: Int, val fresh: Int) :
     java.io.IOException("chapter list shrank ($fresh < $cached) — refusing to wipe cache")
 
-/**
- * Shared stale-while-revalidate rule for Detail and Reader.
- *
- * An empty fresh TOC is a failed parse (block page / layout change), never
- * a real empty book — see SCRAPING.md. A *shrunken* fresh TOC (nonempty but
- * smaller than cache) is the same failure shape: a truncated parse must
- * never wipe downloaded chapters via replaceToc. Single definition so the
- * two screens cannot drift (previously duplicated in both ViewModels).
- */
+/** Shared stale-while-revalidate rule: empty/shrunken fresh TOC never wipes cache. */
 class TocRevalidator(
-    private val repo: cc.uukanshu.di.ReadingApi,
+    private val repo: cc.uukanshu.di.RepoApi,
 ) {
     sealed interface Revalidate {
         data class Accepted(val detail: BookRepo.Detail) : Revalidate
@@ -33,12 +25,7 @@ class TocRevalidator(
     }
 
     companion object {
-        /**
-         * Strict shrink guard: any regression vs [cachedCount] rejects.
-         * Genuine chapter deletions are vanishingly rare; truncation is
-         * common. Stale + offline flag is the safe failure; the next full
-         * fetch heals. [cachedCount] = 0 keeps first-fetch behaviour.
-         */
+        /** Any regression vs [cachedCount] rejects; empty always rejects. */
         fun shouldAcceptFresh(
             freshChapters: List<Parser.ChapterRef>,
             cachedCount: Int = 0,
@@ -57,9 +44,6 @@ class TocRevalidator(
             if (!shouldAcceptFresh(fresh.chapters, cachedCount)) return Revalidate.RejectedShrink
             return Revalidate.Accepted(fresh)
         } catch (e: TocShrunkException) {
-            // Repo-enforced shrink (BookRepo.detail throws before touching
-            // the DB): same outcome as the predicate above, classified
-            // without message sniffing.
             return Revalidate.RejectedShrink
         } catch (e: CancellationException) {
             throw e
