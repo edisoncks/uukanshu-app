@@ -18,14 +18,14 @@ android {
         targetSdk = 34
         // Single source of truth for `uukanshu-{version}.apk`.
         versionName = "1.0.36"
-        // Derived (not manual) so code/name cannot drift: 1.0.34 -> 10034.
-        // Monotonic from the legacy 34 (10034 > 34), so side-load updates
-        // never see a downgrade. Never hand-edit versionCode.
+        // Derived (not manual) so code/name cannot drift: 1.0.36 -> 1000036.
+        // Monotonic from the legacy 34, so side-load updates never see a downgrade.
+        // Never hand-edit versionCode. Each component supports 0..999 (no 1.0.100 vs 1.1.0 collision).
         versionCode = run {
             val name = versionName ?: "0.0.0"
             val parts = name.split(".").map { it.filter(Char::isDigit).toIntOrNull() ?: 0 }
             val (major, minor, patch) = Triple(parts.getOrElse(0) { 0 }, parts.getOrElse(1) { 0 }, parts.getOrElse(2) { 0 })
-            major * 10000 + minor * 100 + patch
+            major * 1000000 + minor * 1000 + patch
         }
     }
 
