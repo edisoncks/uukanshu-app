@@ -50,6 +50,23 @@ class DetailViewModelTest {
         assertTrue(load is DetailViewModel.Load.Failed)
     }
 
+    @Test fun restartSeedsRetainedManagerProgress() = runTest {
+        // A failed 500/1000 must show 500/1000 on restart, never flash 0/0.
+        val repo = MutableFakeRepo(fresh = testDetail(101L))
+        val downloads = RecordingDownloads()
+        downloads.publish("1", cc.uukanshu.data.download.BookDownloadManager.State(
+            downloading = false, done = 500, total = 1000, error = "boom",
+        ))
+        val vm = vm(repo, downloads)
+        idle()
+        vm.downloadAll()
+        assertEquals(listOf("1"), downloads.started)
+        assertEquals(true, vm.ui.value.downloading)
+        assertEquals(500, vm.ui.value.done)
+        assertEquals(1000, vm.ui.value.downloadTotal)
+        assertEquals(null, vm.ui.value.downloadError)
+    }
+
     @Test fun downloadDelegatesToManager() = runTest {
         val repo = MutableFakeRepo(fresh = testDetail(101L))
         val downloads = RecordingDownloads()

@@ -186,7 +186,15 @@ class DetailViewModel(
     /** Manual full-novel download: app-scoped, survives leaving detail. */
     fun downloadAll() {
         if (_ui.value.downloading) return
-        _ui.value = _ui.value.copy(downloading = true, done = 0, downloadTotal = 0, downloadError = null)
+        // Seed from retained manager progress: a failed done/total stays
+        // visible until fresh callbacks arrive instead of flashing 0/0.
+        val retained = downloads.states.value[bookId]
+        _ui.value = _ui.value.copy(
+            downloading = true,
+            done = retained?.done ?: 0,
+            downloadTotal = retained?.total ?: 0,
+            downloadError = null,
+        )
         downloads.start(bookId)
     }
 
