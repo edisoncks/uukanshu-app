@@ -44,6 +44,7 @@ import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.di.RepoApi
 import cc.uukanshu.core.Errors
+import cc.uukanshu.data.net.BulkFetch
 import cc.uukanshu.data.repo.TocRevalidator
 import cc.uukanshu.ui.ThemeIconButton
 import cc.uukanshu.ui.vmFactory
@@ -54,6 +55,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class ReaderViewModel(
     private val repo: RepoApi,
@@ -339,7 +341,8 @@ class ReaderViewModel(
                 if (repo.cachedChapterContent(bookId, ref.pageId) != null) continue
                 if (fetchedAny) repo.crawlDelay()
                 try {
-                    val text = repo.chapter(ref.url).text
+                    // Bulk lane (see BulkFetch): prefetch never jumps ahead of taps.
+                    val text = withContext(BulkFetch) { repo.chapter(ref.url).text }
                     // PageId-keyed write: safe even if the live TOC moved.
                     repo.saveChapterContent(bookId, ref.pageId, text)
                     fetchedAny = true

@@ -1,6 +1,8 @@
 package cc.uukanshu
 
+import cc.uukanshu.data.net.BulkFetch
 import cc.uukanshu.data.net.SiteApi
+import cc.uukanshu.data.net.UukanshuGate
 import java.io.IOException
 import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
@@ -74,5 +76,48 @@ class SiteApiRetryTest {
             assertTrue(e.message!!.contains("404"))
         }
         assertEquals("search 404 must not be retried", 1, attempts)
+    }
+
+    @Test fun bulkContextRoutesToBulkClient() = runBlocking {
+        var mainCalls = 0
+        var bulkCalls = 0
+        val api = SiteApi(
+            clientFor(200, "ok") { mainCalls++ },
+            clientFor(200, "ok") { bulkCalls++ },
+        )
+        api.get("https://uukanshu.cc/book/1/")
+        assertEquals(1, mainCalls)
+        assertEquals(0, bulkCalls)
+        kotlinx.coroutines.withContext(BulkFetch) {
+            api.get("https://uukanshu.cc/book/1/")
+        }
+        assertEquals(1, mainCalls)
+        assertEquals(1, bulkCalls)
+    }
+
+    @Test fun totalDeadlineBoundsHangingRequestAndReleasesGate() = runBlocking {
+        // A dead network must time out instead of wedging the lane;
+        // the gate must be free for the next call afterwards.
+        val gate = UukanshuGate()
+        val hanging = OkHttpClient.Builder()
+            .addInterceptor(Interceptor {
+                java.util.concurrent.CountDownLatch(1).await()
+                throw IOException("unreachable")
+            })
+            .build()
+        val stuck = SiteApi(hanging, hanging, gate, interactiveDeadlineMs = 500L)
+        try {
+            stuck.get("https://uukanshu.cc/book/1/")
+            fail("expected timeout")
+        } catch (e: Exception) {
+            assertTrue(
+                "expected TimeoutCancellationException, got $e",
+                e is kotlinx.coroutines.TimeoutCancellationException,
+            )
+        }
+        var fastCalls = 0
+        val fast = SiteApi(clientFor(200, "ok") { fastCalls++ }, clientFor(200, "ok") {}, gate)
+        fast.get("https://uukanshu.cc/book/1/")
+        assertEquals(1, fastCalls)
     }
 }

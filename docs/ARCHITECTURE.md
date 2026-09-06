@@ -59,7 +59,7 @@ child of its load, so a superseded revalidate can never commit stale totals. Bot
 UI (ViewModels)
  └─ BookRepo            # orchestration: cache-first, prefetch, downloadAll, progress
      ├─ SiteApi         # raw HTTP (GET pages, POST /search), owns UukanshuGate per attempt
-     ├─ UukanshuGate    # single-flight Mutex: at most 1 uukanshu.cc request (fail-fast on nesting, never deadlock)
+     ├─ UukanshuGate    # single-flight Mutex + interactive priority lane (bulk yields, never preempts)
      ├─ BookDownloadManager # app-scoped full-book jobs, one at a time (survive detail)
      ├─ Parser          # pure HTML → data classes (BookItem, BookMeta, ChapterRef, ChapterContent)
      ├─ Room (AppDb)    # cached TOC/chapters/progress; schemas in app/schemas/
@@ -69,14 +69,18 @@ UI (ViewModels)
 - `data/net/SiteApi.kt`: browser-like headers (Android Chrome UA,
   `Accept-Language: zh-TW…`), gzip via OkHttp, 3× retry with cancellable `delay`
   backoff on
-  408/429/5xx + transport errors (4xx like 404 fail fast), Cloudflare
+  408/429/5xx + transport errors (4xx like 404 fail fast; Cloudflare blocks fail
+  fast with no retry), Cloudflare
   interstitial sniff on `<title>`. Only HTML is fetched — images/iframes/
   scripts are never requested (see [SCRAPING.md](SCRAPING.md)).
   Single-flight lives in `SiteApi`: each HTTP attempt holds `UukanshuGate` only for
   the blocking execute (`runInterruptible`); backoff delays and body sniffing
   run outside the gate (GitHub update traffic stays ungated), and
   `CancellationException` always propagates. Gate scope is per attempt — bulk
-  loops release it during `crawlDelay()` so interactive taps interleave.
+  loops release it during `crawlDelay()` so interactive taps interleave, and bulk
+  chapters additionally yield to *waiting* taps inside the gate (`BulkFetch` lane).
+  Timeouts are profiled: interactive 30s/30s + 90s total deadline, bulk 15s/15s +
+  60s (a dead network fails instead of wedging the lane for minutes).
 - `data/parse/Parser.kt` (facade) + `BookIds`/`CardsParser`/`TocParser`/
   `MetaParser`/`ChapterParser`: pure, unit-tested sub-parsers with
   precompiled patterns (no per-row `Regex(...)` allocation). `Parser` keeps

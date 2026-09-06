@@ -8,6 +8,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -26,7 +27,10 @@ import kotlin.coroutines.coroutineContext
  * Concurrency: every HTTP attempt holds [UukanshuGate] only for the
  * blocking execute itself. Retry backoff (`delay`) and HTML sniffing run
  * outside the gate so one failing request never head-of-line blocks
- * interactive taps for ~4.5s. Cancellation propagates immediately —
+ * interactive taps for ~4.5s. Bulk crawl work (under [BulkFetch]) takes the
+ * bulk lane: it yields to waiting taps in the gate and runs shorter
+ * timeouts, so a stuck background fetch cannot wedge the lane for minutes.
+ * Cancellation propagates immediately —
  * `CancellationException` is never swallowed by the retry loop.
  */
 class SiteApi(
@@ -34,8 +38,14 @@ class SiteApi(
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build(),
+    private val bulkClient: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(BULK_CONNECT_TIMEOUT_S, TimeUnit.SECONDS)
+        .readTimeout(BULK_READ_TIMEOUT_S, TimeUnit.SECONDS)
+        .build(),
     private val gate: UukanshuGate = UukanshuGate(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val interactiveDeadlineMs: Long = INTERACTIVE_DEADLINE_MS,
+    private val bulkDeadlineMs: Long = BULK_DEADLINE_MS,
 ) : SiteGateway {
     private val headers = mapOf(
         "User-Agent" to "Mozilla/5.0 (Linux; Android 12; Pixel 5) " +
@@ -85,7 +95,9 @@ class SiteApi(
      * 408/429/5xx + transport errors, fail fast on other 4xx, Cloudflare
      * sniff on the body. The gate is held per HTTP attempt only — backoff
      * sleeps and body sniffing run outside so a retrying request never
-     * blocks the single-flight lane while doing no network I/O.
+     * blocks the single-flight lane while doing no network I/O. A total
+     * deadline bounds the whole policy so no single call can wedge the lane
+     * (interactive 90s, bulk 60s — see companion).
      */
     @Throws(IOException::class, CancellationException::class)
     private suspend fun send(
@@ -94,38 +106,44 @@ class SiteApi(
         failurePrefix: String,
         call: Request,
     ): String {
+        val bulk = coroutineContext[BulkFetch.Key] != null
+        val http = if (bulk) bulkClient else client
+        val priority = if (bulk) FetchPriority.BULK else FetchPriority.INTERACTIVE
+        val deadline = if (bulk) bulkDeadlineMs else interactiveDeadlineMs
         var last: IOException? = null
-        repeat(3) { attempt ->
-            coroutineContext.ensureActive()
-            try {
-                val body: String = gate.withPermit {
-                    withContext(ioDispatcher) {
-                        runInterruptible {
-                            client.newCall(call).execute().use { res ->
-                                val code = res.code
-                                if (code == 408 || code == 429 || code >= 500) {
-                                    throw IOException("HTTP $code for $label")
+        return withTimeout(deadline) {
+            repeat(3) { attempt ->
+                coroutineContext.ensureActive()
+                try {
+                    val body: String = gate.withPermit(priority) {
+                        withContext(ioDispatcher) {
+                            runInterruptible {
+                                http.newCall(call).execute().use { res ->
+                                    val code = res.code
+                                    if (code == 408 || code == 429 || code >= 500) {
+                                        throw IOException("HTTP $code for $label")
+                                    }
+                                    // Deterministic client errors never heal on retry: fail
+                                    // fast instead of burning backoff delays.
+                                    if (!res.isSuccessful) throw NonRetryable(IOException("HTTP $code for $label"))
+                                    res.body?.string() ?: throw IOException(emptyBodyMessage)
                                 }
-                                // Deterministic client errors never heal on retry: fail
-                                // fast instead of burning backoff delays.
-                                if (!res.isSuccessful) throw NonRetryable(IOException("HTTP $code for $label"))
-                                res.body?.string() ?: throw IOException(emptyBodyMessage)
                             }
                         }
                     }
+                    throwIfBlocked(body)
+                    return@withTimeout body
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: NonRetryable) {
+                    throw e.failure
+                } catch (e: IOException) {
+                    last = e
+                    if (attempt < 2) delay(1500L * (attempt + 1))
                 }
-                throwIfBlocked(body)
-                return body
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: NonRetryable) {
-                throw e.failure
-            } catch (e: IOException) {
-                last = e
-                if (attempt < 2) delay(1500L * (attempt + 1))
             }
+            throw IOException("$failurePrefix: $last")
         }
-        throw IOException("$failurePrefix: $last")
     }
 
     private val titleRe =
@@ -141,5 +159,20 @@ class SiteApi(
         if ("Attention Required" in title || "Just a moment" in title || "you have been blocked" in title) {
             throw NonRetryable(IOException("blocked by Cloudflare — try again later or from a different network"))
         }
+    }
+
+    companion object {
+        /** Bulk per-attempt timeouts: background work fails fast, never wedges the lane. */
+        const val BULK_CONNECT_TIMEOUT_S = 15L
+        const val BULK_READ_TIMEOUT_S = 15L
+        /**
+         * Total deadline around the whole 3-attempt policy. Without this a
+         * dead network costs ~3min per call (30s+30s per attempt + backoff),
+         * and a reader open (detail + chapter, sequential) ~6min of spinner.
+         * Surfaces as TimeoutCancellationException ("timed out"), which
+         * [cc.uukanshu.core.Errors.friendly] already maps to the network message.
+         */
+        const val INTERACTIVE_DEADLINE_MS = 90_000L
+        const val BULK_DEADLINE_MS = 60_000L
     }
 }

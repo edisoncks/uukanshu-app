@@ -6,6 +6,7 @@ import cc.uukanshu.data.db.BookEntity
 import cc.uukanshu.data.db.ChapterEntity
 import cc.uukanshu.data.db.ProgressEntity
 import cc.uukanshu.data.net.SiteGateway
+import cc.uukanshu.data.net.BulkFetch
 import cc.uukanshu.data.parse.Parser
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -305,7 +306,9 @@ class BookRepo(
                 val has = ref.pageId in cachedIds
                 if (!has) {
                     if (fetchedAny) crawlDelay()
-                    val text = withContext(ioDispatcher) { chapter(ref.url).text }
+                    // Bulk lane: yields to interactive taps in the gate with
+                    // short timeouts (see BulkFetch). Chapter parse stays shared.
+                    val text = withContext(ioDispatcher + BulkFetch) { chapter(ref.url).text }
                     saveChapterContent(bookId, ref.pageId, text)
                     cachedIds.add(ref.pageId)
                     fetchedAny = true
