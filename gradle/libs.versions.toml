@@ -13,6 +13,8 @@ okhttp = "4.12.0"
 jsoup = "1.17.2"
 opencc4j = "1.14.0"
 junit = "4.13.2"
+testCore = "1.6.1"
+testExtJunit = "1.2.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -29,11 +31,14 @@ androidx-paging-compose = { group = "androidx.paging", name = "paging-compose", 
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+androidx-room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
 androidx-datastore = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
 opencc4j = { group = "com.github.houbb", name = "opencc4j", version.ref = "opencc4j" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+androidx-test-core = { group = "androidx.test", name = "core", version.ref = "testCore" }
+androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "testExtJunit" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
