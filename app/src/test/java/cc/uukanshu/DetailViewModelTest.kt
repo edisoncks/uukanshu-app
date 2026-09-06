@@ -1,6 +1,10 @@
 package cc.uukanshu
 
+import cc.uukanshu.data.repo.BookRepo
+import cc.uukanshu.di.RepoApi
 import cc.uukanshu.ui.detail.DetailViewModel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -12,7 +16,7 @@ class DetailViewModelTest {
     @get:Rule val main = MainDispatcherRule()
 
     private fun vm(
-        repo: MutableFakeRepo,
+        repo: RepoApi,
         downloads: RecordingDownloads = RecordingDownloads(),
     ) = DetailViewModel(repo, MutableFakePrefs(), TestConvert(), "1", downloads)
 
@@ -65,6 +69,21 @@ class DetailViewModelTest {
         assertEquals(500, vm.ui.value.done)
         assertEquals(1000, vm.ui.value.downloadTotal)
         assertEquals(null, vm.ui.value.downloadError)
+    }
+
+    @Test fun vanishedBookmarkHidesContinue() = runTest {
+        // Deleted chapter: no continue target, never the neighbor at position 1.
+        val base = MutableFakeRepo(cached = testDetail(101L, 102L), fresh = testDetail(101L, 102L))
+        val repo = object : RepoApi by base {
+            override fun bookmarkFlow(bookId: String): Flow<BookRepo.Bookmark?> =
+                flowOf(BookRepo.Bookmark(position = 1, pageId = 999L))
+        }
+        val vm = vm(repo)
+        idle()
+        val load = vm.ui.value.load
+        assertTrue(load is DetailViewModel.Load.Ready)
+        load as DetailViewModel.Load.Ready
+        assertEquals(null, vm.continueChapter(load.chapters))
     }
 
     @Test fun downloadDelegatesToManager() = runTest {

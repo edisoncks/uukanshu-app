@@ -92,10 +92,12 @@ class HardeningTest {
         assertEquals(2, ReaderViewModel.resolveEffectivePosition(shifted, 1, 101L))
     }
 
-    @Test fun resolveFallsBackToPositionWhenPageIdUnknown() {
+    @Test fun resolveFallsBackToPositionForPreV4Only() {
         val chapters = listOf(ref(1, 101L), ref(2, 102L))
         assertEquals(1, ReaderViewModel.resolveEffectivePosition(chapters, 1, 0L))
-        assertEquals(1, ReaderViewModel.resolveEffectivePosition(chapters, 1, 999L))
+        // Deleted chapter (pageId unknown, position live): -1 routes into the
+        // out-of-range Error path instead of aliasing to the neighbor.
+        assertEquals(-1, ReaderViewModel.resolveEffectivePosition(chapters, 1, 999L))
     }
 
     // -- Prefs: single bounds + theme normalization --------------------------

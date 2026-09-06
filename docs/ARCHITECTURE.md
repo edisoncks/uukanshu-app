@@ -168,8 +168,11 @@ UI (ViewModels)
 - Detail badges (✓ 已緩存) and counts (已緩存 N 章) derive from cached
   pageIds (`cachedPositionsFlow: Set<Long>`); Library shows per-book `cached/total` + bytes.
 - Bookmarks are `(position, pageId)` (DB v4): continue-reading resolves by
-  stable `pageId` first (`resolveBookmark`), falling back to `position` only
-  for pre-v4 rows or vanished chapters (never a neighbor).
+  stable `pageId` (`resolveBookmark`), falling back to `position` only
+  for pre-v4 rows (pageId 0). A vanished non-zero pageId means a deleted
+  chapter: no target (never the neighbor now sitting at the old position).
+  The reader's `resolveEffectivePosition` follows the same rule (−1 routes
+  into its out-of-range Error path).
 - Reader and Detail prefer cache, then network, then save raw — all content
   reads/writes by `pageId`, so a background TOC revalidate can never
   misfile text (no caller-side shift guard needed). Prefetch (next 5) and

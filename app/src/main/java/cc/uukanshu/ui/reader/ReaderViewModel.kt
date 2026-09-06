@@ -165,7 +165,13 @@ class ReaderViewModel(
     }
 
     companion object {
-        /** Stable pageId wins over display position (pure + tested). */
+        /**
+         * Stable pageId wins over display position (pure + tested). A missed
+         * non-zero pageId means a deleted chapter: yield -1 so the caller
+         * takes its out-of-range Error path instead of aliasing to the
+         * neighbor now sitting at the requested position. Position fallback
+         * is pre-v4 rows only (pageId == 0).
+         */
         fun resolveEffectivePosition(
             chapters: List<Parser.ChapterRef>,
             requestedPosition: Int,
@@ -173,6 +179,7 @@ class ReaderViewModel(
         ): Int {
             if (requestedPageId != 0L) {
                 chapters.firstOrNull { it.pageId == requestedPageId }?.let { return it.position }
+                return -1
             }
             return requestedPosition
         }

@@ -111,6 +111,13 @@ class BookRepoTest {
         assertEquals(102L, BookRepo.resolveBookmark(chapters, preV4)?.pageId)
     }
 
+    @Test fun bookmarkVanishedPageIdNeverAliasesNeighbor() {
+        // Deleted chapter whose old position now names a live chapter:
+        // pageId-first means no target, never the stranger at position 1.
+        val chapters = toc(101L, 102L)
+        assertEquals(null, BookRepo.resolveBookmark(chapters, BookRepo.Bookmark(1, 999L)))
+    }
+
     @Test fun bookmarkVanishedChapterHasNoTarget() {
         val chapters = toc(101L, 102L)
         // Page gone + position out of range: never a neighbor.
