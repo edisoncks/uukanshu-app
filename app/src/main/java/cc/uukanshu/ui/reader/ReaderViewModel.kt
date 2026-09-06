@@ -64,13 +64,7 @@ class ReaderViewModel(
     private val startPageId: Long = 0L,
 ) : ViewModel() {
 
-    /**
-     * Sealed states: a chapter is either loading, shown, or failed — never
-     * loading+failed, never content+spinner. Every `when` over Ui is
-     * compiler-checked as exhaustive. Position/total/display prefs ride on
-     * the interface so the sticky bottom bar reads them uniformly in any
-     * state.
-     */
+    /** Sealed Ui (Loading/Content/Error); prefs on the interface for the sticky bottom bar. */
     sealed interface Ui {
         val position: Int
         val total: Int
@@ -114,12 +108,7 @@ class ReaderViewModel(
         }
     }
 
-    /**
-     * Single copy helper for the sealed [Ui]: the interface has no common
-     * `copy`, so every display-pref/total update fans out over the three
-     * subtypes here instead of five one-field `withX` helpers. Null means
-     * "keep the current value".
-     */
+    /** Copy helper for sealed Ui (null = keep). */
     private fun Ui.copyWith(
         simplified: Boolean? = null,
         fontScale: Float? = null,
@@ -149,24 +138,16 @@ class ReaderViewModel(
     private val _ui = MutableStateFlow<Ui>(Ui.Loading(position = startPosition))
     val ui: StateFlow<Ui> = _ui
     private var chapters: List<Parser.ChapterRef> = emptyList()
-    // Stable identity for the initially requested chapter. The nav route
-    // carries both position (display order) and pageId (stable); after a TOC
-    // shift the position may name a neighbor, so the first load resolves by
-    // pageId when it matches a live chapter.
+    // First load resolves by stable pageId (position may name a neighbor after a TOC shift).
     private var pendingPageId: Long = startPageId
     private var bookTitleRaw: String = ""
-    // Serialized chapter loads: rapid prev/next taps must not overlap —
-    // last-tapped wins, never last-to-finish.
+    // Serialized loads: rapid prev/next taps, last-tapped wins.
     private var loadJob: Job? = null
     private var prefetchJob: Job? = null
     private var revalidateJob: Job? = null
     private val toc = TocRevalidator(repo)
-    // Last rendered raw chapter: language toggle re-renders from this with
-    // no network, no spinner, and no extra prefetch spawn.
+    // Last raw chapter for no-network language re-render.
     private var currentRaw: Parser.ChapterContent? = null
-    // Authoritative book name from TOC meta (raw Traditional, converted at
-    // render). Cached chapters have no network payload, so they must use
-    // this — never ref.title (chapter title) nor stale UI state.
 
     init {
         viewModelScope.launch {
@@ -182,11 +163,7 @@ class ReaderViewModel(
     }
 
     companion object {
-        /**
-         * Resolve the effective position for a load: stable pageId wins over
-         * display position, so a TOC insert between Detail tap and Reader open
-         * cannot alias to a neighbor. Pure + unit-tested.
-         */
+        /** Stable pageId wins over display position (pure + tested). */
         fun resolveEffectivePosition(
             chapters: List<Parser.ChapterRef>,
             requestedPosition: Int,

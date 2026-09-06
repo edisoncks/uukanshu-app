@@ -36,6 +36,14 @@ Common scopes in this repo: `home`, `search`, `detail`, `reader`, `library`,
    - Fetch/parse/rate-limit → [`SCRAPING.md`](SCRAPING.md)
 5. Commit atomically with a Conventional Commit message, push, open a PR.
 
+## Comments (why-only)
+
+- Code comments explain *why* (site quirk, race guard, deadlock warning),
+  never *how* already covered in `ARCHITECTURE.md` / `SCRAPING.md` — link
+  the doc section instead of duplicating it.
+- Keep comments short; delete history lessons ("previously X did Y").
+- `docs/` is canonical; code points to docs, not the reverse.
+
 ## Tests
 
 - Location: `app/src/test/java/cc/uukanshu/`.

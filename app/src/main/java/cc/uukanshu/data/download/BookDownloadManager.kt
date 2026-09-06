@@ -19,21 +19,9 @@ import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * App-scoped full-book downloads.
- *
- * Previously the download lived in `DetailViewModel.viewModelScope`, so
- * popping `detail/{bookId}` cancelled it. Jobs here run in an
- * application-scope so navigating away (home/library/search, another book)
- * never aborts them; re-opening the detail re-attaches via [observe].
- *
- * Full-book downloads run one at a time: a second tapped book queues
- * behind the running one instead of interleaving chapter fetches, so
- * request pacing is always the single-book 1-3s `crawlDelay` profile.
- * Network stays single-flight: [BookRepo.downloadAll] funnels each chapter
- * fetch through `UukanshuGate`, so a background download and foreground
- * browsing serialize per HTTP request instead of overlapping.
- * `crawlDelay` stays outside the gate, so interactive taps interleave
- * per-chapter rather than blocking behind a whole book.
+ * App-scoped full-book downloads (survive leaving detail; re-attach via observe).
+ * One book at a time (second queues); per-chapter gate keeps interactive taps interleaved.
+ * See ARCHITECTURE.md.
  */
 class BookDownloadManager(
     private val downloadFn: suspend (String, (Int, Int) -> Unit) -> Unit,
@@ -59,14 +47,7 @@ class BookDownloadManager(
 
     private val jobs = ConcurrentHashMap<String, Job>()
 
-    /**
-     * Guards check-then-act in [start]/[cancel]/[forget]/[forgetAll].
-     * `ConcurrentHashMap` alone does not make `get-check-put` atomic:
-     * two concurrent `start(id)` could both see no live job and launch
-     * duplicates (first leaks holding [slot]). All job-map mutations that
-     * decide on current state synchronize here; `scope.launch` itself is
-     * non-blocking so holding this monitor briefly is safe.
-     */
+    /** Guards check-then-act (CHM get-check-put is not atomic; prevents duplicate starts). */
     private val startLock = Any()
 
     /** Bulk slot: whole-book downloads queue here, one at a time. */
@@ -78,20 +59,17 @@ class BookDownloadManager(
     override fun isDownloading(bookId: String): Boolean =
         jobs[bookId]?.isActive == true
 
-    /** Idempotent start: a live job for [bookId] wins, second tap is a no-op. */
+    /** Idempotent start (second tap no-op). */
     override fun start(bookId: String) {
         synchronized(startLock) {
             if (jobs[bookId]?.isActive == true) return
             _states.update { it + (bookId to State(downloading = true, done = 0, total = 0, error = null)) }
             val job = scope.launch {
-            // Identity for the forget-race guard below.
             val self = coroutineContext[Job]!!
             try {
                 slot.withLock {
                     downloadFn(bookId) { done, total ->
-                        // A dying job's in-flight callback must not resurrect
-                        // downloading=true after cancel() published false: drop
-                        // publishes once this id no longer has a live job.
+                        // Drop publishes once the job is gone (cancel can't lose to in-flight callback).
                         if (jobs[bookId]?.isActive == true) {
                             _states.update { cur ->
                                 cur + (bookId to State(downloading = true, done = done, total = total, error = null))
@@ -99,9 +77,7 @@ class BookDownloadManager(
                         }
                     }
                 }
-                // A concurrent forget()/forgetAll() (delete/clear-all) wins over
-                // a late terminal publish: never resurrect stale done/total
-                // for zero cached bytes after the cache was deleted.
+                // forget() wins over late terminal publishes (never resurrect stale progress).
                 if (!self.isActive || jobs[bookId] !== self) return@launch
                 _states.update { cur ->
                     val prev = cur[bookId]
@@ -113,12 +89,9 @@ class BookDownloadManager(
                     ))
                 }
             } catch (e: CancellationException) {
-                // cancel()/forget() already published downloading=false; keep done/total.
                 throw e
             } catch (e: Exception) {
-                // Note: CancellationException is caught above, so this branch
-                // never sees cancellation (no second check needed).
-                // Same forget-wins guard as the success path.
+                // forget-wins guard as above.
                 val self = coroutineContext[Job]
                 if (self != null && jobs[bookId] !== self) return@launch
                 _states.update { cur ->
@@ -131,8 +104,7 @@ class BookDownloadManager(
                     ))
                 }
             } finally {
-                // Remove only our own entry: an old job finishing must never
-                // evict a new job started after forget()+re-download.
+                // Remove only our own entry (old job must never evict a new job).
                 val self = coroutineContext[Job]
                 if (self != null) jobs.remove(bookId, self) else jobs.remove(bookId)
             }
@@ -150,12 +122,7 @@ class BookDownloadManager(
         }
     }
 
-    /**
-     * Drop retained terminal state (finished/error/cancelled progress).
-     * Call when the book's cache is deleted so a re-opened detail can't
-     * replay a stale `done/total` (e.g. offering 重新下載整本 for zero
-     * cached bytes). Cancels any live job for the id first.
-     */
+    /** Drop retained terminal state (call on cache delete so re-open can't replay stale progress). */
     override fun forget(bookId: String) {
         synchronized(startLock) { jobs.remove(bookId)?.cancel() }
         _states.update { cur -> cur - bookId }

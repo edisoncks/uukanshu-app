@@ -78,32 +78,10 @@ class HomeViewModel(
     private val _ui = MutableStateFlow(Ui())
     val ui: StateFlow<Ui> = _ui
 
-    /**
-     * Per-list scroll positions, keyed by [listKey]. The ViewModel survives
-     * detail->back (HOME back-stack entry is retained); `rememberSaveable`
-     * in the composable is the second layer for rotation / process death.
-     * One entry per list (recent + each category) so lists never clobber
-     * each other — the old single shared LazyListState did.
-     *
-     * Thread-safe: `ConcurrentHashMap` because `snapshotFlow` collectors
-     * and composable `remember(key)` reads can race tab switches on
-     * different dispatchers. Plain `mutableMap` lost updates under rapid
-     * tab/category flapping.
-     */
+    /** Per-list scroll positions (ConcurrentHashMap: collectors race tab switches). */
     private val scrolls = java.util.concurrent.ConcurrentHashMap<String, Pair<Int, Int>>()
 
-    /**
-     * Explicit tab/category switches that want top. Consumed once by the
-     * composable (`scrollToItem(0)`). A plain "VM entry is 0,0" check
-     * cannot distinguish explicit-reset from a fresh ViewModel after
-     * process death (where the saveable position must win), so this
-     * one-shot flag exists. detail->back never sets it, so back keeps
-     * position.
-     *
-     * Thread-safe set backed by a `ConcurrentHashMap` for the same reason
-     * as [scrolls]: one-shot top-scroll flags must survive concurrent
-     * produce/consume without lost updates.
-     */
+    /** One-shot scroll-to-top flags for explicit tab/category switches (detail->back never sets). */
     private val pendingTop: MutableSet<String> =
         java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
@@ -140,8 +118,7 @@ class HomeViewModel(
 
     fun selectTab(tab: Int) {
         if (_ui.value.tab == tab) return
-        // Explicit user switch resets the target list to top (per-list reset
-        // on tab switch); detail->back never calls here so its saved pos stays.
+        // Explicit switch resets target list to top; detail->back keeps position.
         val key = listKey(tab, _ui.value.categoryId)
         scrolls.remove(key)
         pendingTop.add(key)
@@ -159,34 +136,10 @@ class HomeViewModel(
     }
 
     /**
-     * One cached Pager per tab/category, keyed by [listKey].
-     *
-     * The previous `_ui.map{...}.distinctUntilChanged().flatMapLatest{
-     * Pager... }` Flow looked equivalent but rebuilt a brand-new Pager on
-     * every new collection: `_ui` is a StateFlow, so re-collecting after
-     * detail->back (HOME recomposes, `collectAsLazyPagingItems` resubscribes)
-     * replays the current tab/category and `flatMapLatest` creates a fresh
-     * Pager/PagingSource. That refetches page 1 from network, swaps the
-     * LazyColumn for the full-screen spinner (`refresh Loading &&
-     * itemCount == 0`), and the restored index points at pages that no
-     * longer exist (the recent feed also shifts between requests) — so the
-     * scroll position was lost on every back navigation. `cachedIn` inside
-     * `flatMapLatest` did not help: each re-collection cached a *new* flow
-     * and abandoned the old pages.
-     *
-     * Caching the Flow per key keeps the same PagingData (and loaded pages)
-     * across detail->back, so no refetch and the saved scroll stays valid.
-     * Switching lists still uses a separate Pager (and seen-ids set), so ids
-     * never leak across lists. Retries, prefetch and refresh-load-states
-     * come from Paging — the old hand-rolled loadMore/refresh/stale-drop
-     * methods are gone.
-     *
-     * Thread-safe like [scrolls]: `pagingFor` is called from the composable
-     * (`remember(key)`) and may race across recompositions; use the atomic
-     * `computeIfAbsent` so two threads never build two Pagers for one key
-     * (which would fork seen-id sets and refetch page 1 twice). Bounded to
-     * [MAX_PAGERS] (recent + 10 categories): evicts another key when full so
-     * the map cannot grow without bound.
+     * One cached Pager per tab/category.
+     * Why not flatMapLatest over _ui: re-collection after detail->back would
+     * rebuild the Pager, refetch page 1 and lose scroll. Per-key cache keeps
+     * pages; bounded to MAX_PAGERS. See ARCHITECTURE.md.
      */
     private val pagers =
         java.util.concurrent.ConcurrentHashMap<String, Flow<PagingData<Parser.BookItem>>>()

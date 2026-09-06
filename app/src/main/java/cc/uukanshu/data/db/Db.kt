@@ -9,9 +9,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 /**
- * v1 -> v2: drop the never-written `chapters.updatedAt` column.
- * Hand-written (no DROP COLUMN: SQLite on minSdk predates it), recreating
- * the table with Room's exact expected shape.
+ * v1 -> v2: drop never-written `chapters.updatedAt` (no DROP COLUMN on minSdk SQLite). See SCRAPING.md.
  */
 val MIGRATION_1_2 = object : Migration(1, 2) {
     override fun migrate(db: SupportSQLiteDatabase) {
@@ -32,12 +30,7 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
 }
 
 /**
- * v2 -> v3: rekey `chapters` from `(bookId, position)` to stable
- * `(bookId, pageId)`. `position` becomes a plain order column (indexed).
- * Content-preserving dedup: rows are copied empty-first with
- * `INSERT OR REPLACE`, so a duplicate pageId keeps its download instead
- * of being wiped by an empty skeleton row. Next `detail()` refresh
- * repairs positions from the live TOC.
+ * v2 -> v3: rekey `chapters` to stable `(bookId, pageId)`; empty-first copy preserves downloads.
  */
 val MIGRATION_2_3 = object : Migration(2, 3) {
     override fun migrate(db: SupportSQLiteDatabase) {
@@ -62,12 +55,7 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
     }
 }
 
-/**
- * v3 -> v4: bookmark by stable `pageId` (TOC shifts used to misdirect
- * continue-reading when only `position` was stored). Adds non-null
- * `pageId` defaulting to 0 = pre-v4 position-only row (callers fall back
- * to `position` when 0 or unresolvable).
- */
+/** v3 -> v4: bookmark by stable `pageId` (0 = pre-v4 position-only fallback). */
 val MIGRATION_3_4 = object : Migration(3, 4) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE progress ADD COLUMN `pageId` INTEGER NOT NULL DEFAULT 0")
@@ -85,28 +73,19 @@ abstract class AppDb : RoomDatabase() {
     abstract fun progress(): ProgressDao
 
     /**
-     * Atomic TOC wholesale replace that preserves downloaded content.
-     *
-     * The snapshot (`cached` by stable pageId) and the delete+reinsert run
-     * in one Room transaction, so a concurrent single-row content write
-     * committing between them is not lost. Callers must still serialize
-     * this against `ChapterDao.updateContent` via the repo `dbWrite` Mutex
-     * (Room transactions alone don't serialize against each other beyond
-     * SQLite locking). Takes a content-empty skeleton; content merge lives
-     * here so callers cannot forget it (wiping downloads) or forget the
-     * delete (leaving ghost rows past a shrunken TOC).
+     * Atomic TOC replace preserving downloads by stable pageId.
+     * Callers must serialize against `updateContent` via repo `dbWrite` Mutex.
+     * See ARCHITECTURE.md § Offline cache model.
      */
     @Transaction
     open suspend fun replaceToc(book: BookEntity, skeleton: List<ChapterEntity>) {
         books().upsert(book)
-        // Projected snapshot (pageId+content only): same merge semantics as
-        // before without materializing titles/URLs/positions for the whole book.
         val cached = chapters().contents(book.id).associate { it.pageId to it.content }
         chapters().deleteBook(book.id)
         chapters().upsertAll(skeleton.map { it.copy(content = cached[it.pageId].orEmpty()) })
     }
 
-    /** Atomic per-book wipe across all three tables (single transaction). */
+    /** Atomic per-book wipe (single transaction). */
     @Transaction
     open suspend fun deleteBookFull(bookId: String) {
         chapters().deleteBook(bookId)
@@ -114,11 +93,7 @@ abstract class AppDb : RoomDatabase() {
         progress().deleteBook(bookId)
     }
 
-    /**
-     * Atomic wipe of every table in one transaction: the old per-book loop
-     * could strand a half-cleared library on cancellation, and could never
-     * reach progress rows with no book row.
-     */
+    /** Atomic wipe of all tables (single transaction). */
     @Transaction
     open suspend fun clearAllFull() {
         chapters().clearAll()

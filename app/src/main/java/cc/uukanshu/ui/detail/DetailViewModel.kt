@@ -51,13 +51,7 @@ class DetailViewModel(
     private val bookId: String,
     private val downloads: DownloadsApi,
 ) : ViewModel() {
-    /**
-     * Load state, split from live overlays. Content is loading, failed, or
-     * ready — never loading+failed, never a null-meta success (the old
-     * `meta!!` crash site). Download progress, cache badges, bookmarks and
-     * display prefs compose orthogonally on [Ui] and keep updating no
-     * matter which load state is showing.
-     */
+    /** Load split from live overlays (progress/badges/bookmark compose orthogonally). */
     sealed interface Load {
         data object Loading : Load
         data class Failed(val message: String) : Load
@@ -82,9 +76,7 @@ class DetailViewModel(
 
     private val _ui = MutableStateFlow(Ui())
     val ui: StateFlow<Ui> = _ui
-    // Serialized refresh: rapid retry taps cancel the previous fetch so two
-    // wholesale TOC replaces never run concurrently (last-tapped wins).
-    // Never touched by downloadAll/cancelDownload — those are independent.
+    // Serialized refresh (last-tapped wins); independent of download jobs.
     private var refreshJob: kotlinx.coroutines.Job? = null
     private val toc = TocRevalidator(repo)
 
@@ -93,8 +85,7 @@ class DetailViewModel(
             _ui.value = _ui.value.copy(simplified = prefs.simplified.first())
             refresh()
         }
-        // Live badge state: every cache write (reader, prefetch, download)
-        // re-emits, so badges stay correct when returning to this screen.
+        // Live badges/bookmark/download re-attach (survive nav).
         viewModelScope.launch {
             repo.cachedPositionsFlow(bookId).collect { positions ->
                 _ui.value = _ui.value.copy(cached = positions)
@@ -108,8 +99,7 @@ class DetailViewModel(
                 _ui.value = _ui.value.copy(bookmark = bm)
             }
         }
-        // App-scoped download: re-attach to an in-flight or finished job
-        // when re-opening this detail after navigating away.
+        // Re-attach to app-scoped download.
         viewModelScope.launch {
             downloads.observe(bookId).collect { st ->
                 if (st == null) return@collect
@@ -130,12 +120,10 @@ class DetailViewModel(
     }
 
     fun refresh() {
-        // Never cancel the download here: refresh (init/retry) and the
-        // manual full download are independent jobs. Killing the download
-        // on any refresh would silently abort user-requested work.
+        // Refresh never cancels downloads (independent jobs).
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
-            // Stale-while-revalidate: paint cache instantly, refresh silently.
+            // Paint cache instantly, refresh silently (see TocRevalidator).
             val cached = toc.cached(bookId)
             if (cached != null) {
                 _ui.update {

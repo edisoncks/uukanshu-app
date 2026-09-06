@@ -19,31 +19,18 @@ import kotlinx.coroutines.withContext
 import kotlin.random.Random
 
 /**
- * Network-first repository facade with Room fallback for cached novels.
- * Raw (Traditional) text is cached; T2S conversion happens at render.
- *
- * Pure rules live in collaborators ([TocMerge], [ShelfOrder],
- * [BookmarkResolve]) so they are unit-testable without network/DB;
- * this class owns orchestration (single-flight via SiteApi, dbWrite
- * serialization, crawl pacing) and keeps a stable public API for screens.
+ * Network-first facade with Room fallback. Raw Traditional cached; T2S at render.
+ * Pure rules in TocMerge/ShelfOrder/BookmarkResolve. See ARCHITECTURE.md.
  */
 class BookRepo(
     private val site: SiteGateway,
     private val db: AppDb,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : cc.uukanshu.di.RepoApi {
-    /**
-     * Serializes the TOC wholesale replace in [detail] against single-row
-     * content writes ([saveChapterContent]): without this, a download UPDATE
-     * committing between the replace's content snapshot and its
-     * delete+reinsert is silently lost. Network stays outside the lock —
-     * only the short DB critical sections serialize.
-     */
+    /** Serializes TOC replace vs single-row writes (lost-update guard). */
     private val dbWrite = Mutex()
     override suspend fun category(categoryId: Int, page: Int): List<Parser.BookItem> =
         withContext(ioDispatcher) {
-            // Single-flight lives inside SiteApi per HTTP attempt; parse runs
-            // outside the gate so Jsoup never blocks interactive requests.
             val html = site.get("${Parser.BASE}/class_${categoryId}_${page}.html")
             Parser.parseCategory(html)
         }
@@ -145,12 +132,7 @@ class BookRepo(
         // never wipe the cached chapters on nothing. Return fresh (empty)
         // without touching the DB so offline content survives.
         if (chapters.isEmpty()) return@withContext Detail(meta, chapters)
-        // Cache meta + TOC skeleton, preserving downloaded content and the
-        // shelf timestamp (browsing Detail alone must not reorder the shelf).
-        // Single write path via AppDb.replaceToc: snapshot + delete + reinsert
-        // are one Room transaction so a concurrent content write cannot be
-        // lost, and callers cannot forget the merge (wiped downloads) or the
-        // delete (ghost rows past a shrunken TOC).
+        // Preserve downloads + shelf order via AppDb.replaceToc (single transaction).
         Errors.runCatchingExceptCancel {
             dbWrite.withLock {
                 val existing = db.books().book(bookId)
@@ -160,8 +142,6 @@ class BookRepo(
                     BookEntity(bookId, meta.title, meta.author, meta.intro, meta.category, meta.latestChapterTitle),
                     now,
                 )
-                // Content-empty skeleton; replaceToc backfills cached text by
-                // stable pageId inside the same transaction.
                 val skeleton = chapters.map {
                     ChapterEntity(bookId, it.position, it.pageId, it.title, it.url, content = "")
                 }
@@ -178,40 +158,28 @@ class BookRepo(
             Parser.parseChapter(html, url)
         }
 
-    /**
-     * Cached text by stable pageId — immune to TOC-shift aliasing.
-     * Wrapped in IO for uniformity: Room suspend is main-safe, but every
-     * other repo read goes through ioDispatcher so a forgotten context
-     * can never block Main.
-     */
+    /** Cached text by stable pageId (immune to TOC shifts). */
     override suspend fun cachedChapterContent(bookId: String, pageId: Long): String? =
         withContext(ioDispatcher) {
             db.chapters().chapterContent(bookId, pageId)?.takeIf { it.isNotEmpty() }
         }
 
-    /** Stable ids with downloaded content — immune to TOC-shift mislabeling. */
+    /** Stable ids with downloaded content. */
     override fun cachedPositionsFlow(bookId: String): Flow<Set<Long>> =
         db.chapters().cachedPositionsFlow(bookId).map { it.toSet() }
 
-    /** Content write by stable pageId — a shifted TOC can never misfile text. */
+    /** Content write by stable pageId. */
     override suspend fun saveChapterContent(bookId: String, pageId: Long, content: String) {
         dbWrite.withLock {
             db.chapters().updateContent(bookId, pageId, content)
         }
     }
 
-    /**
-     * Silent auto-bookmark by stable pageId (position is display order only
-     * and shifts when the site inserts chapters). `position` is kept as a
-     * fallback for pre-v4 rows (`pageId == 0`) and for clamping when the
-     * saved chapter vanished from the live TOC. Also bumps the shelf.
-     */
+    /** Auto-bookmark by stable pageId (position = pre-v4 fallback); bumps shelf. */
     override suspend fun saveProgress(bookId: String, position: Int, pageId: Long) {
         withContext(ioDispatcher) {
             val now = System.currentTimeMillis()
             db.progress().upsert(ProgressEntity(bookId, position, pageId, now))
-            // Best-effort shelf bump: must not swallow cancellation (would
-            // turn a cancelled save into a normal return and run extra work).
             Errors.suppressExceptCancel { db.books().touch(bookId, now) }
         }
     }
@@ -289,28 +257,14 @@ class BookRepo(
             ShelfOrder.assemble(rows, stats, progress.associate { it.bookId to it.updatedAt })
         }
 
-    /**
-     * Polite crawl delay between chapter fetches: random 1-3s,
-     * so bulk downloading looks less like a bot to rate limiting.
-     * Only for multi-chapter loops (full download, prefetch) — single
-     * interactive chapter taps stay immediate (already user-paced).
-     */
+    /** Polite 1-3s delay between bulk fetches (single taps stay immediate). */
     override suspend fun crawlDelay() {
         kotlinx.coroutines.delay(nextCrawlDelayMs())
     }
 
-    /**
-     * Sequential full download; [onProgress] gets (done, total). Throwing aborts.
-     * Bumps the shelf when content was cached (even partial/cancelled),
-     * so the just-downloaded book is on top and easy to find.
-     */
+    /** Sequential full download; throwing aborts. See SCRAPING.md politeness. */
     override suspend fun downloadAll(bookId: String, onProgress: (Int, Int) -> Unit) {
-        // Offline with a warm cache must still succeed: the loop below is a
-        // local no-op when everything is already downloaded. Only throw when
-        // there is no cached TOC to work from either. An empty fresh TOC is
-        // a block page / layout change, never a real empty book: fall back
-        // to cache, and fail loudly when neither has chapters (never report
-        // silent success with zero work).
+        // Empty fresh TOC = block page, fall back to cache; fail loudly on neither.
         val chapters = try {
             val fresh = withContext(ioDispatcher) { detail(bookId).chapters }
             if (fresh.isNotEmpty()) fresh
@@ -325,12 +279,7 @@ class BookRepo(
             withContext(ioDispatcher) { cachedDetail(bookId)?.chapters } ?: throw e
         }
         if (chapters.isEmpty()) throw java.io.IOException("empty chapter list — try again later")
-        // One-shot cached-id set: membership checks below are in-memory.
-        // The old per-chapter `cachedChapterContent()` query was N+1 DB
-        // round trips for a 2000-chapter book. The set is a snapshot: newly
-        // fetched chapters are added locally so a concurrent cache clear
-        // cannot resurrect a "has" hit (writes are UPDATE-only no-ops on
-        // missing rows, and the delete-mid-download guard below aborts).
+        // In-memory id set avoids N+1 queries; snapshot so concurrent clear can't fake hits.
         val cachedIds = withContext(ioDispatcher) {
             runCatching { db.chapters().cachedPageIds(bookId).toMutableSet() }
                 .getOrDefault(mutableSetOf())
@@ -341,11 +290,7 @@ class BookRepo(
         try {
             var fetchedAny = false
             chapters.forEachIndexed { idx, ref ->
-                // The library entry may be deleted mid-download (per-book
-                // delete / clear-all from another screen). Chapter writes are
-                // UPDATE-only no-ops on missing rows, so without this the
-                // loop would burn bandwidth and report success with zero
-                // bytes cached. Abort loudly instead.
+                // Abort if the book was deleted mid-download (writes are no-ops on missing rows).
                 if (withContext(ioDispatcher) { db.books().book(bookId) } == null) {
                     throw java.io.IOException("book was deleted during download")
                 }
@@ -360,8 +305,6 @@ class BookRepo(
                 onProgress(idx + 1, chapters.size)
             }
         } finally {
-            // Touch even on cancel/error when something is cached; never
-            // let the bump break (or mask) the download result.
             runCatching {
                 withContext(NonCancellable + ioDispatcher) {
                     val cached = db.chapters().cachedCount(bookId)
@@ -377,10 +320,7 @@ class BookRepo(
         }
     }
 
-    /**
-     * Atomic wipe via [AppDb.clearAllFull]: single transaction so
-     * cancellation cannot strand a half-cleared library.
-     */
+    /** Atomic wipe via [AppDb.clearAllFull]. */
     override suspend fun clearAll() = withContext(ioDispatcher) {
         dbWrite.withLock {
             db.clearAllFull()
