@@ -223,8 +223,12 @@ class ReaderViewModel(
                     } else if (cachedToc != null) {
                         // Serving from stale TOC: revalidate silently.
                         // Stale size guards against truncated parses.
+                        // Child of the load (not a viewModelScope sibling):
+                        // cancelling the load cancels its revalidate, so a
+                        // superseded revalidate can never commit stale totals
+                        // after a newer load resolved. See SCRAPING.md.
                         val staleCount = chapters.size
-                        revalidateJob = viewModelScope.launch {
+                        revalidateJob = launch {
                             when (val res = toc.revalidate(bookId, staleCount)) {
                                 is TocRevalidator.Revalidate.Accepted -> {
                                     chapters = res.detail.chapters
