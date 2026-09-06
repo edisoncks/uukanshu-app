@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -71,8 +72,17 @@ fun SearchScreen(onBook: (String) -> Unit) {
             )
         }
         when (val s = ui) {
-            is SearchViewModel.Ui.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+            // Stale-while-revalidate (see Detail/Library): a new query keeps
+            // the last results under a thin bar; spinner only with no rows.
+            is SearchViewModel.Ui.Loading -> if (s.books.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            } else {
+                Column(Modifier.fillMaxSize()) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    ResultList(s.books, vm::display, onBook)
+                }
             }
             is SearchViewModel.Ui.Error -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -84,26 +94,36 @@ fun SearchScreen(onBook: (String) -> Unit) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(vm.display("沒有結果"), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-            } else LazyColumn(Modifier.fillMaxSize()) {
-                items(s.books, key = { it.id }) { b ->
-                    Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onBook(b.id) }) {
-                        Column(Modifier.padding(12.dp)) {
-                            Text(vm.display(b.title), style = MaterialTheme.typography.titleMedium)
-                            if (b.author.isNotEmpty()) Text(
-                                "${vm.display("作者")}：${vm.display(b.author)}",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                            if (b.latestChapterTitle.isNotEmpty()) Text(
-                                "${vm.display("更新到")}：${vm.display(b.latestChapterTitle)}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                    }
-                }
-            }
+            } else ResultList(s.books, vm::display, onBook)
             // Never searched / cleared: blank, matching the old empty-list branch.
             is SearchViewModel.Ui.Idle -> Box(Modifier.fillMaxSize()) {}
+        }
+    }
+}
+
+/** Shared result rows for Success and stale-Loading (see above). */
+@Composable
+private fun ResultList(
+    books: List<Parser.BookItem>,
+    display: (String) -> String,
+    onBook: (String) -> Unit,
+) {
+    LazyColumn(Modifier.fillMaxSize()) {
+        items(books, key = { it.id }) { b ->
+            Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onBook(b.id) }) {
+                Column(Modifier.padding(12.dp)) {
+                    Text(display(b.title), style = MaterialTheme.typography.titleMedium)
+                    if (b.author.isNotEmpty()) Text(
+                        "${display("作者")}：${display(b.author)}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    if (b.latestChapterTitle.isNotEmpty()) Text(
+                        "${display("更新到")}：${display(b.latestChapterTitle)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
         }
     }
 }

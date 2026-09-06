@@ -63,7 +63,12 @@ class SearchViewModel(
         data class Idle(override val simplified: Boolean = false) : Ui {
             override val totalOrNull: Int? = null
         }
-        data class Loading(override val simplified: Boolean, override val totalOrNull: Int? = null) : Ui
+        data class Loading(
+            override val simplified: Boolean,
+            override val totalOrNull: Int? = null,
+            /** Last results, kept visible under the spinner (stale-while-revalidate). */
+            val books: List<Parser.BookItem> = emptyList(),
+        ) : Ui
         data class Success(
             val books: List<Parser.BookItem>,
             val total: Int?,
@@ -109,7 +114,13 @@ class SearchViewModel(
                 } else {
                     flow<Ui> {
                         val s = _ui.value
-                        emit(Ui.Loading(simplified = s.simplified, totalOrNull = s.totalOrNull))
+                        emit(
+                            Ui.Loading(
+                                simplified = s.simplified,
+                                totalOrNull = s.totalOrNull,
+                                books = (s as? Ui.Success)?.books.orEmpty(),
+                            ),
+                        )
                         try {
                             val res = repo.search(q)
                             // No stale-check needed: flatMapLatest cancels the

@@ -1,7 +1,9 @@
 package cc.uukanshu
 
 import cc.uukanshu.data.parse.Parser
+import cc.uukanshu.di.RepoApi
 import cc.uukanshu.ui.search.SearchViewModel
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -49,5 +51,58 @@ class SearchViewModelTest {
         vm.query("key")
         advanceSearch()
         assertTrue(vm.ui.value is SearchViewModel.Ui.Error)
+    }
+
+    @Test fun loadingKeepsStaleResults() = runTest {
+        // New query with results on screen: Loading carries the old books
+        // (screen keeps them under a bar) instead of blanking the list.
+        val books = listOf(Parser.BookItem(id = "1", title = "A"))
+        val base = MutableFakeRepo(searchResult = Parser.SearchResult(1, books))
+        val gate = CompletableDeferred<Unit>()
+        var searchCalls = 0
+        val repo = object : RepoApi by base {
+            override suspend fun search(keyword: String): Parser.SearchResult {
+                if (++searchCalls == 2) gate.await()
+                return base.search(keyword)
+            }
+        }
+        val vm = SearchViewModel(repo, MutableFakePrefs(), TestConvert())
+        main.dispatcher.scheduler.advanceUntilIdle()
+        vm.query("first")
+        advanceSearch()
+        assertTrue(vm.ui.value is SearchViewModel.Ui.Success)
+        vm.query("second")
+        // Past debounce, second search hanging: Loading with stale books.
+        main.dispatcher.scheduler.advanceTimeBy(500)
+        main.dispatcher.scheduler.runCurrent()
+        val loading = vm.ui.value
+        assertTrue("expected Loading, got $loading", loading is SearchViewModel.Ui.Loading)
+        assertEquals(listOf("1"), (loading as SearchViewModel.Ui.Loading).books.map { it.id })
+        gate.complete(Unit)
+        advanceSearch()
+        assertTrue(vm.ui.value is SearchViewModel.Ui.Success)
+    }
+
+    @Test fun initialLoadingHasNoStaleResults() = runTest {
+        val books = listOf(Parser.BookItem(id = "1", title = "A"))
+        val base = MutableFakeRepo(searchResult = Parser.SearchResult(1, books))
+        val gate = CompletableDeferred<Unit>()
+        val repo = object : RepoApi by base {
+            override suspend fun search(keyword: String): Parser.SearchResult {
+                gate.await()
+                return base.search(keyword)
+            }
+        }
+        val vm = SearchViewModel(repo, MutableFakePrefs(), TestConvert())
+        main.dispatcher.scheduler.advanceUntilIdle()
+        vm.query("key")
+        main.dispatcher.scheduler.advanceTimeBy(500)
+        main.dispatcher.scheduler.runCurrent()
+        val loading = vm.ui.value
+        assertTrue("expected Loading, got $loading", loading is SearchViewModel.Ui.Loading)
+        assertTrue((loading as SearchViewModel.Ui.Loading).books.isEmpty())
+        gate.complete(Unit)
+        advanceSearch()
+        assertTrue(vm.ui.value is SearchViewModel.Ui.Success)
     }
 }
