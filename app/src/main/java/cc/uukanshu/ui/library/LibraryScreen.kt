@@ -38,7 +38,6 @@ import cc.uukanshu.core.Display
 import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.data.repo.BookRepo
-import cc.uukanshu.app
 import cc.uukanshu.core.Errors
 import cc.uukanshu.ui.vmFactory
 import kotlinx.coroutines.CancellationException

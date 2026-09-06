@@ -30,7 +30,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import cc.uukanshu.app
 import cc.uukanshu.core.Display
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.data.update.UpdateDownloader

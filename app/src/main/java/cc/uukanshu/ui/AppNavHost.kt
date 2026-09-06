@@ -18,7 +18,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -27,9 +26,10 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import cc.uukanshu.app
+import android.app.Application
 import cc.uukanshu.core.Display
 import cc.uukanshu.data.prefs.Prefs
+import cc.uukanshu.di.AppContainer
 import cc.uukanshu.di.LocalContainer
 import cc.uukanshu.ui.detail.DetailScreen
 import cc.uukanshu.ui.home.HomeScreen
@@ -44,14 +44,11 @@ private data class Tab(val route: String, val label: String, val icon: @Composab
 
 /**
  * App shell: bottom nav (4 tabs) + full-screen detail/reader + shared
- * update dialog overlay. Extracted from MainActivity so the activity only
- * owns `setContent { UukanshuApp() }` and theme/container wiring stays
- * greppable in one place.
+ * update dialog overlay. Container is created once in MainActivity and
+ * provided via LocalContainer — the only DI seam screens may use.
  */
 @Composable
-fun UukanshuApp() {
-    val app = LocalContext.current.app()
-    val container = remember(app) { cc.uukanshu.di.RealAppContainer(app) }
+fun UukanshuApp(container: AppContainer, app: Application) {
     val prefs = remember { container.prefs }
     val t2s = remember { container.t2s }
     val simplified by prefs.simplified.collectAsState(initial = false)

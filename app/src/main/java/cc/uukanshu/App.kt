@@ -30,9 +30,3 @@ class App : Application() {
     val updateApi by lazy { UpdateApi() }
     val updateDownloader by lazy { UpdateDownloader(this) }
 }
-
-/** Single cast site for `applicationContext as App` (was copy-pasted per screen). */
-fun android.content.Context.app(): App =
-    applicationContext as App
-
-fun android.content.Context.repo(): BookRepo = app().repo

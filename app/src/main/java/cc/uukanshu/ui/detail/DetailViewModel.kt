@@ -34,7 +34,6 @@ import cc.uukanshu.di.DownloadsApi
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.di.RepoApi
 import cc.uukanshu.di.PrefsApi
-import cc.uukanshu.app
 import cc.uukanshu.core.Errors
 import cc.uukanshu.ui.vmFactory
 import kotlinx.coroutines.CancellationException

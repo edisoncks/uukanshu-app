@@ -13,9 +13,11 @@ import kotlinx.coroutines.flow.StateFlow
 /**
  * Manual constructor DI (no framework).
  *
- * ViewModels depend on these narrow interfaces; [AppContainer] is provided
- * once in MainActivity via [LocalContainer] and faked in JVM tests /
- * previews (see `ContainerSeamTest`).
+ * ViewModels depend on these narrow interfaces; [AppContainer] is created
+ * once in MainActivity and provided via [LocalContainer] (the only seam
+ * screens may use, faked in JVM tests / previews — see `ContainerSeamTest`).
+ * Never construct `Prefs` / `T2S` / `UpdateApi` per-composition; always use
+ * the app singletons exposed here.
  *
  * `RepoApi` is segregated (ISP): browse / reading / library / bulk facets
  * so screens declare only what they use. `RepoApi` itself extends all four

@@ -40,7 +40,6 @@ import androidx.paging.cachedIn
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import cc.uukanshu.CATEGORIES
-import cc.uukanshu.app
 import cc.uukanshu.core.Errors
 import cc.uukanshu.core.Display
 import cc.uukanshu.di.ConvertApi

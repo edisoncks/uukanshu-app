@@ -41,7 +41,6 @@ import cc.uukanshu.di.ConvertApi
 import cc.uukanshu.di.DownloadsApi
 import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.di.RepoApi
-import cc.uukanshu.app
 import cc.uukanshu.core.Errors
 import cc.uukanshu.ui.vmFactory
 import kotlinx.coroutines.CancellationException

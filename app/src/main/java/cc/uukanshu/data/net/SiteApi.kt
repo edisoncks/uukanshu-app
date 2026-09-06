@@ -2,6 +2,7 @@ package cc.uukanshu.data.net
 
 import cc.uukanshu.BASE_URL
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -34,6 +35,7 @@ class SiteApi(
         .readTimeout(30, TimeUnit.SECONDS)
         .build(),
     private val gate: UukanshuGate = UukanshuGate(),
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : SiteGateway {
     private val headers = mapOf(
         "User-Agent" to "Mozilla/5.0 (Linux; Android 12; Pixel 5) " +
@@ -97,7 +99,7 @@ class SiteApi(
             coroutineContext.ensureActive()
             try {
                 val body: String = gate.withPermit {
-                    withContext(Dispatchers.IO) {
+                    withContext(ioDispatcher) {
                         runInterruptible {
                             client.newCall(call).execute().use { res ->
                                 val code = res.code
