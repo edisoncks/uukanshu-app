@@ -74,10 +74,12 @@ UI (ViewModels)
   urljoin-then-validate nav with `?query`/`#fragment` stripped to canonical,
   `readcotent`/`readcontent` tolerance, canonical book URLs, `<span class=hot>` strip)
   are documented in [SCRAPING.md](SCRAPING.md) — do not "simplify" them.
-- `data/repo/BookRepo.kt`: cache-first reads (`cachedDetail`,
+- `data/repo/BookRepo.kt`: facade — cache-first reads (`cachedDetail`,
   `cachedChapterContent`), network fetch + raw save, `crawlDelay()` between
-  bulk requests, pageId-based progress save (`saveProgress` + `Bookmark` +
-  `resolveBookmark`), library stats, delete/clear. `downloadAll` treats an
+  bulk requests, pageId-based progress save, library stats, delete/clear.
+  Pure rules live in collaborators (`TocMerge`, `ShelfOrder`,
+  `BookmarkResolve`) so they are unit-testable without network/DB.
+  `downloadAll` treats an
   empty fresh TOC as failure (cache fallback, else loud `IOException` — never
   silent success). Background TOC revalidation merges without wiping
   downloads (by `pageId`); the

@@ -18,8 +18,13 @@ import kotlinx.coroutines.withContext
 import kotlin.random.Random
 
 /**
- * Network-first repository with Room fallback for cached novels.
+ * Network-first repository facade with Room fallback for cached novels.
  * Raw (Traditional) text is cached; T2S conversion happens at render.
+ *
+ * Pure rules live in collaborators ([TocMerge], [ShelfOrder],
+ * [BookmarkResolve]) so they are unit-testable without network/DB;
+ * this class owns orchestration (single-flight via SiteApi, dbWrite
+ * serialization, crawl pacing) and keeps a stable public API for screens.
  */
 class BookRepo(
     private val site: SiteApi,
@@ -60,51 +65,30 @@ class BookRepo(
     data class Detail(val meta: Parser.BookMeta, val chapters: List<Parser.ChapterRef>)
 
     companion object {
-        /**
-         * Merge a fresh TOC with already-downloaded content, keyed by the
-         * stable pageId (never by position, which can shift). Without this,
-         * re-opening a book would REPLACE cached rows with empty content
-         * and silently wipe downloads.
-         */
+        /** Delegates to [TocMerge.merge] (stable pageId, never position). */
         fun mergeToc(
             bookId: String,
             refs: List<Parser.ChapterRef>,
             cachedByPageId: Map<Long, String>,
-        ): List<ChapterEntity> = refs.map {
-            ChapterEntity(bookId, it.position, it.pageId, it.title, it.url,
-                content = cachedByPageId[it.pageId].orEmpty())
-        }
+        ): List<ChapterEntity> = TocMerge.merge(bookId, refs, cachedByPageId)
 
-        /**
-         * Shelf order key: last interaction wins. Reading writes
-         * [ProgressEntity.updatedAt], downloading writes
-         * [BookEntity.updatedAt]; either bumps the book to the top.
-         */
+        /** Delegates to [ShelfOrder.lastActivity]. */
         fun lastActivity(bookAt: Long, progressAt: Long?): Long =
-            maxOf(bookAt, progressAt ?: 0L)
+            ShelfOrder.lastActivity(bookAt, progressAt)
 
-        /**
-         * Preserve the shelf timestamp across TOC refreshes: browsing
-         * Detail must never reorder the shelf, only reads/downloads bump.
-         */
+        /** Delegates to [ShelfOrder.preserve]. */
         fun preserveBookUpdatedAt(
             existing: BookEntity?,
             fresh: BookEntity,
             now: Long,
-        ): BookEntity =
-            if (existing != null) fresh.copy(updatedAt = existing.updatedAt)
-            else fresh.copy(updatedAt = now)
+        ): BookEntity = ShelfOrder.preserve(existing, fresh, now)
 
-        /**
-         * Shelf order: most-recently read or downloaded first; never-touched
-         * sinks to the bottom, ties keep the input (DB) order (stable sort).
-         */
+        /** Delegates to [ShelfOrder.sort]. */
         fun sortShelf(
             books: List<CachedBook>,
             bookAt: Map<String, Long>,
             progressAt: Map<String, Long>,
-        ): List<CachedBook> =
-            books.sortedByDescending { lastActivity(bookAt[it.id] ?: 0L, progressAt[it.id]) }
+        ): List<CachedBook> = ShelfOrder.sort(books, bookAt, progressAt)
 
         /** Polite crawl delay bounds (ms): random 1-3s between chapter fetches. */
         const val CRAWL_DELAY_MIN_MS = 1000L
@@ -114,23 +98,11 @@ class BookRepo(
         fun nextCrawlDelayMs(random: Random = Random): Long =
             random.nextLong(CRAWL_DELAY_MIN_MS, CRAWL_DELAY_MAX_MS + 1)
 
-        /**
-         * Resolve a stored bookmark against the live TOC: prefer stable pageId,
-         * fall back to position for pre-v4 rows (`pageId == 0`) or vanished
-         * chapters only when it still names a live chapter. Pure + unit-tested.
-         */
+        /** Delegates to [BookmarkResolve.resolve] (pageId-first, never neighbor). */
         fun resolveBookmark(
             chapters: List<Parser.ChapterRef>,
             bookmark: Bookmark?,
-        ): Parser.ChapterRef? {
-            if (bookmark == null || chapters.isEmpty()) return null
-            if (bookmark.pageId != 0L) {
-                chapters.firstOrNull { it.pageId == bookmark.pageId }?.let { return it }
-            }
-            // Pre-v4 row or vanished chapter: position fallback only when it still
-            // names a live chapter, otherwise no continue target (never a neighbor).
-            return chapters.firstOrNull { it.position == bookmark.position }
-        }
+        ): Parser.ChapterRef? = BookmarkResolve.resolve(chapters, bookmark)
     }
 
     data class Bookmark(val position: Int, val pageId: Long)
