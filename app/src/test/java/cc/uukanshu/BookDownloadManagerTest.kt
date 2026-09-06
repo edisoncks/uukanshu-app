@@ -66,4 +66,36 @@ class BookDownloadManagerTest {
         delay(100)
         assertFalse("cancelled queued download must not run", bRan.get())
     }
+
+    @Test fun restartPreservesLastKnownProgress() = runBlocking {
+        // A failed 500/1000 restart must show 500/1000 until fresh numbers
+        // arrive, never flash 0/0 while queued behind the slot or fetching.
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var first = true
+        val manager = BookDownloadManager(
+            downloadFn = { _, onProgress ->
+                if (first) {
+                    first = false
+                    onProgress(500, 1000)
+                    entered.complete(Unit)
+                    release.await()
+                    throw java.io.IOException("boom")
+                }
+            },
+            scope = this,
+        )
+        manager.start("b1")
+        withTimeout(5000) { entered.await() }
+        release.complete(Unit)
+        withTimeout(5000) {
+            var guard = 0
+            while (manager.states.value["b1"]?.downloading == true && guard++ < 500) delay(10)
+        }
+        assertEquals(500, manager.states.value["b1"]?.done)
+        manager.start("b1")
+        assertEquals(true, manager.states.value["b1"]?.downloading)
+        assertEquals(500, manager.states.value["b1"]?.done)
+        assertEquals(1000, manager.states.value["b1"]?.total)
+    }
 }

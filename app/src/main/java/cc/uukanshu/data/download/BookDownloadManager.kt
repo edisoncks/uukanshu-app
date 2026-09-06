@@ -63,7 +63,13 @@ class BookDownloadManager(
     override fun start(bookId: String) {
         synchronized(startLock) {
             if (jobs[bookId]?.isActive == true) return
-            _states.update { it + (bookId to State(downloading = true, done = 0, total = 0, error = null)) }
+            // Seed from retained progress: a failed done/total stays visible
+            // until fresh callbacks arrive instead of flashing 0/0 while the
+            // job queues behind the slot or fetches its TOC.
+            _states.update { cur ->
+                val prev = cur[bookId]
+                cur + (bookId to State(downloading = true, done = prev?.done ?: 0, total = prev?.total ?: 0, error = null))
+            }
             val job = scope.launch {
             val self = coroutineContext[Job]!!
             try {
