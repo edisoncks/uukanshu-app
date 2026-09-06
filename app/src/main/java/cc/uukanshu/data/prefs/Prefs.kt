@@ -65,7 +65,9 @@ class Prefs(private val context: Context) : cc.uukanshu.di.PrefsApi {
         context.store.data.map { normalizeTheme(it[PrefsKeys.THEME]) }
 
     override suspend fun setTheme(v: String) {
-        context.store.edit { it[PrefsKeys.THEME] = v }
+        // Normalize on write (mirrors setFontScale clamping): unknown values
+        // must not persist in DataStore just because the read path tolerates them.
+        context.store.edit { it[PrefsKeys.THEME] = normalizeTheme(v) }
     }
 
     /** Last GitHub update-check timestamp (epoch millis, 0 = never). */
