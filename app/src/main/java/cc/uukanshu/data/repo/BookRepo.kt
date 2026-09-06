@@ -29,7 +29,7 @@ import kotlin.random.Random
 class BookRepo(
     private val site: SiteApi,
     private val db: AppDb,
-) {
+) : cc.uukanshu.di.RepoApi {
     /**
      * Serializes the TOC wholesale replace in [detail] against single-row
      * content writes ([saveChapterContent]): without this, a download UPDATE
@@ -38,7 +38,7 @@ class BookRepo(
      * only the short DB critical sections serialize.
      */
     private val dbWrite = Mutex()
-    suspend fun category(categoryId: Int, page: Int): List<Parser.BookItem> =
+    override suspend fun category(categoryId: Int, page: Int): List<Parser.BookItem> =
         withContext(Dispatchers.IO) {
             // Single-flight lives inside SiteApi per HTTP attempt; parse runs
             // outside the gate so Jsoup never blocks interactive requests.
@@ -50,13 +50,13 @@ class BookRepo(
      * Recently updated, paged: /top/lastupdate_{page}.html uses the same
      * bookbox cards as categories (title/author/words/latest/intro).
      */
-    suspend fun recent(page: Int): List<Parser.BookItem> =
+    override suspend fun recent(page: Int): List<Parser.BookItem> =
         withContext(Dispatchers.IO) {
             val html = site.get("${Parser.BASE}/top/lastupdate_${page}.html")
             Parser.parseCategory(html)
         }
 
-    suspend fun search(keyword: String): Parser.SearchResult =
+    override suspend fun search(keyword: String): Parser.SearchResult =
         withContext(Dispatchers.IO) {
             val html = site.search(keyword)
             Parser.parseSearch(html)
@@ -111,7 +111,7 @@ class BookRepo(
      * Book + TOC reconstructed purely from cache. Null when the book was
      * never opened/downloaded — offline reading depends on this.
      */
-    suspend fun cachedDetail(bookId: String): Detail? = withContext(Dispatchers.IO) {
+    override suspend fun cachedDetail(bookId: String): Detail? = withContext(Dispatchers.IO) {
         val book = db.books().book(bookId) ?: return@withContext null
         val rows = db.chapters().chapters(bookId)
         if (rows.isEmpty()) return@withContext null
@@ -131,7 +131,7 @@ class BookRepo(
         )
     }
 
-    suspend fun detail(bookId: String): Detail {
+    override suspend fun detail(bookId: String): Detail {
         val url = "${Parser.BASE}/book/$bookId/"
         // Single-flight lives inside SiteApi per HTTP attempt; parse + DB
         // merge run outside the gate so a slow transaction never blocks others.
@@ -170,7 +170,7 @@ class BookRepo(
         }
     }
 
-    suspend fun chapter(url: String): Parser.ChapterContent =
+    override suspend fun chapter(url: String): Parser.ChapterContent =
         withContext(Dispatchers.IO) {
             val html = site.get(url)
             Parser.parseChapter(html, url)
@@ -182,17 +182,17 @@ class BookRepo(
      * other repo read goes through Dispatchers.IO so a forgotten context
      * can never block Main.
      */
-    suspend fun cachedChapterContent(bookId: String, pageId: Long): String? =
+    override suspend fun cachedChapterContent(bookId: String, pageId: Long): String? =
         withContext(Dispatchers.IO) {
             db.chapters().chapterContent(bookId, pageId)?.takeIf { it.isNotEmpty() }
         }
 
     /** Stable ids with downloaded content — immune to TOC-shift mislabeling. */
-    fun cachedPositionsFlow(bookId: String): Flow<Set<Long>> =
+    override fun cachedPositionsFlow(bookId: String): Flow<Set<Long>> =
         db.chapters().cachedPositionsFlow(bookId).map { it.toSet() }
 
     /** Content write by stable pageId — a shifted TOC can never misfile text. */
-    suspend fun saveChapterContent(bookId: String, pageId: Long, content: String) {
+    override suspend fun saveChapterContent(bookId: String, pageId: Long, content: String) {
         dbWrite.withLock {
             db.chapters().updateContent(bookId, pageId, content)
         }
@@ -204,7 +204,7 @@ class BookRepo(
      * fallback for pre-v4 rows (`pageId == 0`) and for clamping when the
      * saved chapter vanished from the live TOC. Also bumps the shelf.
      */
-    suspend fun saveProgress(bookId: String, position: Int, pageId: Long = 0L) =
+    override suspend fun saveProgress(bookId: String, position: Int, pageId: Long) {
         withContext(Dispatchers.IO) {
             val now = System.currentTimeMillis()
             db.progress().upsert(ProgressEntity(bookId, position, pageId, now))
@@ -212,25 +212,26 @@ class BookRepo(
             // turn a cancelled save into a normal return and run extra work).
             Errors.suppressExceptCancel { db.books().touch(bookId, now) }
         }
+    }
 
     /** Live bookmark (position + stable pageId) for continue-reading. */
-    fun bookmarkFlow(bookId: String): Flow<Bookmark?> =
+    override fun bookmarkFlow(bookId: String): Flow<Bookmark?> =
         db.progress().progressFlow(bookId).map { it?.let { e -> Bookmark(e.position, e.pageId) } }
 
-    suspend fun getBookmark(bookId: String): Bookmark? = withContext(Dispatchers.IO) {
+    override suspend fun getBookmark(bookId: String): Bookmark? = withContext(Dispatchers.IO) {
         db.progress().progress(bookId)?.let { Bookmark(it.position, it.pageId) }
     }
 
     /** Live bookmarked position for the continue-reading button. */
-    fun progressFlow(bookId: String): Flow<Int?> =
+    override fun progressFlow(bookId: String): Flow<Int?> =
         db.progress().progressFlow(bookId).map { it?.position }
 
-    suspend fun getProgress(bookId: String): Int? = withContext(Dispatchers.IO) {
+    override suspend fun getProgress(bookId: String): Int? = withContext(Dispatchers.IO) {
         db.progress().progress(bookId)?.position
     }
 
     /** Cached book meta (TOC skeleton) for shelf rows of fresh downloads. */
-    suspend fun bookEntry(bookId: String): BookEntity? = withContext(Dispatchers.IO) {
+    override suspend fun bookEntry(bookId: String): BookEntity? = withContext(Dispatchers.IO) {
         db.books().book(bookId)
     }
 
@@ -245,7 +246,7 @@ class BookRepo(
         val bytes: Long,
     )
 
-    suspend fun library(): List<CachedBook> = withContext(Dispatchers.IO) {
+    override suspend fun library(): List<CachedBook> = withContext(Dispatchers.IO) {
         val rows = db.books().cachedBooks()
         val bookAt = rows.associate { it.id to it.updatedAt }
         val progressAt = db.progress().all().associate { it.bookId to it.updatedAt }
@@ -266,7 +267,7 @@ class BookRepo(
      * Only for multi-chapter loops (full download, prefetch) — single
      * interactive chapter taps stay immediate (already user-paced).
      */
-    suspend fun crawlDelay() {
+    override suspend fun crawlDelay() {
         kotlinx.coroutines.delay(nextCrawlDelayMs())
     }
 
@@ -275,7 +276,7 @@ class BookRepo(
      * Bumps the shelf when content was cached (even partial/cancelled),
      * so the just-downloaded book is on top and easy to find.
      */
-    suspend fun downloadAll(bookId: String, onProgress: (Int, Int) -> Unit) {
+    override suspend fun downloadAll(bookId: String, onProgress: (Int, Int) -> Unit) {
         // Offline with a warm cache must still succeed: the loop below is a
         // local no-op when everything is already downloaded. Only throw when
         // there is no cached TOC to work from either. An empty fresh TOC is
@@ -330,7 +331,7 @@ class BookRepo(
         }
     }
 
-    suspend fun deleteBook(bookId: String) = withContext(Dispatchers.IO) {
+    override suspend fun deleteBook(bookId: String) = withContext(Dispatchers.IO) {
         dbWrite.withLock {
             db.deleteBookFull(bookId)
         }
@@ -340,7 +341,7 @@ class BookRepo(
      * Atomic wipe via [AppDb.clearAllFull]: single transaction so
      * cancellation cannot strand a half-cleared library.
      */
-    suspend fun clearAll() = withContext(Dispatchers.IO) {
+    override suspend fun clearAll() = withContext(Dispatchers.IO) {
         dbWrite.withLock {
             db.clearAllFull()
         }

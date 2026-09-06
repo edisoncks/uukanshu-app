@@ -45,12 +45,11 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int, pageId: Long) -> Unit) {
-    val ctx = LocalContext.current
-    val app = ctx.app()
+    val container = cc.uukanshu.di.LocalContainer.current
     val vm: DetailViewModel = viewModel(
         key = bookId,
         factory = vmFactory {
-            DetailViewModel(app.repo, app.prefs, app.t2s, bookId, app.downloadManager)
+            DetailViewModel(container.repo, container.prefs, container.t2s, bookId, container.downloads)
         },
     )
     val ui by vm.ui.collectAsState()

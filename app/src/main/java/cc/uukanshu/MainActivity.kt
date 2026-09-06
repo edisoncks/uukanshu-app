@@ -24,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
@@ -62,8 +63,9 @@ private data class Tab(val route: String, val label: String, val icon: @Composab
 @Composable
 fun UukanshuApp() {
     val app = LocalContext.current.app()
-    val prefs = remember { app.prefs }
-    val t2s = remember { app.t2s }
+    val container = remember(app) { cc.uukanshu.di.RealAppContainer(app) }
+    val prefs = remember { container.prefs }
+    val t2s = remember { container.t2s }
     // Global display prefs: bottom nav + theme follow them live.
     val simplified by prefs.simplified.collectAsState(initial = false)
     val theme by prefs.theme.collectAsState(initial = Prefs.SYSTEM)
@@ -82,6 +84,7 @@ fun UukanshuApp() {
             runCatching { dynamicLightColorScheme(context) }.getOrElse { lightColorScheme() }
         },
     ) {
+      CompositionLocalProvider(cc.uukanshu.di.LocalContainer provides container) {
         val nav = rememberNavController()
         val tabs = listOf(
             Tab(Routes.HOME, display("首頁")) { Icon(Icons.Filled.Home, contentDescription = null) },
@@ -159,5 +162,6 @@ fun UukanshuApp() {
                 onOpenUnknownSources = { updateVm.openUnknownSources() },
             )
         }
+      }
     }
 }

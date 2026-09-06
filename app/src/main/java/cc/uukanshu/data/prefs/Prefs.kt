@@ -20,7 +20,7 @@ object PrefsKeys {
     val SKIPPED_VERSION = stringPreferencesKey("skipped_version")
 }
 
-class Prefs(private val context: Context) {
+class Prefs(private val context: Context) : cc.uukanshu.di.PrefsApi {
     companion object {
         const val SYSTEM = "system"
         const val LIGHT = "light"
@@ -47,40 +47,40 @@ class Prefs(private val context: Context) {
         }
     }
 
-    val simplified: Flow<Boolean> =
+    override val simplified: Flow<Boolean> =
         context.store.data.map { it[PrefsKeys.SIMPLIFIED] ?: false }
-    val fontScale: Flow<Float> =
+    override val fontScale: Flow<Float> =
         context.store.data.map { coerceFontScale(it[PrefsKeys.FONT_SCALE] ?: FONT_DEFAULT) }
 
-    suspend fun setSimplified(v: Boolean) {
+    override suspend fun setSimplified(v: Boolean) {
         context.store.edit { it[PrefsKeys.SIMPLIFIED] = v }
     }
 
-    suspend fun setFontScale(v: Float) {
+    override suspend fun setFontScale(v: Float) {
         context.store.edit { it[PrefsKeys.FONT_SCALE] = coerceFontScale(v) }
     }
 
     /** Theme mode: [SYSTEM] (follow system), [LIGHT], or [DARK]. Unknown stored values read as SYSTEM. */
-    val theme: Flow<String> =
+    override val theme: Flow<String> =
         context.store.data.map { normalizeTheme(it[PrefsKeys.THEME]) }
 
-    suspend fun setTheme(v: String) {
+    override suspend fun setTheme(v: String) {
         context.store.edit { it[PrefsKeys.THEME] = v }
     }
 
     /** Last GitHub update-check timestamp (epoch millis, 0 = never). */
-    val lastUpdateCheck: Flow<Long> =
+    override val lastUpdateCheck: Flow<Long> =
         context.store.data.map { it[PrefsKeys.LAST_UPDATE_CHECK] ?: 0L }
 
-    suspend fun setLastUpdateCheck(now: Long) {
+    override suspend fun setLastUpdateCheck(now: Long) {
         context.store.edit { it[PrefsKeys.LAST_UPDATE_CHECK] = now }
     }
 
     /** Remote version the user asked not to be reminded about again. */
-    val skippedVersion: Flow<String?> =
+    override val skippedVersion: Flow<String?> =
         context.store.data.map { it[PrefsKeys.SKIPPED_VERSION] }
 
-    suspend fun setSkippedVersion(v: String?) {
+    override suspend fun setSkippedVersion(v: String?) {
         context.store.edit {
             if (v == null) it.remove(PrefsKeys.SKIPPED_VERSION)
             else it[PrefsKeys.SKIPPED_VERSION] = v

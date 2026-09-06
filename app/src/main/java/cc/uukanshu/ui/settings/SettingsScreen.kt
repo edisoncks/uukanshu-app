@@ -51,9 +51,9 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(updateVm: UpdateViewModel) {
     val ctx = LocalContext.current
-    val app = ctx.app()
-    val prefs = remember { app.prefs }
-    val t2s = remember { app.t2s }
+    val container = cc.uukanshu.di.LocalContainer.current
+    val prefs = remember { container.prefs }
+    val t2s = remember { container.t2s }
     val scope = rememberCoroutineScope()
     val simplified by prefs.simplified.collectAsState(initial = false)
     val theme by prefs.theme.collectAsState(initial = Prefs.SYSTEM)

@@ -10,8 +10,8 @@ import android.content.Context
  * never crash the reader. No whitelist post-pass (see CLI note: it
  * corrupted 土著/見微知著 while missing its own purpose).
  */
-class T2S(private val appContext: Context) {
-    fun convert(s: String): String {
+class T2S(private val appContext: Context) : cc.uukanshu.di.ConvertApi {
+    override fun convert(s: String): String {
         if (s.isEmpty()) return s
         return runCatching {
             com.github.houbb.opencc4j.util.ZhConverterUtil.toSimple(s)

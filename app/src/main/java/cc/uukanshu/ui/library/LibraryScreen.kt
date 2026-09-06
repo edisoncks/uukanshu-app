@@ -52,10 +52,9 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun LibraryScreen(onBook: (String) -> Unit) {
-    val ctx = LocalContext.current
-    val app = ctx.app()
+    val container = cc.uukanshu.di.LocalContainer.current
     val vm: LibraryViewModel = viewModel(factory = vmFactory {
-        LibraryViewModel(app.repo, app.prefs, app.t2s, app.downloadManager)
+        LibraryViewModel(container.repo, container.prefs, container.t2s, container.downloads)
     })
     val ui by vm.ui.collectAsState()
     LaunchedEffect(Unit) { vm.refresh() }

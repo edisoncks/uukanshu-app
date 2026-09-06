@@ -56,15 +56,14 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L) {
-    val ctx = LocalContext.current
-    val app = ctx.app()
+    val container = cc.uukanshu.di.LocalContainer.current
     // Keyed on bookId only: paging reuses this VM via load(), and the nav
     // graph holds at most one reader per book, so position/pageId are just
     // the initial load arguments, not an identity.
     val vm: ReaderViewModel = viewModel(
         key = "reader-$bookId",
         factory = vmFactory {
-            ReaderViewModel(app.repo, app.t2s, app.prefs, bookId, position, pageId)
+            ReaderViewModel(container.repo, container.t2s, container.prefs, bookId, position, pageId)
         },
     )
     val ui by vm.ui.collectAsState()

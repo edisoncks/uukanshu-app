@@ -49,10 +49,9 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun SearchScreen(onBook: (String) -> Unit) {
-    val ctx = LocalContext.current
-    val app = ctx.app()
+    val container = cc.uukanshu.di.LocalContainer.current
     val vm: SearchViewModel = viewModel(factory = vmFactory {
-        SearchViewModel(app.repo, app.prefs, app.t2s)
+        SearchViewModel(container.repo, container.prefs, container.t2s)
     })
     val ui by vm.ui.collectAsState()
     var text by rememberSaveable { mutableStateOf("") }

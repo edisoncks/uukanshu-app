@@ -1,5 +1,7 @@
 package cc.uukanshu.ui.library
 
+import cc.uukanshu.data.repo.BookRepo
+import cc.uukanshu.data.download.BookDownloadManager
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,11 +37,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cc.uukanshu.core.Display
-import cc.uukanshu.data.convert.T2S
+import cc.uukanshu.di.ConvertApi
 import cc.uukanshu.data.db.BookEntity
-import cc.uukanshu.data.download.BookDownloadManager
-import cc.uukanshu.data.prefs.Prefs
-import cc.uukanshu.data.repo.BookRepo
+import cc.uukanshu.di.DownloadsApi
+import cc.uukanshu.di.PrefsApi
+import cc.uukanshu.di.RepoApi
 import cc.uukanshu.app
 import cc.uukanshu.core.Errors
 import cc.uukanshu.ui.vmFactory
@@ -51,10 +53,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class LibraryViewModel(
-    private val repo: BookRepo,
-    private val prefs: Prefs,
-    private val t2s: T2S,
-    private val downloads: BookDownloadManager,
+    private val repo: RepoApi,
+    private val prefs: PrefsApi,
+    private val t2s: ConvertApi,
+    private val downloads: DownloadsApi,
 ) : ViewModel() {
     /**
      * Load state, split from live overlays. The shelf is loading, failed,

@@ -38,9 +38,9 @@ import java.util.concurrent.ConcurrentHashMap
 class BookDownloadManager(
     private val downloadFn: suspend (String, (Int, Int) -> Unit) -> Unit,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
-) {
+) : cc.uukanshu.di.DownloadsApi {
     constructor(
-        repo: BookRepo,
+        repo: cc.uukanshu.di.RepoApi,
         scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     ) : this(
         downloadFn = { id, cb -> repo.downloadAll(id, cb) },
@@ -55,21 +55,21 @@ class BookDownloadManager(
     )
 
     private val _states = MutableStateFlow<Map<String, State>>(emptyMap())
-    val states: StateFlow<Map<String, State>> = _states
+    override val states: StateFlow<Map<String, State>> = _states
 
     private val jobs = ConcurrentHashMap<String, Job>()
 
     /** Bulk slot: whole-book downloads queue here, one at a time. */
     private val slot = Mutex()
 
-    fun observe(bookId: String): Flow<State?> =
+    override fun observe(bookId: String): Flow<State?> =
         _states.map { it[bookId] }.distinctUntilChanged()
 
-    fun isDownloading(bookId: String): Boolean =
+    override fun isDownloading(bookId: String): Boolean =
         jobs[bookId]?.isActive == true
 
     /** Idempotent start: a live job for [bookId] wins, second tap is a no-op. */
-    fun start(bookId: String) {
+    override fun start(bookId: String) {
         val existing = jobs[bookId]
         if (existing?.isActive == true) return
         _states.update { it + (bookId to State(downloading = true, done = 0, total = 0, error = null)) }
@@ -130,7 +130,7 @@ class BookDownloadManager(
         jobs[bookId] = job
     }
 
-    fun cancel(bookId: String) {
+    override fun cancel(bookId: String) {
         jobs.remove(bookId)?.cancel()
         _states.update { cur ->
             val prev = cur[bookId] ?: return@update cur
@@ -145,13 +145,13 @@ class BookDownloadManager(
      * replay a stale `done/total` (e.g. offering 重新下載整本 for zero
      * cached bytes). Cancels any live job for the id first.
      */
-    fun forget(bookId: String) {
+    override fun forget(bookId: String) {
         jobs.remove(bookId)?.cancel()
         _states.update { cur -> cur - bookId }
     }
 
     /** Drop all retained state (used by clear-all). */
-    fun forgetAll() {
+    override fun forgetAll() {
         jobs.values.forEach { runCatching { it.cancel() } }
         jobs.clear()
         _states.update { emptyMap() }

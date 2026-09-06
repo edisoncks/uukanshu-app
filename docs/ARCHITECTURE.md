@@ -20,11 +20,15 @@ default with a global Simplified toggle (see below).
     book (`popUpTo(detail)`) and skip identical double-taps.
 - `App.kt`: `Application` subclass holding the shared singletons:
   `UukanshuGate` + `BookRepo` + app-scoped `BookDownloadManager` +
-  `Prefs` + `T2S` (accessed via `ctx.app()`, e.g. `app.repo`).
-  Screens must use these singletons — never `Prefs(app)` / `T2S(app)`
-  per-composition — and must construct ViewModels via the single
-  `ui/vmFactory { ... }` helper (`ui/VmFactory.kt`), so wiring stays
-  uniform and greppable instead of six hand-written factories.
+  `Prefs` + `T2S`. `di/AppContainer` (`RepoApi`/`PrefsApi`/`ConvertApi`/
+  `DownloadsApi`) is the only thing screens see: `MainActivity` provides
+  `RealAppContainer(app)` via `LocalContainer`, ViewModels take the
+  interfaces (faked in JVM tests, see `ContainerSeamTest`). Never
+  `Prefs(app)` / `T2S(app)` per-composition — and must construct ViewModels
+  via the single `ui/vmFactory { ... }` helper (`ui/VmFactory.kt`), so
+  wiring stays uniform and greppable instead of six hand-written factories.
+  No Hilt/Koin: one module / app-scoped singletons only. If scoped workers
+  or a second module appear, each `AppContainer` val maps 1:1 to a Hilt module.
 - `Site.kt`: `BASE_URL = https://uukanshu.cc` + fixed `CATEGORIES` list
   (ids 1–10, `/class_{id}_{page}.html`).
 

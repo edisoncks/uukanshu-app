@@ -4,7 +4,7 @@ import cc.uukanshu.core.Errors
 import android.app.Application
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import cc.uukanshu.data.prefs.Prefs
+import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.data.update.DownloadStatus
 import cc.uukanshu.data.update.UpdateApi
 import cc.uukanshu.data.update.UpdateDownloader
@@ -24,7 +24,7 @@ import kotlinx.coroutines.withContext
 /** In-app update state machine (Tier B: DownloadManager + installer intent). */
 class UpdateViewModel(
     private val app: Application,
-    private val prefs: Prefs,
+    private val prefs: PrefsApi,
     private val api: UpdateApi = UpdateApi(),
     private val downloader: UpdateDownloader = UpdateDownloader(app),
 ) : ViewModel() {

@@ -58,10 +58,9 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun HomeScreen(onBook: (String) -> Unit) {
-    val ctx = LocalContext.current
-    val app = ctx.app()
+    val container = cc.uukanshu.di.LocalContainer.current
     val vm: HomeViewModel = viewModel(factory = vmFactory {
-        HomeViewModel(app.repo, app.prefs, app.t2s)
+        HomeViewModel(container.repo, container.prefs, container.t2s)
     })
     val ui by vm.ui.collectAsState()
     // Stable Flow per list: the same instance across detail->back replays

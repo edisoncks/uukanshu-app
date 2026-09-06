@@ -1,0 +1,115 @@
+package cc.uukanshu
+
+import cc.uukanshu.data.download.BookDownloadManager
+import cc.uukanshu.data.parse.Parser
+import cc.uukanshu.data.repo.BookRepo
+import cc.uukanshu.di.AppContainer
+import cc.uukanshu.di.ConvertApi
+import cc.uukanshu.di.DownloadsApi
+import cc.uukanshu.di.PrefsApi
+import cc.uukanshu.di.RepoApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/** In-memory fakes proving the DI seam: VMs accept these without an Application. */
+class FakeRepo(
+    var cached: BookRepo.Detail? = null,
+    var fresh: BookRepo.Detail? = null,
+    var failure: Exception? = null,
+) : RepoApi {
+    override suspend fun category(categoryId: Int, page: Int) = emptyList<Parser.BookItem>()
+    override suspend fun recent(page: Int) = emptyList<Parser.BookItem>()
+    override suspend fun search(keyword: String) = Parser.SearchResult(null, emptyList())
+    override suspend fun cachedDetail(bookId: String) = cached
+    override suspend fun detail(bookId: String): BookRepo.Detail =
+        failure?.let { throw it } ?: fresh ?: throw java.io.IOException("no fresh")
+    override suspend fun chapter(url: String) =
+        Parser.ChapterContent("", "", "", null, null, null)
+    override suspend fun cachedChapterContent(bookId: String, pageId: Long): String? = null
+    override fun cachedPositionsFlow(bookId: String): Flow<Set<Long>> = flowOf(emptySet())
+    override suspend fun saveChapterContent(bookId: String, pageId: Long, content: String) = Unit
+    override suspend fun saveProgress(bookId: String, position: Int, pageId: Long) = Unit
+    override fun bookmarkFlow(bookId: String): Flow<BookRepo.Bookmark?> = flowOf(null)
+    override suspend fun getBookmark(bookId: String): BookRepo.Bookmark? = null
+    override fun progressFlow(bookId: String): Flow<Int?> = flowOf(null)
+    override suspend fun getProgress(bookId: String): Int? = null
+    override suspend fun bookEntry(bookId: String) = null
+    override suspend fun library() = emptyList<BookRepo.CachedBook>()
+    override suspend fun crawlDelay() = Unit
+    override suspend fun downloadAll(bookId: String, onProgress: (Int, Int) -> Unit) = Unit
+    override suspend fun deleteBook(bookId: String) = Unit
+    override suspend fun clearAll() = Unit
+}
+
+class FakePrefs : PrefsApi {
+    override val simplified: Flow<Boolean> = flowOf(false)
+    override val fontScale: Flow<Float> = flowOf(1f)
+    override val theme: Flow<String> = flowOf("system")
+    override val lastUpdateCheck: Flow<Long> = flowOf(0L)
+    override val skippedVersion: Flow<String?> = flowOf(null)
+    override suspend fun setSimplified(v: Boolean) = Unit
+    override suspend fun setFontScale(v: Float) = Unit
+    override suspend fun setTheme(v: String) = Unit
+    override suspend fun setLastUpdateCheck(now: Long) = Unit
+    override suspend fun setSkippedVersion(v: String?) = Unit
+}
+
+class FakeConvert : ConvertApi {
+    override fun convert(s: String) = "S:$s"
+}
+
+class FakeDownloads : DownloadsApi {
+    override val states: StateFlow<Map<String, BookDownloadManager.State>> =
+        MutableStateFlow(emptyMap())
+    override fun observe(bookId: String): Flow<BookDownloadManager.State?> = flowOf(null)
+    override fun isDownloading(bookId: String) = false
+    override fun start(bookId: String) = Unit
+    override fun cancel(bookId: String) = Unit
+    override fun forget(bookId: String) = Unit
+    override fun forgetAll() = Unit
+}
+
+class FakeContainer(
+    repo: RepoApi = FakeRepo(),
+    prefs: PrefsApi = FakePrefs(),
+    t2s: ConvertApi = FakeConvert(),
+    downloads: DownloadsApi = FakeDownloads(),
+) : AppContainer {
+    override val repo: RepoApi = repo
+    override val prefs: PrefsApi = prefs
+    override val t2s: ConvertApi = t2s
+    override val downloads: DownloadsApi = downloads
+}
+
+class ContainerSeamTest {
+    private fun meta() = Parser.BookMeta("T", "A", "", "", "", "", "", null, "")
+
+    @Test fun fakeRepoServesCacheWhenNetworkFails() = runBlocking {
+        val cachedDetail = BookRepo.Detail(
+            meta(),
+            listOf(Parser.ChapterRef(1, 101L, "c1", "https://uukanshu.cc/book/1/101.html")),
+        )
+        val repo = FakeRepo(cached = cachedDetail, failure = java.io.IOException("offline"))
+        val container: AppContainer = FakeContainer(repo = repo)
+        // Seam check without Android: cache paints, network throws → offline path.
+        assertEquals(cachedDetail, container.repo.cachedDetail("1"))
+        try {
+            container.repo.detail("1")
+            throw AssertionError("must throw")
+        } catch (e: java.io.IOException) {
+            assertEquals("offline", e.message)
+        }
+    }
+
+    @Test fun fakeConvertAppliesAtRender() {
+        val container: AppContainer = FakeContainer()
+        assertEquals("S:raw", container.t2s.convert("raw"))
+        assertTrue(!container.downloads.isDownloading("1"))
+    }
+}
