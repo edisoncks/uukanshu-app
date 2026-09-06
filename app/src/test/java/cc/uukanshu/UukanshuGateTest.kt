@@ -14,9 +14,9 @@ import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
 
 class UukanshuGateTest {
-    @Test fun bulkYieldsToWaitingInteractive() = runTest {
-        // Bulk must never park ahead of a tap: while the lane is busy it
-        // spins, so the waiting interactive takes the mutex first.
+    @Test fun queuedRequestsSerializeFIFO() = runTest {
+        // Plain mutex: whoever queued first runs first. Interleaving comes
+        // from bulk releasing the permit during crawlDelay/backoff, not priority.
         val gate = UukanshuGate()
         val order = mutableListOf<String>()
         val release = CompletableDeferred<Unit>()
@@ -32,7 +32,7 @@ class UukanshuGateTest {
         runCurrent()
         release.complete(Unit)
         listOf(holder, bulk, tap).awaitAll()
-        assertEquals(listOf("tap", "bulk"), order)
+        assertEquals(listOf("bulk", "tap"), order)
     }
 
     @Test fun bulkWaitIsCancellable() = runTest {

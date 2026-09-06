@@ -26,10 +26,9 @@ import kotlin.coroutines.coroutineContext
  *
  * Concurrency: every HTTP attempt holds [UukanshuGate] only for the
  * blocking execute itself. Retry backoff (`delay`) and HTML sniffing run
- * outside the gate so one failing request never head-of-line blocks
- * interactive taps for ~4.5s. Bulk crawl work (under [BulkFetch]) takes the
- * bulk lane: it yields to waiting taps in the gate and runs shorter
- * timeouts, so a stuck background fetch cannot wedge the lane for minutes.
+ * outside the gate so one failing request never head-of-line blocks taps.
+ * Bulk crawl work (under [BulkFetch]) uses shorter timeouts and releases
+ * the gate during backoff/crawlDelay, so taps interleave.
  * Cancellation propagates immediately —
  * `CancellationException` is never swallowed by the retry loop.
  */

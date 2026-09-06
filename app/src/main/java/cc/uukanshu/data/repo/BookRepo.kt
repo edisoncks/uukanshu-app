@@ -19,22 +19,13 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.random.Random
 
-/**
- * Network-first facade with Room fallback. Raw Traditional cached; T2S at render.
- * Pure rules in TocDiff/ShelfOrder/BookmarkResolve/DownloadPlan/TocRevalidator.
- * See ARCHITECTURE.md.
- */
+/** Network-first facade with Room fallback. Raw Traditional cached; T2S at render. */
 class BookRepo(
     private val site: SiteGateway,
     private val db: AppDb,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : cc.uukanshu.di.RepoApi {
-    /**
-     * Serializes TOC guard-read + replace vs single-row writes (lost-update guard).
-     * The shrink-guard count and the replace it authorizes are one atomic unit:
-     * a concurrent same-book refresh must not slip a short parse past a stale
-     * count and regress the TOC size. See ARCHITECTURE.md (offline cache).
-     */
+    /** Serializes TOC replace vs single-row writes so concurrent refreshes can't regress size. */
     private val dbWrite = Mutex()
     override suspend fun category(categoryId: Int, page: Int): List<Parser.BookItem> =
         withContext(ioDispatcher) {
@@ -87,11 +78,25 @@ class BookRepo(
         fun nextCrawlDelayMs(random: Random = Random): Long =
             random.nextLong(CRAWL_DELAY_MIN_MS, CRAWL_DELAY_MAX_MS + 1)
 
-        /** Delegates to [BookmarkResolve.resolve] (pageId-first, never neighbor). */
+        /** pageId-first; vanished non-zero pageId yields null, never a neighbor. Pre-v4 (pageId 0) falls back to position. */
         fun resolveBookmark(
             chapters: List<Parser.ChapterRef>,
             bookmark: Bookmark?,
-        ): Parser.ChapterRef? = BookmarkResolve.resolve(chapters, bookmark)
+        ): Parser.ChapterRef? {
+            if (bookmark == null || chapters.isEmpty()) return null
+            if (bookmark.pageId != 0L) return chapters.firstOrNull { it.pageId == bookmark.pageId }
+            return chapters.firstOrNull { it.position == bookmark.position }
+        }
+
+        /** Chapters without cached text, in TOC order. */
+        fun missing(
+            chapters: List<Parser.ChapterRef>,
+            cachedIds: Set<Long>,
+        ): List<Parser.ChapterRef> = chapters.filter { it.pageId !in cachedIds }
+
+        /** True when every chapter already has cached text. */
+        fun isDownloadComplete(chapters: List<Parser.ChapterRef>, cachedIds: Set<Long>): Boolean =
+            chapters.isNotEmpty() && chapters.all { it.pageId in cachedIds }
     }
 
     data class Bookmark(val position: Int, val pageId: Long)
@@ -293,9 +298,7 @@ class BookRepo(
             runCatching { db.chapters().cachedPageIds(bookId).toMutableSet() }
                 .getOrDefault(mutableSetOf())
         }
-        // Pure planning helper keeps the missing-set rule testable: the loop
-        // reports progress over all chapters but fetches only the planned set.
-        val missingIds = DownloadPlan.missing(chapters, cachedIds).mapTo(mutableSetOf()) { it.pageId }
+        val missingIds = missing(chapters, cachedIds).mapTo(mutableSetOf()) { it.pageId }
         try {
             var fetchedAny = false
             chapters.forEachIndexed { idx, ref ->
@@ -306,8 +309,7 @@ class BookRepo(
                 }
                 if (ref.pageId in missingIds) {
                     if (fetchedAny) crawlDelay()
-                    // Bulk lane: yields to interactive taps in the gate with
-                    // short timeouts (see BulkFetch). Chapter parse stays shared.
+                    // Bulk timeouts (see BulkFetch); gate is per-attempt so taps interleave.
                     val text = withContext(ioDispatcher + BulkFetch) { chapter(ref.url).text }
                     saveChapterContent(bookId, ref.pageId, text)
                     missingIds.remove(ref.pageId)
