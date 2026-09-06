@@ -79,5 +79,6 @@ rules below look odd — they encode real site quirks. **Do not "simplify".**
 ## Platform constraints
 
 - `minSdk 31` (Android 12+), `targetSdk 34`, `compileSdk 34`.
-- Permissions: `INTERNET` + `ACCESS_NETWORK_STATE` (reading/fetching),
+- Permissions: `INTERNET` (reading/fetching; offline via exception + cache
+  fallback, no connectivity observer),
   `REQUEST_INSTALL_PACKAGES` (in-app update installer handoff only).

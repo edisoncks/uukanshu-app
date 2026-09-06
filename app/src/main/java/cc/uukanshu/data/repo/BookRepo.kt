@@ -204,9 +204,16 @@ class BookRepo(
             Parser.parseChapter(html, url)
         }
 
-    /** Cached text by stable pageId — immune to TOC-shift aliasing. */
+    /**
+     * Cached text by stable pageId — immune to TOC-shift aliasing.
+     * Wrapped in IO for uniformity: Room suspend is main-safe, but every
+     * other repo read goes through Dispatchers.IO so a forgotten context
+     * can never block Main.
+     */
     suspend fun cachedChapterContent(bookId: String, pageId: Long): String? =
-        db.chapters().chapterContent(bookId, pageId)?.takeIf { it.isNotEmpty() }
+        withContext(Dispatchers.IO) {
+            db.chapters().chapterContent(bookId, pageId)?.takeIf { it.isNotEmpty() }
+        }
 
     /** Stable ids with downloaded content — immune to TOC-shift mislabeling. */
     fun cachedPositionsFlow(bookId: String): Flow<Set<Long>> =

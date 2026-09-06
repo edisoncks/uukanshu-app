@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Text-only reader: network only. No images/ads SDKs. -->
+    <!-- Text-only reader: network only. No images/ads SDKs.
+         Offline is detected via exception + cache fallback (no connectivity observer). -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- In-app update: fire the package installer for the downloaded APK.
          The grant itself is a system Settings toggle, not a runtime dialog. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
