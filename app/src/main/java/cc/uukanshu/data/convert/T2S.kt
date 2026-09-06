@@ -1,7 +1,5 @@
 package cc.uukanshu.data.convert
 
-import android.content.Context
-
 /**
  * Traditional -> Simplified converter (OpenCC data via opencc4j).
  *
@@ -15,7 +13,7 @@ import android.content.Context
  * (>4k chars) bypass the cache to bound memory. Pure eviction logic lives
  * in [CachePolicy] for JVM tests (no Android needed).
  */
-class T2S(private val appContext: Context) : cc.uukanshu.di.ConvertApi {
+class T2S : cc.uukanshu.di.ConvertApi {
     object CachePolicy {
         const val MAX_ENTRIES = 500
         const val MAX_CACHED_LEN = 4000

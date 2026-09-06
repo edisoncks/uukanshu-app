@@ -160,6 +160,28 @@ class UpdateViewModelTest {
         assertEquals(true, vm.ui.value.error?.isNotEmpty())
     }
 
+    @Test fun failedAutoCheckStillThrottles() = runTest {
+        // A failed attempt stamps lastUpdateCheck too: silence for 24h
+        // instead of retrying on every launch.
+        val prefs = MutableFakePrefs()
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val failing = object : ReleaseFetcher {
+            override fun fetchLatest(): UpdateInfo = throw java.io.IOException("offline")
+        }
+        val vm = UpdateViewModel(app, prefs, failing, FakeApkDownloader())
+        vm.autoCheck()
+        var tries = 0
+        // checkBody hops to Dispatchers.IO (real thread): wait for completion.
+        while ((vm.ui.value.checking || prefs.lastCheckSet == null) && tries < 100) {
+            Thread.sleep(50)
+            main.dispatcher.scheduler.advanceUntilIdle()
+            tries++
+        }
+        assertFalse(vm.ui.value.checking)
+        assertFalse(vm.ui.value.visible)
+        assertEquals(true, (prefs.lastCheckSet ?: 0L) > 0L)
+    }
+
     @Test fun autoCheckThrottledWhenRecent() = runTest {
         val calls = AtomicInteger(0)
         val app = ApplicationProvider.getApplicationContext<android.app.Application>()

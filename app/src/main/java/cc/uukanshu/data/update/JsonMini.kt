@@ -9,6 +9,9 @@ package cc.uukanshu.data.update
  * proper escape handling. Returns maps/lists/strings/numbers/booleans/null.
  */
 internal object JsonMini {
+    // Strict JSON number (no leading +, no leading zeros, no bare dot/exponent).
+    // GitHub payloads always conform; anything else is corruption, not a number.
+    private val numberRe = Regex("^-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?$")
     fun parse(text: String): Any? {
         val p = Parser(text)
         p.ws()
@@ -129,6 +132,7 @@ internal object JsonMini {
             val start = i
             while (i < s.length && (s[i].isDigit() || s[i] in "+-.eE")) i++
             val raw = s.substring(start, i)
+            if (!numberRe.matches(raw)) throw IllegalArgumentException("bad number $raw")
             return raw.toLongOrNull() ?: raw.toDoubleOrNull()
                 ?: throw IllegalArgumentException("bad number $raw")
         }

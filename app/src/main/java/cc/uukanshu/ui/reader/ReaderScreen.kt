@@ -152,7 +152,7 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L) {
                     Button(
                         onClick = {
                             if (ui.position >= ui.total && ui.total > 0) {
-                                scope.launch { snacks.showSnackbar("已是最新一章 / end of book") }
+                                scope.launch { snacks.showSnackbar(vm.display("已是最新一章")) }
                             } else vm.load(ui.position + 1)
                         },
                         enabled = !ui.isLoading,

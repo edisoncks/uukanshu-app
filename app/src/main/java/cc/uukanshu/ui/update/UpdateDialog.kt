@@ -131,19 +131,24 @@ fun UpdateDialog(
                                     style = MaterialTheme.typography.bodySmall,
                                 )
                             }
-                        } else if (!ui.fileReady && info.changelog.isNotEmpty()) {
-                            Text(
-                                display(info.changelog.take(2000)),
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier
-                                    .heightIn(max = 220.dp)
-                                    .verticalScroll(rememberScrollState()),
-                            )
-                        } else if (ui.fileReady) {
-                            Text(
-                                display("${info.apkName} 已下載完成，點擊立即安裝（原有資料與快取會保留）。"),
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
+                        } else {
+                            // Changelog stays visible next to the install prompt:
+                            // hiding it at fileReady robbed the user of what is new.
+                            if (info.changelog.isNotEmpty()) {
+                                Text(
+                                    display(info.changelog.take(2000)),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier
+                                        .heightIn(max = 220.dp)
+                                        .verticalScroll(rememberScrollState()),
+                                )
+                            }
+                            if (ui.fileReady) {
+                                Text(
+                                    display("${info.apkName} 已下載完成，點擊立即安裝（原有資料與快取會保留）。"),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
                         }
                         if (ui.error != null) {
                             Text(

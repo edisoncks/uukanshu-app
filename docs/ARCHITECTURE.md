@@ -185,7 +185,7 @@ pure `shouldAutoCheck`/`shouldOfferUpdate` policy is JVM-tested
   Settings always hits the network (flips `checking` atomically so rapid taps
   can't launch duplicate checks).
 - Version compare is numeric dot-separated on `versionName` vs tag (leading
-  `v` stripped). APK assets fail closed: only exactly `uukanshu-{version}.apk`
+  `v` stripped; prerelease suffixes compare numerically, `beta10` > `beta2`). APK assets fail closed: only exactly `uukanshu-{version}.apk`
   for the tag is offered (stale/second APK yields no update).
 - Download via system `DownloadManager`, polled through
   `UpdateDownloader.observe(id)` (emits `DownloadStatus` until terminal,

@@ -39,7 +39,9 @@ object VersionCompare {
     /**
      * True when [remote] is strictly newer than [local].
      * A bare release beats its prerelease (`1.0.15` > `1.0.15-beta`);
-     * between two prereleases the lexicographically larger suffix wins.
+     * between two prereleases the larger suffix wins, with embedded numbers
+     * compared numerically (`beta10` > `beta2`, which lexicographic order
+     * gets wrong).
      */
     fun isNewer(remote: String, local: String): Boolean {
         val r = normalize(remote)
@@ -54,7 +56,27 @@ object VersionCompare {
         val lPre = l.substringAfter('-', "")
         if (rPre.isEmpty() && lPre.isNotEmpty()) return true
         if (rPre.isNotEmpty() && lPre.isEmpty()) return false
-        return rPre > lPre
+        return comparePreRelease(rPre, lPre) > 0
+    }
+
+    private val chunkRe = Regex("\\d+|\\D+")
+
+    /**
+     * Prerelease order: split into digit/non-digit runs so trailing numbers
+     * compare numerically. Pure + unit-tested (see `UpdateCheckTest`).
+     */
+    fun comparePreRelease(a: String, b: String): Int {
+        val ac = chunkRe.findAll(a).map { it.value }.toList()
+        val bc = chunkRe.findAll(b).map { it.value }.toList()
+        for (i in 0 until maxOf(ac.size, bc.size)) {
+            val x = ac.getOrElse(i) { "" }
+            val y = bc.getOrElse(i) { "" }
+            val xn = x.toLongOrNull()
+            val yn = y.toLongOrNull()
+            val d = if (xn != null && yn != null) xn.compareTo(yn) else x.compareTo(y)
+            if (d != 0) return d
+        }
+        return 0
     }
 }
 

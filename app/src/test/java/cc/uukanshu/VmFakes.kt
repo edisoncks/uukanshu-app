@@ -94,6 +94,8 @@ class MutableFakePrefs(
     val started: MutableList<String> = mutableListOf(),
     val skipped: MutableList<String?> = mutableListOf(),
 ) : PrefsApi {
+    /** Last value passed to setLastUpdateCheck (null = never called). */
+    var lastCheckSet: Long? = null
     private val _simplified = MutableStateFlow(simplified)
     override val simplified: Flow<Boolean> = _simplified
     override val fontScale: Flow<Float> = flowOf(1f)
@@ -106,7 +108,9 @@ class MutableFakePrefs(
     }
     override suspend fun setFontScale(v: Float) = Unit
     override suspend fun setTheme(v: String) = Unit
-    override suspend fun setLastUpdateCheck(now: Long) = Unit
+    override suspend fun setLastUpdateCheck(now: Long) {
+        lastCheckSet = now
+    }
     override suspend fun setSkippedVersion(v: String?) {
         skipped += v
     }

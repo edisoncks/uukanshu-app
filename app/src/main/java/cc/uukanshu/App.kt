@@ -20,11 +20,11 @@ class App : Application() {
     val repo by lazy { BookRepo(site, db) }
     // App-scoped so full-book downloads survive popping detail.
     val downloadManager by lazy { BookDownloadManager(repo) }
-    // Singletons: screens must use these, never `Prefs(app)` / `T2S(app)`
+    // Singletons: screens must use these, never `Prefs(app)`
     // per-composition. Fresh instances per screen wasted work and risked
     // divergent state; one instance also makes fakes injectable in tests.
     val prefs by lazy { Prefs(this) }
-    val t2s by lazy { T2S(this) }
+    val t2s by lazy { T2S() }
     // Updater singletons: owned here (not per-ViewModel) so MainActivity
     // and tests inject the same instances via RealAppContainer.
     val updateApi by lazy { UpdateApi() }

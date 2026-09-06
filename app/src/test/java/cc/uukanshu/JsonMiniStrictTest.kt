@@ -45,6 +45,27 @@ class JsonMiniStrictTest {
         assertNull(UpdateApi.parse("not json"))
     }
 
+    @Test fun nonJsonNumbersFail() {
+        // Leading +, leading zeros, bare dots/exponents are corruption, not numbers.
+        for (bad in listOf("+123", "01", ".5", "1.", "1e", "--1")) {
+            try {
+                JsonMini.parse("""{"a":$bad}""")
+                throw AssertionError("must throw on $bad")
+            } catch (e: IllegalArgumentException) {
+                // expected
+            }
+        }
+    }
+
+    @Test fun validNumberFormsPass() {
+        @Suppress("UNCHECKED_CAST")
+        val m = JsonMini.parse("""{"a":0,"b":-12,"c":1e3,"d":-2.5E-2}""") as Map<String, Any?>
+        assertEquals(0L, m["a"])
+        assertEquals(-12L, m["b"])
+        assertEquals(1000.0, m["c"])
+        assertEquals(-0.025, m["d"])
+    }
+
     @Test fun badEscapeFails() {
         try {
             JsonMini.parse("""{"s":"\q"}""")

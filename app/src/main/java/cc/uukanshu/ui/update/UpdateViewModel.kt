@@ -161,6 +161,10 @@ class UpdateViewModel(
             }
         } catch (e: Exception) {
             if (e is CancellationException) throw e
+            // Throttle attempts, not just successes: a failed auto-check
+            // stays silent for 24h instead of retrying on every launch.
+            // Manual checks always hit the network (markChecking gate).
+            prefs.setLastUpdateCheck(System.currentTimeMillis())
             if (manual) {
                 _ui.update {
                     it.copy(checking = false, visible = true,

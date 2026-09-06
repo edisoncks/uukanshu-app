@@ -36,6 +36,15 @@ class VersionCompareTest {
         assertTrue(VersionCompare.isNewer("1.0.15", "1.0.15-beta"))
         assertFalse(VersionCompare.isNewer("1.0.15-beta", "1.0.15"))
     }
+
+    @Test
+    fun `prerelease suffix compares numbers numerically`() {
+        // Lexicographic order says beta2 > beta10 ("2" > "1"); wrong.
+        assertTrue(VersionCompare.isNewer("1.0.15-beta10", "1.0.15-beta2"))
+        assertFalse(VersionCompare.isNewer("1.0.15-beta2", "1.0.15-beta10"))
+        assertTrue(VersionCompare.isNewer("1.0.15-rc2", "1.0.15-beta10"))
+        assertFalse(VersionCompare.isNewer("1.0.15-beta", "1.0.15-beta"))
+    }
 }
 
 class UpdateApiParseTest {
