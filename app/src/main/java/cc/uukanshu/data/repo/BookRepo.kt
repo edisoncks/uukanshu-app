@@ -20,7 +20,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import android.util.Log
 import kotlin.random.Random
+
+private const val TAG = "BookRepo"
 
 /** Network-first facade with Room fallback. Raw Traditional cached; T2S at render. */
 class BookRepo(
@@ -109,10 +112,11 @@ class BookRepo(
             stats: List<cc.uukanshu.data.db.ChapterStats>,
             limit: Int,
         ): List<String> {
+            require(limit >= 0) { "limit=$limit" }
             val cachedById = stats.associate { it.bookId to it.cached }
             return ordered.asSequence()
                 .filter { (cachedById[it.id] ?: 0) > 0 }
-                .take(limit.coerceAtLeast(1))
+                .take(limit)
                 .map { it.id }
                 .toList()
         }
@@ -380,11 +384,15 @@ class BookRepo(
      * seenTotal never advances here — only markSeen advances it — so the
      * badge survives until the user opens Detail. First run seeds baseline
      * with no false badge. Empty/shrink never wipes cache (same guard as Detail).
+     * Two clocks: per-book lastCheckedAt stamps on every terminal per-book path
+     * (Ok/Shrink/Empty, never Failed) so empty books advance past oldest-first
+     * instead of starving the queue; global lastBookCheck stamps in UpdateChecker
+     * on whole-run success only (see UpdateChecker.checkAll).
      */
     override suspend fun checkUpdate(bookId: String): UpdateCheck {
-        val before = withContext(ioDispatcher) { db.books().book(bookId) }
-            ?: return UpdateCheck.Failed(java.io.IOException("not cached"))
-        val seenBefore = before.seenTotal
+        if (withContext(ioDispatcher) { db.books().book(bookId) } == null) {
+            return UpdateCheck.Failed(java.io.IOException("not cached"))
+        }
         val freshSize: Int = try {
             withContext(ioDispatcher) { detail(bookId).chapters.size }
         } catch (e: CancellationException) {
@@ -400,21 +408,25 @@ class BookRepo(
         } catch (e: Exception) {
             return UpdateCheck.Failed(e)
         }
-        if (freshSize == 0) return UpdateCheck.SkippedEmpty
         return withContext(ioDispatcher) {
             dbWrite.withLock {
                 val cur = db.books().book(bookId) ?: return@withLock UpdateCheck.Failed(java.io.IOException("deleted"))
                 val now = System.currentTimeMillis()
-                if (seenBefore == 0 && cur.seenTotal == 0) {
+                if (freshSize == 0) {
+                    // Block page / layout change: keep badge + baseline, stamp time
+                    // so this book sorts last next run instead of wedging oldest-first.
+                    db.books().updateCheckState(bookId, cur.seenTotal, cur.newCount, now)
+                    return@withLock UpdateCheck.SkippedEmpty
+                }
+                if (cur.seenTotal == 0) {
                     // First baseline: no badge, remember current size.
                     // Upgrade tradeoff by design: seed from fresh (no false badge);
                     // pre-upgrade growth is missed once — false positives are worse.
                     db.books().updateCheckState(bookId, freshSize, 0, now)
                     UpdateCheck.Ok(0)
                 } else {
-                    val base = cur.seenTotal.takeIf { it > 0 } ?: freshSize
-                    val n = (freshSize - base).coerceAtLeast(0)
-                    db.books().updateCheckState(bookId, cur.seenTotal.takeIf { it > 0 } ?: freshSize, n, now)
+                    val n = (freshSize - cur.seenTotal).coerceAtLeast(0)
+                    db.books().updateCheckState(bookId, cur.seenTotal, n, now)
                     UpdateCheck.Ok(n)
                 }
             }
@@ -471,7 +483,11 @@ class BookRepo(
         CheckAllResult(checked = ids.size, newBooks = books, newChapters = chapters, perBook = per)
     }
 
-    /** User opened Detail: baseline advances to current TOC, badge clears. Serialized with checks. */
+    /**
+     * User opened Detail: baseline advances to current TOC, badge clears. Serialized with checks.
+     * Reads countByBook (not a caller-passed size) because detail()/replaceToc already flushed
+     * fresh chapters under dbWrite before Ready paints; same lock keeps this consistent.
+     */
     override suspend fun markSeen(bookId: String) = withContext(ioDispatcher) {
         dbWrite.withLock {
             val total = try {
@@ -479,6 +495,7 @@ class BookRepo(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                Log.w(TAG, "markSeen count failed for $bookId", e)
                 return@withLock
             }
             if (total == 0) return@withLock
