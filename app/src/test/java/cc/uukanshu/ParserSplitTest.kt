@@ -17,6 +17,12 @@ class ParserSplitTest {
         assertNull(BookIds.normalizeBookId("99999999999999999999"))
     }
 
+    @Test fun bookUrlBuildsCanonicalDetailUrl() {
+        assertEquals("https://uukanshu.cc/book/1/", BookIds.bookUrl("1"))
+        assertEquals("https://uukanshu.cc/book/1/", BookIds.bookUrl("001"))
+        assertEquals("https://uukanshu.cc/book/1/", BookIds.bookUrl(" 1 "))
+    }
+
     @Test fun tocKeepsLastOccurrence() {
         val html = """
             <a href="/book/1/101.html">Old title</a>
