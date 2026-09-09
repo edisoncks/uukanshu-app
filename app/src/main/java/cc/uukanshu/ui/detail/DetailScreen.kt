@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoStories
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -29,7 +31,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -109,10 +110,10 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int, page
                                 onClick = { onChapter(bookId, bookmarked.position, bookmarked.pageId) },
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
+                                Icon(Icons.Filled.AutoStories, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
                                 Text(
-                                    vm.displayTitle("繼續閱讀：第 ${bookmarked.position} 章 ${bookmarked.title}"),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
+                                    vm.displayTitle("繼續閱讀：第${bookmarked.position}章"),
                                 )
                             }
                         }
@@ -136,10 +137,10 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int, page
                                 onClick = { onChapter(bookId, bookmarked.position, bookmarked.pageId) },
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
+                                Icon(Icons.Filled.AutoStories, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
                                 Text(
-                                    vm.displayTitle("繼續閱讀：第 ${bookmarked.position} 章 ${bookmarked.title}"),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
+                                    vm.displayTitle("繼續閱讀：第${bookmarked.position}章"),
                                 )
                             }
                         }
@@ -148,6 +149,8 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int, page
                         val fullyCached = load.chapters.isNotEmpty() && ui.cached.size >= load.chapters.size
                         val progressTotal = vm.progressTotal(load.chapters.size)
                         Button({ vm.downloadAll() }, Modifier.fillMaxWidth()) {
+                            Icon(Icons.Filled.Download, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
                             Text(if (fullyCached || (ui.done > 0 && progressTotal > 0 && ui.done >= progressTotal)) vm.displayTitle("重新下載整本") else vm.displayTitle("下載整本"))
                         }
                     }
