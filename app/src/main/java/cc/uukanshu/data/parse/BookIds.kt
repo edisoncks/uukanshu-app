@@ -34,6 +34,10 @@ object BookIds {
         return "${Parser.BASE}/book/$id/"
     }
 
+    /** Canonical detail URL for a book id ("001" → "…/book/1/"). */
+    fun bookUrl(bookId: String): String =
+        "${Parser.BASE}/book/${normalizeBookId(bookId) ?: bookId.trim()}/"
+
     fun bookIdOrNull(url: String): String? =
         bookIdRe.find(url)?.groupValues?.getOrNull(1)?.let { normalizeBookId(it) }
 

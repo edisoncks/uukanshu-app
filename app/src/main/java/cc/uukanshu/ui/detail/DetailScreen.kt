@@ -1,20 +1,27 @@
 package cc.uukanshu.ui.detail
 
+import android.content.Intent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -30,6 +37,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import cc.uukanshu.core.Display
 import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.download.BookDownloadManager
+import cc.uukanshu.data.parse.BookIds
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.repo.BookRepo
 import cc.uukanshu.data.prefs.Prefs
@@ -45,6 +53,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int, pageId: Long) -> Unit) {
     val container = cc.uukanshu.di.LocalContainer.current
+    val context = LocalContext.current
     val vm: DetailViewModel = viewModel(
         key = bookId,
         factory = vmFactory {
@@ -144,6 +153,19 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int, page
                     }
                 }
                 ui.downloadError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                // Secondary action: sits below the primary download block so
+                // 繼續閱讀/下載整本 stay dominant; outlined keeps hierarchy.
+                OutlinedButton(
+                    onClick = {
+                        val url = BookIds.bookUrl(bookId)
+                        context.startActivity(Intent.createChooser(buildShareIntent(url), null))
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                ) {
+                    Icon(Icons.Filled.Share, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(vm.displayTitle("分享連結"))
+                }
                 Text(
                     "${vm.displayTitle("共")} ${load.chapters.size} ${vm.displayTitle("章")} · ${vm.displayTitle("已緩存")} ${ui.cached.size} ${vm.displayTitle("章")}",
                     style = MaterialTheme.typography.bodySmall,
@@ -185,3 +207,10 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int, page
         }
     }
 }
+
+/** Pure share intent (see BookIds.bookUrl): JVM-testable, no Context needed. */
+internal fun buildShareIntent(url: String): Intent =
+    Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, url)
+    }
