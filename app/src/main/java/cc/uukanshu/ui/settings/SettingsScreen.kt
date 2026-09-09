@@ -21,17 +21,29 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import android.util.Log
+import androidx.core.content.ContextCompat
 import cc.uukanshu.core.Display
 import cc.uukanshu.data.prefs.Prefs
+import cc.uukanshu.data.updatecheck.BookUpdateScheduler
+import cc.uukanshu.data.updatecheck.UpdateChecker
 import cc.uukanshu.data.update.UpdateDownloader
 import cc.uukanshu.ui.update.UpdateViewModel
 import kotlinx.coroutines.launch
@@ -59,6 +71,21 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
     fun display(raw: String): String = Display.text(t2s, raw, simplified)
     val updateUi by updateVm.ui.collectAsState()
     val currentVersion = remember(ctx) { UpdateDownloader.currentVersion(ctx) }
+    val bgEnabled by prefs.bgCheckEnabled.collectAsState(initial = true)
+    val lastBookCheck by prefs.lastBookCheck.collectAsState(initial = 0L)
+    var notifGrantedState by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(ctx) {
+        notifGrantedState = if (Build.VERSION.SDK_INT < 33) true
+        else ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    }
+    val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        notifGrantedState = granted
+    }
+    fun notifGranted(): Boolean {
+        notifGrantedState?.let { return it }
+        if (Build.VERSION.SDK_INT < 33) return true
+        return ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -189,6 +216,60 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
                         TextButton(onClick = { updateVm.skipVersion() }) {
                             Text(display("跳過此版本"))
                         }
+                    }
+                }
+            }
+        }
+
+        // 追更 card: background daily TOC check, same rhythm as other cards.
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SectionHeader(display("追更"))
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(display("背景自動檢查"), style = MaterialTheme.typography.bodyLarge)
+                        Switch(
+                            checked = bgEnabled,
+                            onCheckedChange = { on ->
+                                scope.launch {
+                                    prefs.setBgCheckEnabled(on)
+                                    if (on) {
+                                        BookUpdateScheduler.scheduleUpdate(ctx)
+                                        if (!notifGranted() && Build.VERSION.SDK_INT >= 33) {
+                                            try {
+                                                notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                            } catch (e: Exception) {
+                                                Log.w("Settings", "notification permission request failed", e)
+                                            }
+                                        }
+                                    } else {
+                                        BookUpdateScheduler.cancel(ctx)
+                                    }
+                                }
+                            },
+                        )
+                    }
+                    Text(
+                        if (bgEnabled) display("每天自動檢查一次，有更新時通知。")
+                        else display("已關閉背景檢查，可在書架手動檢查。"),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        display(UpdateChecker.formatLastCheck(lastBookCheck)),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (bgEnabled && notifGrantedState == false) {
+                        Text(
+                            display("通知已關閉，仍會在書架顯示徽章。"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }

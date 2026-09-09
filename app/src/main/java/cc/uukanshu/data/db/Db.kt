@@ -63,9 +63,22 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
     }
 }
 
+/**
+ * v4 -> v5: 追更 columns on `books` (seen baseline + badge count + check stamp).
+ * All NOT NULL DEFAULT 0 so upgrade never nulls; first check seeds
+ * seenTotal=freshSize with no false badge (see BookRepo.checkUpdate).
+ */
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE books ADD COLUMN `seenTotal` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE books ADD COLUMN `newCount` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE books ADD COLUMN `lastCheckedAt` INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
 @Database(
     entities = [BookEntity::class, ChapterEntity::class, ProgressEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class AppDb : RoomDatabase() {
@@ -117,7 +130,7 @@ abstract class AppDb : RoomDatabase() {
                 context.applicationContext,
                 AppDb::class.java,
                 "uukanshu.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build().also { instance = it }
         }
     }
 }

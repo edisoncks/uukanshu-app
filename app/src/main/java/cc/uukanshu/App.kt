@@ -12,6 +12,17 @@ import cc.uukanshu.data.update.UpdateApi
 import cc.uukanshu.data.update.UpdateDownloader
 
 class App : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        // 追更 channel + daily schedule (KEEP: never churn OS schedule;
+        // worker early-exits when disabled so no DataStore read here).
+        // Both guarded in AppInit so tests/stripped builds survive.
+        cc.uukanshu.data.updatecheck.AppInit.init(
+            channel = { cc.uukanshu.data.updatecheck.Notifier.ensureChannel(this) },
+            schedule = { cc.uukanshu.data.updatecheck.BookUpdateScheduler.scheduleKeep(this) },
+        )
+    }
+
     val gate by lazy { UukanshuGate() }
     val db by lazy { AppDb.get(this) }
     // Single-flight lives in SiteApi per HTTP attempt; BookRepo no longer

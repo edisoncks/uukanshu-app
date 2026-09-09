@@ -18,6 +18,12 @@ data class BookEntity(
     val category: String = "",
     val lastChapterTitle: String = "",
     val updatedAt: Long = 0L,
+    /** TOC size the user has seen (baseline for 追更 badge). 0 = never baselined. */
+    val seenTotal: Int = 0,
+    /** freshSize - seenTotal when > 0, else 0. Cleared by markSeen. */
+    val newCount: Int = 0,
+    /** Last background/foreground check (epoch millis, 0 = never). */
+    val lastCheckedAt: Long = 0L,
 )
 
 /**
@@ -82,6 +88,21 @@ interface BookDao {
     /** Reactive shelf source for [cc.uukanshu.data.repo.BookRepo.libraryFlow] (no migration). */
     @Query("SELECT * FROM books ORDER BY updatedAt DESC")
     fun cachedBooksFlow(): Flow<List<BookEntity>>
+
+    /** Single-book reactive source for the Detail 追更 banner (no migration). */
+    @Query("SELECT * FROM books WHERE id = :id")
+    fun bookFlow(id: String): Flow<BookEntity?>
+
+    /** Oldest-checked first for bounded background runs (see UpdateChecker, limit 20). */
+    @Query("SELECT * FROM books ORDER BY lastCheckedAt ASC")
+    suspend fun booksByCheckTime(): List<BookEntity>
+
+    /**
+     * Update 追更 columns without touching meta/shelf order.
+     * Called inside repo dbWrite lock so it serializes with replaceToc/markSeen.
+     */
+    @Query("UPDATE books SET seenTotal = :seenTotal, newCount = :newCount, lastCheckedAt = :checkedAt WHERE id = :id")
+    suspend fun updateCheckState(id: String, seenTotal: Int, newCount: Int, checkedAt: Long)
 
     /** Bump shelf order without touching meta; no-op when the row is missing. */
     @Query("UPDATE books SET updatedAt = :now WHERE id = :id")

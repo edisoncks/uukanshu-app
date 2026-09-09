@@ -34,12 +34,17 @@ class MutableFakeRepo(
     var libraryFlowRows: List<BookRepo.CachedBook> = emptyList(),
     var libraryFailure: Exception? = null,
     var libraryFlowFailure: Exception? = null,
+    var checkAllFailure: Exception? = null,
+    var checkAllResult: BookRepo.CheckAllResult = BookRepo.CheckAllResult(0, 0, 0),
 ) : RepoApi {
     val savedProgress = mutableListOf<Triple<String, Int, Long>>()
     val savedContent = mutableListOf<Triple<String, Long, String>>()
     var downloadAllCalls = 0
     var deleted = mutableListOf<String>()
     var cleared = 0
+    var checkAllCalls = 0
+    var libraryCalls = 0
+    var markSeenCalls = mutableListOf<String>()
 
     override suspend fun category(categoryId: Int, page: Int) = emptyList<Parser.BookItem>()
     override suspend fun recent(page: Int) = emptyList<Parser.BookItem>()
@@ -70,8 +75,21 @@ class MutableFakeRepo(
     override suspend fun getProgress(bookId: String): Int? = null
     override suspend fun bookEntry(bookId: String): BookRepo.BookInfo? =
         cached?.let { BookRepo.BookInfo(bookId, it.meta.title) }
-    override suspend fun library(): List<BookRepo.CachedBook> =
-        libraryFailure?.let { throw it } ?: libraryRows
+    override fun bookInfoFlow(bookId: String): Flow<BookRepo.BookInfo?> =
+        flowOf(cached?.let { BookRepo.BookInfo(bookId, it.meta.title) })
+    override suspend fun checkUpdate(bookId: String): BookRepo.UpdateCheck = BookRepo.UpdateCheck.Ok(0)
+    override suspend fun checkAllUpdates(limit: Int): BookRepo.CheckAllResult {
+        checkAllCalls++
+        checkAllFailure?.let { throw it }
+        return checkAllResult
+    }
+    override suspend fun markSeen(bookId: String) {
+        markSeenCalls += bookId
+    }
+    override suspend fun library(): List<BookRepo.CachedBook> {
+        libraryCalls++
+        return libraryFailure?.let { throw it } ?: libraryRows
+    }
     override fun libraryFlow(): Flow<List<BookRepo.CachedBook>> =
         libraryFlowFailure?.let { throw it } ?: flowOf(libraryFlowRows)
     override suspend fun crawlDelay() = Unit
@@ -89,11 +107,14 @@ class MutableFakeRepo(
 class MutableFakePrefs(
     simplified: Boolean = false,
     lastCheck: Long = 0L,
+    bookCheck: Long = 0L,
     val started: MutableList<String> = mutableListOf(),
     val skipped: MutableList<String?> = mutableListOf(),
 ) : PrefsApi {
     /** Last value passed to setLastUpdateCheck (null = never called). */
     var lastCheckSet: Long? = null
+    /** Last value passed to setLastBookCheck (null = never called). */
+    var lastBookCheckSet: Long? = null
     private val _simplified = MutableStateFlow(simplified)
     override val simplified: Flow<Boolean> = _simplified
     private val _theme = MutableStateFlow(Prefs.SYSTEM)
@@ -101,6 +122,12 @@ class MutableFakePrefs(
     override val fontScale: Flow<Float> = flowOf(1f)
     override val lastUpdateCheck: Flow<Long> = flowOf(lastCheck)
     override val skippedVersion: Flow<String?> = flowOf(null)
+    override val bgCheckEnabled: Flow<Boolean> = flowOf(true)
+    override val lastBookCheck: Flow<Long> = flowOf(bookCheck)
+    override suspend fun setBgCheckEnabled(v: Boolean) = Unit
+    override suspend fun setLastBookCheck(now: Long) {
+        lastBookCheckSet = now
+    }
     override suspend fun setSimplified(v: Boolean) {
         started += "simplified=$v"
         _simplified.value = v

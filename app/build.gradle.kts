@@ -144,6 +144,7 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     implementation(libs.androidx.datastore)
+    implementation(libs.androidx.work.runtime)
     implementation(libs.okhttp)
     implementation(libs.jsoup)
     implementation(libs.opencc4j)

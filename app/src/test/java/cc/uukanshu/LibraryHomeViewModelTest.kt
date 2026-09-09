@@ -65,6 +65,87 @@ class LibraryViewModelTest {
         assertEquals(listOf("a"), load.books.map { it.id })
         assertTrue(load.error != null)
     }
+
+    @Test fun checkUpdatesFailedShowsRealCause() = runTest {
+        // Whole-run init failure must surface the real cause, not generic.
+        val repo = MutableFakeRepo(
+            libraryFlowRows = listOf(book("a")),
+            checkAllFailure = IOException("db down"),
+        )
+        val vm = LibraryViewModel(repo, MutableFakePrefs(), T2S(), BookDownloadManager({ _, _ -> }, this))
+        idle()
+        vm.checkUpdates(auto = false)
+        idle()
+        val load = vm.ui.value.load
+        assertTrue(load is LibraryViewModel.Load.Shelf)
+        load as LibraryViewModel.Load.Shelf
+        assertTrue((load.error ?: "").contains("db down"))
+        assertEquals(false, vm.ui.value.checking)
+    }
+
+    @Test fun checkUpdatesAutoSuppressesFooter() = runTest {
+        val repo = MutableFakeRepo(
+            libraryFlowRows = listOf(book("a")),
+            checkAllFailure = IOException("db down"),
+        )
+        val vm = LibraryViewModel(repo, MutableFakePrefs(), T2S(), BookDownloadManager({ _, _ -> }, this))
+        idle()
+        vm.checkUpdates(auto = true)
+        idle()
+        val load = vm.ui.value.load
+        assertTrue(load is LibraryViewModel.Load.Shelf)
+        load as LibraryViewModel.Load.Shelf
+        assertEquals(null, load.error)
+    }
+
+    @Test fun doubleTapRunsOnce() = runTest {
+        // Single Main-guard: two synchronous taps before idle run once.
+        val repo = MutableFakeRepo(libraryFlowRows = listOf(book("a")))
+        val vm = LibraryViewModel(repo, MutableFakePrefs(), T2S(), BookDownloadManager({ _, _ -> }, this))
+        idle()
+        vm.checkUpdates()
+        vm.checkUpdates()
+        // Guard is synchronous (checking=true) even though the repo call
+        // runs in viewModelScope after idle.
+        assertEquals(true, vm.ui.value.checking)
+        idle()
+        assertEquals(1, repo.checkAllCalls)
+        assertEquals(false, vm.ui.value.checking)
+        vm.checkUpdates()
+        idle()
+        assertEquals(2, repo.checkAllCalls)
+    }
+
+    @Test fun onOpenThrottledSkipsCheck() = runTest {
+        // Recent check → refresh only (local), no network.
+        val repo = MutableFakeRepo(
+            libraryRows = listOf(book("a")),
+            libraryFlowRows = listOf(book("a")),
+        )
+        val prefs = MutableFakePrefs(bookCheck = System.currentTimeMillis())
+        val vm = LibraryViewModel(repo, prefs, T2S(), BookDownloadManager({ _, _ -> }, this))
+        idle()
+        val libBefore = repo.libraryCalls
+        vm.onOpen()
+        idle()
+        assertEquals(libBefore + 1, repo.libraryCalls)
+        assertEquals(0, repo.checkAllCalls)
+    }
+
+    @Test fun onOpenColdRunsCheck() = runTest {
+        // Never checked → refresh + silent check, stamp written.
+        val repo = MutableFakeRepo(
+            libraryRows = listOf(book("a")),
+            libraryFlowRows = listOf(book("a")),
+        )
+        val prefs = MutableFakePrefs(bookCheck = 0L)
+        val vm = LibraryViewModel(repo, prefs, T2S(), BookDownloadManager({ _, _ -> }, this))
+        idle()
+        vm.onOpen()
+        idle()
+        assertEquals(1, repo.checkAllCalls)
+        assertEquals(false, vm.ui.value.checking)
+    }
 }
 
 class HomeViewModelTest {

@@ -18,6 +18,8 @@ object PrefsKeys {
     val THEME = stringPreferencesKey("theme")
     val LAST_UPDATE_CHECK = longPreferencesKey("last_update_check")
     val SKIPPED_VERSION = stringPreferencesKey("skipped_version")
+    val BG_CHECK_ENABLED = booleanPreferencesKey("bg_check_enabled")
+    val LAST_BOOK_CHECK = longPreferencesKey("last_book_check")
 }
 
 class Prefs(private val context: Context) : cc.uukanshu.di.PrefsApi {
@@ -81,6 +83,22 @@ class Prefs(private val context: Context) : cc.uukanshu.di.PrefsApi {
     /** Remote version the user asked not to be reminded about again. */
     override val skippedVersion: Flow<String?> =
         context.store.data.map { it[PrefsKeys.SKIPPED_VERSION] }
+
+    /** Background 追更 check enabled (default true). Badges work even when off via manual check. */
+    override val bgCheckEnabled: Flow<Boolean> =
+        context.store.data.map { it[PrefsKeys.BG_CHECK_ENABLED] ?: true }
+
+    override suspend fun setBgCheckEnabled(v: Boolean) {
+        context.store.edit { it[PrefsKeys.BG_CHECK_ENABLED] = v }
+    }
+
+    /** Last 追更 check (foreground or background, epoch millis, 0 = never). */
+    override val lastBookCheck: Flow<Long> =
+        context.store.data.map { it[PrefsKeys.LAST_BOOK_CHECK] ?: 0L }
+
+    override suspend fun setLastBookCheck(now: Long) {
+        context.store.edit { it[PrefsKeys.LAST_BOOK_CHECK] = now }
+    }
 
     override suspend fun setSkippedVersion(v: String?) {
         context.store.edit {

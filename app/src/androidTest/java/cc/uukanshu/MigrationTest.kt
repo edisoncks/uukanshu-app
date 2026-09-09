@@ -8,6 +8,7 @@ import cc.uukanshu.data.db.AppDb
 import cc.uukanshu.data.db.MIGRATION_1_2
 import cc.uukanshu.data.db.MIGRATION_2_3
 import cc.uukanshu.data.db.MIGRATION_3_4
+import cc.uukanshu.data.db.MIGRATION_4_5
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -16,7 +17,8 @@ import org.junit.runner.RunWith
 /**
  * Data-level migration runs (needs emulator/device):
  * v1→v2 drops never-written chapters.updatedAt, v2→v3 rekeys to stable
- * pageId preserving downloads, v3→v4 adds progress.pageId default 0.
+ * pageId preserving downloads, v3→v4 adds progress.pageId default 0,
+ * v4→v5 adds books.seenTotal/newCount/lastCheckedAt default 0.
  * JVM wiring is locked by DbSchemaTest; this proves data survives.
  */
 @RunWith(AndroidJUnit4::class)
@@ -89,6 +91,39 @@ class MigrationTest {
                 moveToFirst()
                 assertEquals(2, getInt(0))
                 assertEquals(0, getInt(1))
+                close()
+            }
+            close()
+        }
+    }
+
+    @Test fun migrate4To5AddsSeenColsDefaultZero() {
+        helper.createDatabase("mig4", 4).apply {
+            execSQL(
+                "INSERT INTO books (id, title, author, intro, category, lastChapterTitle, updatedAt) " +
+                    "VALUES ('b1', 'T', 'A', '', '', 'latest', 5)",
+            )
+            execSQL(
+                "INSERT INTO chapters (bookId, position, pageId, title, url, content) " +
+                    "VALUES ('b1', 1, 101, 'c1', 'u', 'text-101')",
+            )
+            execSQL("INSERT INTO progress (bookId, position, pageId, updatedAt) VALUES ('b1', 1, 101, 0)")
+            close()
+        }
+        helper.runMigrationsAndValidate("mig4", 5, true, MIGRATION_4_5).apply {
+            query("SELECT title, seenTotal, newCount, lastCheckedAt FROM books WHERE id = 'b1'").apply {
+                assertEquals(1, count)
+                moveToFirst()
+                assertEquals("T", getString(0))
+                assertEquals(0, getInt(1))
+                assertEquals(0, getInt(2))
+                assertEquals(0L, getLong(3))
+                close()
+            }
+            query("SELECT content FROM chapters WHERE bookId = 'b1' AND pageId = 101").apply {
+                assertEquals(1, count)
+                moveToFirst()
+                assertEquals("text-101", getString(0))
                 close()
             }
             close()

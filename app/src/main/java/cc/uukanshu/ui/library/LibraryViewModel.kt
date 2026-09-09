@@ -9,12 +9,15 @@ import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.di.RepoApi
 import cc.uukanshu.core.Errors
+import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+private const val TAG = "LibraryVM"
 
 class LibraryViewModel(
     private val repo: RepoApi,
@@ -46,14 +49,29 @@ class LibraryViewModel(
         // Titles for fresh downloads not yet qualified for library().
         // Domain type (never Room entities — see BookRepo.BookInfo).
         val pendingTitles: Map<String, BookRepo.BookInfo> = emptyMap(),
+        // 追更 overlay (never a new Load variant): manual/background checks
+        // write badges to Room; this flag is only the thin-bar spinner.
+        val checking: Boolean = false,
+        val lastCheck: Long = 0L,
     )
 
     private val _ui = MutableStateFlow(Ui())
     val ui: StateFlow<Ui> = _ui
+    // Main-thread tap guard (see ARCHITECTURE rapid-tap rule): set flag
+    // synchronously before launch{}; Room serializes via dbWrite.
 
     init {
         viewModelScope.launch {
             _ui.value = _ui.value.copy(simplified = prefs.simplified.first())
+        }
+        viewModelScope.launch {
+            try {
+                prefs.lastBookCheck.collect { t -> _ui.update { it.copy(lastCheck = t) } }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "lastBookCheck collect failed", e)
+            }
         }
         // Reactive shelf: DB bumps (read/download/delete/clear) re-render
         // rows without manual refresh. Stale-while-revalidate: keep rows on
@@ -136,6 +154,84 @@ class LibraryViewModel(
 
     fun cancelDownload(id: String) {
         downloads.cancel(id)
+    }
+
+    /**
+     * Manual 追更: oldest-first bounded visible run (see BookRepo, 20/run).
+     * Tap debouncer so rapid taps run once; stale-while-revalidate keeps rows,
+     * thin bar shows progress, footer shows retry.
+     * [auto] suppresses footer noise for silent foreground runs.
+     * Single write path via UpdateChecker (owns lastBookCheck stamp on success only).
+     */
+    fun checkUpdates(auto: Boolean = false) {
+        // Synchronous Main guard so rapid taps run once. Called from
+        // onClick / LaunchedEffect (Main) and viewModelScope is Main.immediate.
+        if (_ui.value.checking) return
+        _ui.update { it.copy(checking = true) }
+        viewModelScope.launch {
+            try {
+                val r = cc.uukanshu.data.updatecheck.UpdateChecker.checkAll(repo, prefs)
+                if (r.failed) {
+                    // Whole-run failure: footer shows the real cause directly.
+                    // No fake throw for control flow (see review #3).
+                    if (!auto) {
+                        val cause = r.cause ?: java.io.IOException("check failed")
+                        _ui.update { cur ->
+                            when (val l = cur.load) {
+                                is Load.Shelf -> cur.copy(load = l.copy(error = Errors.friendly(cause)))
+                                else -> cur.copy(load = Load.Failed(Errors.friendly(cause)))
+                            }
+                        }
+                    }
+                } else {
+                    // Badges arrive via libraryFlow (Room); nothing to copy here.
+                    _ui.update { cur ->
+                        when (val l = cur.load) {
+                            is Load.Shelf -> cur.copy(load = l.copy(error = null))
+                            else -> cur
+                        }
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (!auto) {
+                    _ui.update { cur ->
+                        when (val l = cur.load) {
+                            is Load.Shelf -> cur.copy(load = l.copy(error = Errors.friendly(e)))
+                            else -> cur.copy(load = Load.Failed(Errors.friendly(e)))
+                        }
+                    }
+                }
+            } finally {
+                _ui.update { it.copy(checking = false) }
+            }
+        }
+    }
+
+    /** Silent foreground check on library open (6h throttle, failures ignored). */
+    fun autoCheckUpdates() {
+        viewModelScope.launch {
+            val last = try {
+                prefs.lastBookCheck.first()
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                return@launch
+            }
+            if (!cc.uukanshu.data.updatecheck.UpdateChecker.shouldForegroundCheck(last)) return@launch
+            checkUpdates(auto = true)
+        }
+    }
+
+    /**
+     * Single entry for Library open: one-shot refresh for rows, then
+     * throttled silent check. Keeps composition to one call so the
+     * two paths don't race from competing launches; refresh (local)
+     * and auto-check (network, throttled) are both needed on cold open.
+     */
+    fun onOpen() {
+        refresh()
+        autoCheckUpdates()
     }
 
     /** Restart a failed download from the shelf (idempotent start). */

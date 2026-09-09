@@ -20,7 +20,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import android.util.Log
 import kotlin.random.Random
+
+private const val TAG = "BookRepo"
 
 /** Network-first facade with Room fallback. Raw Traditional cached; T2S at render. */
 class BookRepo(
@@ -96,6 +99,27 @@ class BookRepo(
             chapters: List<Parser.ChapterRef>,
             cachedIds: Set<Long>,
         ): List<Parser.ChapterRef> = chapters.filter { it.pageId !in cachedIds }
+
+        /**
+         * Visible shelf ids only (cached > 0), oldest-check first, capped.
+         * TOC-only skeletons (browsed but never downloaded) are invisible
+         * on the shelf — checking them wastes fetches + delays real badges.
+         * Rows are tiny stubs (no bodies); filtering in Kotlin keeps the
+         * rule pure + JVM-tested instead of a SQL join. Pure.
+         */
+        fun visibleIds(
+            ordered: List<BookEntity>,
+            stats: List<cc.uukanshu.data.db.ChapterStats>,
+            limit: Int,
+        ): List<String> {
+            require(limit >= 0) { "limit=$limit" }
+            val cachedById = stats.associate { it.bookId to it.cached }
+            return ordered.asSequence()
+                .filter { (cachedById[it.id] ?: 0) > 0 }
+                .take(limit)
+                .map { it.id }
+                .toList()
+        }
 
         /** True when every chapter already has cached text. */
         fun isDownloadComplete(chapters: List<Parser.ChapterRef>, cachedIds: Set<Long>): Boolean =
@@ -230,14 +254,20 @@ class BookRepo(
         val category: String = "",
         val lastChapterTitle: String = "",
         val updatedAt: Long = 0L,
+        val newCount: Int = 0,
     )
 
     /** Cached book meta (TOC skeleton) for shelf rows of fresh downloads. */
     override suspend fun bookEntry(bookId: String): BookInfo? = withContext(ioDispatcher) {
         db.books().book(bookId)?.let {
-            BookInfo(it.id, it.title, it.author, it.intro, it.category, it.lastChapterTitle, it.updatedAt)
+            BookInfo(it.id, it.title, it.author, it.intro, it.category, it.lastChapterTitle, it.updatedAt, it.newCount)
         }
     }
+
+    override fun bookInfoFlow(bookId: String): Flow<BookInfo?> =
+        db.books().bookFlow(bookId).map {
+            it?.let { e -> BookInfo(e.id, e.title, e.author, e.intro, e.category, e.lastChapterTitle, e.updatedAt, e.newCount) }
+        }
 
     // -- offline library (milestone 7): sequential, no hard cap ------------
 
@@ -248,6 +278,7 @@ class BookRepo(
         val total: Int,
         val cached: Int,
         val bytes: Long,
+        val newChapters: Int = 0,
     )
 
     override suspend fun library(): List<CachedBook> = withContext(ioDispatcher) {
@@ -327,6 +358,148 @@ class BookRepo(
                     if (cached > 0) db.books().touch(bookId, System.currentTimeMillis())
                 }
             }
+        }
+    }
+
+    /** Result of one book's 追更 check: badge count when > 0, else no change. */
+    sealed interface UpdateCheck {
+        data class Ok(val newCount: Int) : UpdateCheck
+        data object SkippedEmpty : UpdateCheck
+        data object SkippedShrink : UpdateCheck
+        data class Failed(val error: Exception) : UpdateCheck
+    }
+
+    data class CheckAllResult(
+        val checked: Int,
+        val newBooks: Int,
+        val newChapters: Int,
+        val perBook: Map<String, Int> = emptyMap(),
+        /** Whole-run init failure (DB down): empty is failure, not success. Default keeps fakes compiling. */
+        val failed: Boolean = false,
+    )
+
+    /**
+     * One book's update check: fresh TOC via detail() (which merges via
+     * replaceToc without bumping shelf order), then badge diff vs seenTotal.
+     * seenTotal never advances here — only markSeen advances it — so the
+     * badge survives until the user opens Detail. First run seeds baseline
+     * with no false badge. Empty/shrink never wipes cache (same guard as Detail).
+     * Two clocks: per-book lastCheckedAt stamps on every terminal per-book path
+     * (Ok/Shrink/Empty, never Failed) so empty books advance past oldest-first
+     * instead of starving the queue; global lastBookCheck stamps in UpdateChecker
+     * on whole-run success only (see UpdateChecker.checkAll).
+     */
+    override suspend fun checkUpdate(bookId: String): UpdateCheck {
+        if (withContext(ioDispatcher) { db.books().book(bookId) } == null) {
+            return UpdateCheck.Failed(java.io.IOException("not cached"))
+        }
+        val freshSize: Int = try {
+            withContext(ioDispatcher) { detail(bookId).chapters.size }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: TocShrunkException) {
+            withContext(ioDispatcher) {
+                dbWrite.withLock {
+                    val cur = db.books().book(bookId)
+                    if (cur != null) db.books().updateCheckState(bookId, cur.seenTotal, cur.newCount, System.currentTimeMillis())
+                }
+            }
+            return UpdateCheck.SkippedShrink
+        } catch (e: Exception) {
+            return UpdateCheck.Failed(e)
+        }
+        return withContext(ioDispatcher) {
+            dbWrite.withLock {
+                val cur = db.books().book(bookId) ?: return@withLock UpdateCheck.Failed(java.io.IOException("deleted"))
+                val now = System.currentTimeMillis()
+                if (freshSize == 0) {
+                    // Block page / layout change: keep badge + baseline, stamp time
+                    // so this book sorts last next run instead of wedging oldest-first.
+                    db.books().updateCheckState(bookId, cur.seenTotal, cur.newCount, now)
+                    return@withLock UpdateCheck.SkippedEmpty
+                }
+                if (cur.seenTotal == 0) {
+                    // First baseline: no badge, remember current size.
+                    // Upgrade tradeoff by design: seed from fresh (no false badge);
+                    // pre-upgrade growth is missed once — false positives are worse.
+                    db.books().updateCheckState(bookId, freshSize, 0, now)
+                    UpdateCheck.Ok(0)
+                } else {
+                    val n = (freshSize - cur.seenTotal).coerceAtLeast(0)
+                    db.books().updateCheckState(bookId, cur.seenTotal, n, now)
+                    UpdateCheck.Ok(n)
+                }
+            }
+        }
+    }
+
+    /**
+     * Bounded background run: visible shelf only (cached > 0), oldest-checked
+     * first, at most [limit] books, sequential with crawlDelay between fetches.
+     * TOC-only skeletons skip without timestamp bump so they never starve
+     * visible badges. Per-book failures are swallowed (skip) so one Cloudflare
+     * block never fails the whole run. Init-query failure throws (whole-run
+     * failure, not silent success) — callers map it to footer/retry.
+     * Cancellation always propagates.
+     */
+    override suspend fun checkAllUpdates(limit: Int): CheckAllResult = withContext(ioDispatcher) {
+        // Init queries throw: empty shelf returns empty success, DB down throws.
+        val ordered = db.books().booksByCheckTime()
+        val stats = db.chapters().statsByBook()
+        val ids = visibleIds(ordered, stats, limit)
+        var fetchedAny = false
+        val per = mutableMapOf<String, Int>()
+        var books = 0
+        var chapters = 0
+        for (id in ids) {
+            // No exists() probe here: checkUpdate() already bails on
+            // missing rows ("not cached"/"deleted") without network,
+            // so an extra EXISTS per book only doubles DB reads.
+            if (fetchedAny) {
+                try {
+                    crawlDelay()
+                } catch (e: CancellationException) {
+                    throw e
+                }
+            }
+            val res = try {
+                checkUpdate(id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                continue
+            }
+            fetchedAny = true
+            if (res is UpdateCheck.Ok && res.newCount > 0) {
+                per[id] = res.newCount
+                books++
+                chapters += res.newCount
+            }
+        }
+        CheckAllResult(checked = ids.size, newBooks = books, newChapters = chapters, perBook = per)
+    }
+
+    /**
+     * User opened Detail: baseline advances to current TOC, badge clears. Serialized with checks.
+     * Reads countByBook (not a caller-passed size) because detail()/replaceToc already flushed
+     * fresh chapters under dbWrite before Ready paints; same lock keeps this consistent.
+     */
+    override suspend fun markSeen(bookId: String) = withContext(ioDispatcher) {
+        dbWrite.withLock {
+            val total = try {
+                db.chapters().countByBook(bookId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "markSeen count failed for $bookId", e)
+                return@withLock
+            }
+            if (total == 0) return@withLock
+            val cur = db.books().book(bookId) ?: return@withLock
+            // Idempotent: already at baseline with no badge → no UPDATE,
+            // so repeat opens don't churn libraryFlow/bookFlow recompose.
+            if (cur.seenTotal == total && cur.newCount == 0) return@withLock
+            db.books().updateCheckState(bookId, total, 0, cur.lastCheckedAt)
         }
     }
 

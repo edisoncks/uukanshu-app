@@ -41,6 +41,10 @@ class FakeRepo(
     override fun progressFlow(bookId: String): Flow<Int?> = flowOf(null)
     override suspend fun getProgress(bookId: String): Int? = null
     override suspend fun bookEntry(bookId: String): BookRepo.BookInfo? = null
+    override fun bookInfoFlow(bookId: String): Flow<BookRepo.BookInfo?> = flowOf(null)
+    override suspend fun checkUpdate(bookId: String): BookRepo.UpdateCheck = BookRepo.UpdateCheck.Ok(0)
+    override suspend fun checkAllUpdates(limit: Int): BookRepo.CheckAllResult = BookRepo.CheckAllResult(0, 0, 0)
+    override suspend fun markSeen(bookId: String) = Unit
     override suspend fun library() = emptyList<BookRepo.CachedBook>()
     override fun libraryFlow(): Flow<List<BookRepo.CachedBook>> = flowOf(emptyList())
     override suspend fun crawlDelay() = Unit
@@ -55,11 +59,15 @@ class FakePrefs : PrefsApi {
     override val theme: Flow<String> = flowOf("system")
     override val lastUpdateCheck: Flow<Long> = flowOf(0L)
     override val skippedVersion: Flow<String?> = flowOf(null)
+    override val bgCheckEnabled: Flow<Boolean> = flowOf(true)
+    override val lastBookCheck: Flow<Long> = flowOf(0L)
     override suspend fun setSimplified(v: Boolean) = Unit
     override suspend fun setFontScale(v: Float) = Unit
     override suspend fun setTheme(v: String) = Unit
     override suspend fun setLastUpdateCheck(now: Long) = Unit
     override suspend fun setSkippedVersion(v: String?) = Unit
+    override suspend fun setBgCheckEnabled(v: Boolean) = Unit
+    override suspend fun setLastBookCheck(now: Long) = Unit
 }
 
 class FakeReleaseFetcher(var info: UpdateInfo? = null) : ReleaseFetcher {

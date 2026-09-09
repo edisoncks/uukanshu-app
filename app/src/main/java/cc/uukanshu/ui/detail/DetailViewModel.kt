@@ -11,11 +11,15 @@ import cc.uukanshu.di.RepoApi
 import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.core.Errors
 import cc.uukanshu.data.repo.TocRevalidator
+import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+private const val TAG = "DetailVM"
 
 class DetailViewModel(
     private val repo: RepoApi,
@@ -45,6 +49,8 @@ class DetailViewModel(
         val simplified: Boolean = false,
         val cached: Set<Long> = emptySet(),
         val bookmark: BookRepo.Bookmark? = null,
+        // 追更 overlay: badge count from Room, cleared by markSeen after paint.
+        val newCount: Int = 0,
     )
 
     private val _ui = MutableStateFlow(Ui())
@@ -57,6 +63,18 @@ class DetailViewModel(
         viewModelScope.launch {
             _ui.value = _ui.value.copy(simplified = prefs.simplified.first())
             refresh()
+        }
+        // Live 追更 badge: Room source of truth, clears via markSeen below.
+        viewModelScope.launch {
+            try {
+                repo.bookInfoFlow(bookId).collect { info ->
+                    _ui.update { it.copy(newCount = info?.newCount ?: 0) }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "bookInfoFlow failed for $bookId", e)
+            }
         }
         // Live badges/bookmark/download re-attach (survive nav).
         viewModelScope.launch {
@@ -72,16 +90,33 @@ class DetailViewModel(
                 _ui.value = _ui.value.copy(bookmark = bm)
             }
         }
-        // Re-attach to app-scoped download.
+        // Re-attach to app-scoped download. On successful finish
+        // (was downloading, now idle, no error, done>=total) advance the
+        // 追更 baseline so the banner clears without leave/re-enter.
+        // Cancel/failure keeps the badge (done<total or error!=null).
         viewModelScope.launch {
+            var prevDownloading = false
             downloads.observe(bookId).collect { st ->
                 if (st == null) return@collect
+                val was = prevDownloading
+                prevDownloading = st.downloading
                 _ui.value = _ui.value.copy(
                     downloading = st.downloading,
                     done = st.done,
                     downloadTotal = st.total,
                     downloadError = st.error,
                 )
+                if (was && !st.downloading && st.error == null && st.total > 0 && st.done >= st.total) {
+                    if (_ui.value.load is Load.Ready) {
+                        try {
+                            repo.markSeen(bookId)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Log.w(TAG, "markSeen after download failed for $bookId", e)
+                        }
+                    }
+                }
             }
         }
     }
@@ -126,6 +161,14 @@ class DetailViewModel(
                                 offline = false, refreshing = false,
                             ),
                         )
+                    }
+                    // Badge clears only after full TOC paints (failed load keeps signal).
+                    try {
+                        repo.markSeen(bookId)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w(TAG, "markSeen after paint failed for $bookId", e)
                     }
                 }
                 is TocRevalidator.Revalidate.RejectedEmpty,

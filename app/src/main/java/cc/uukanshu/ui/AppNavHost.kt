@@ -6,6 +6,8 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -18,6 +20,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -69,9 +73,17 @@ fun UukanshuApp(container: AppContainer, app: Application) {
             })
             val updateUi by updateVm.ui.collectAsState()
             LaunchedEffect(Unit) { updateVm.autoCheck() }
+            // 追更 dot: boolean only (not the list) + distinctUntilChanged,
+            // so 2000 per-chapter DB writes don't recompose the whole scaffold.
+            // Badge text lives in Library rows; tab shows dot only.
+            val hasUpdates by remember(container.repo) {
+                container.repo.libraryFlow()
+                    .map { list -> list.any { it.newChapters > 0 } }
+                    .distinctUntilChanged()
+            }.collectAsState(initial = false)
             Scaffold(
                 bottomBar = {
-                    AppBottomBar(nav = nav, tabs = tabs)
+                    AppBottomBar(nav = nav, tabs = tabs, showLibraryDot = hasUpdates)
                 },
             ) { inner ->
                 AppNavHost(nav = nav, updateVm = updateVm, modifier = Modifier.padding(inner))
@@ -93,17 +105,24 @@ fun UukanshuApp(container: AppContainer, app: Application) {
 }
 
 @Composable
-private fun AppBottomBar(nav: NavHostController, tabs: List<Tab>) {
+private fun AppBottomBar(nav: NavHostController, tabs: List<Tab>, showLibraryDot: Boolean = false) {
     val entry by nav.currentBackStackEntryAsState()
     val route = entry?.destination?.route
     // Full-screen pages hide the bottom bar (Detail/Reader).
     if (route in tabs.map { it.route }) {
         NavigationBar {
             tabs.forEach { tab ->
+                val isLibrary = tab.route == Routes.LIBRARY
                 NavigationBarItem(
                     selected = route == tab.route,
                     onClick = { nav.navigateToTab(tab.route) },
-                    icon = tab.icon,
+                    icon = {
+                        if (isLibrary && showLibraryDot) {
+                            BadgedBox(badge = { Badge() }) { tab.icon() }
+                        } else {
+                            tab.icon()
+                        }
+                    },
                     label = { Text(tab.label) },
                 )
             }

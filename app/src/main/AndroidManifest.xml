@@ -4,6 +4,8 @@
     <!-- Text-only reader: network only. No images/ads SDKs.
          Offline is detected via exception + cache fallback (no connectivity observer). -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 追更: daily TOC check may post one summary notification (badges work without it). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- In-app update: fire the package installer for the downloaded APK.
          The grant itself is a system Settings toggle, not a runtime dialog. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />

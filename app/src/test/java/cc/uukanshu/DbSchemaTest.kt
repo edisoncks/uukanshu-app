@@ -3,22 +3,23 @@ package cc.uukanshu
 import cc.uukanshu.data.db.MIGRATION_1_2
 import cc.uukanshu.data.db.MIGRATION_2_3
 import cc.uukanshu.data.db.MIGRATION_3_4
+import cc.uukanshu.data.db.MIGRATION_4_5
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
 /**
- * JVM-runnable DB contract: schema files stay checked in, version stays 4,
+ * JVM-runnable DB contract: schema files stay checked in, version stays 5,
  * migrations cover every step. Full data-level migration runs live in
  * androidTest/MigrationTest (needs an emulator); this locks the wiring so a
  * missing schema or skipped step fails `mise run test`.
  */
 class DbSchemaTest {
-    @Test fun databaseVersionIs4() {
+    @Test fun databaseVersionIs5() {
         val dir = schemaDir()
-        val text = java.io.File(dir, "4.json").readText()
-        assertTrue("4.json must declare version 4", text.contains("\"version\": 4"))
+        val text = java.io.File(dir, "5.json").readText()
+        assertTrue("5.json must declare version 5", text.contains("\"version\": 5"))
     }
 
     @Test fun migrationsCoverEveryStep() {
@@ -28,6 +29,8 @@ class DbSchemaTest {
         assertEquals(3, MIGRATION_2_3.endVersion)
         assertEquals(3, MIGRATION_3_4.startVersion)
         assertEquals(4, MIGRATION_3_4.endVersion)
+        assertEquals(4, MIGRATION_4_5.startVersion)
+        assertEquals(5, MIGRATION_4_5.endVersion)
     }
 
     private fun schemaDir(): File {
@@ -41,7 +44,7 @@ class DbSchemaTest {
 
     @Test fun schemasAreCheckedIn() {
         val dir = schemaDir()
-        for (v in 1..4) {
+        for (v in 1..5) {
             val f = File(dir, "$v.json")
             assertTrue("missing schema $v.json", f.isFile)
             val text = f.readText()
@@ -49,5 +52,9 @@ class DbSchemaTest {
         }
         val v4 = File(dir, "4.json").readText()
         assertTrue("v4 must carry progress.pageId", v4.contains("pageId"))
+        val v5 = File(dir, "5.json").readText()
+        assertTrue("v5 must carry books.seenTotal", v5.contains("seenTotal"))
+        assertTrue("v5 must carry books.newCount", v5.contains("newCount"))
+        assertTrue("v5 must carry books.lastCheckedAt", v5.contains("lastCheckedAt"))
     }
 }
