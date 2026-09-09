@@ -10,7 +10,6 @@ import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.di.RepoApi
 import cc.uukanshu.core.Errors
 import android.util.Log
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -58,8 +57,8 @@ class LibraryViewModel(
 
     private val _ui = MutableStateFlow(Ui())
     val ui: StateFlow<Ui> = _ui
-    // Tap debouncer for 追更 check (not serialization; Room serializes via dbWrite).
-    private val checkingNow = AtomicBoolean(false)
+    // Main-thread tap guard (see ARCHITECTURE rapid-tap rule): set flag
+    // synchronously before launch{}; Room serializes via dbWrite.
 
     init {
         viewModelScope.launch {
@@ -165,7 +164,9 @@ class LibraryViewModel(
      * Single write path via UpdateChecker (owns lastBookCheck stamp on success only).
      */
     fun checkUpdates(auto: Boolean = false) {
-        if (!checkingNow.compareAndSet(false, true)) return
+        // Synchronous Main guard so rapid taps run once. Called from
+        // onClick / LaunchedEffect (Main) and viewModelScope is Main.immediate.
+        if (_ui.value.checking) return
         _ui.update { it.copy(checking = true) }
         viewModelScope.launch {
             try {
@@ -203,7 +204,6 @@ class LibraryViewModel(
                     }
                 }
             } finally {
-                checkingNow.set(false)
                 _ui.update { it.copy(checking = false) }
             }
         }

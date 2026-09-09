@@ -97,6 +97,24 @@ class LibraryViewModelTest {
         load as LibraryViewModel.Load.Shelf
         assertEquals(null, load.error)
     }
+
+    @Test fun doubleTapRunsOnce() = runTest {
+        // Single Main-guard: two synchronous taps before idle run once.
+        val repo = MutableFakeRepo(libraryFlowRows = listOf(book("a")))
+        val vm = LibraryViewModel(repo, MutableFakePrefs(), T2S(), BookDownloadManager({ _, _ -> }, this))
+        idle()
+        vm.checkUpdates()
+        vm.checkUpdates()
+        // Guard is synchronous (checking=true) even though the repo call
+        // runs in viewModelScope after idle.
+        assertEquals(true, vm.ui.value.checking)
+        idle()
+        assertEquals(1, repo.checkAllCalls)
+        assertEquals(false, vm.ui.value.checking)
+        vm.checkUpdates()
+        idle()
+        assertEquals(2, repo.checkAllCalls)
+    }
 }
 
 class HomeViewModelTest {
