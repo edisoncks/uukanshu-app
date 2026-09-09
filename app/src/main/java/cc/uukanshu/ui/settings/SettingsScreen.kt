@@ -21,10 +21,13 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -35,6 +38,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import androidx.core.content.ContextCompat
 import cc.uukanshu.core.Display
 import cc.uukanshu.data.prefs.Prefs
@@ -69,8 +73,16 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
     val currentVersion = remember(ctx) { UpdateDownloader.currentVersion(ctx) }
     val bgEnabled by prefs.bgCheckEnabled.collectAsState(initial = true)
     val lastBookCheck by prefs.lastBookCheck.collectAsState(initial = 0L)
-    val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    var notifGrantedState by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(ctx) {
+        notifGrantedState = if (Build.VERSION.SDK_INT < 33) true
+        else ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    }
+    val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        notifGrantedState = granted
+    }
     fun notifGranted(): Boolean {
+        notifGrantedState?.let { return it }
         if (Build.VERSION.SDK_INT < 33) return true
         return ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
     }
@@ -231,6 +243,7 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
                                             try {
                                                 notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                                             } catch (e: Exception) {
+                                                Log.w("Settings", "notification permission request failed", e)
                                             }
                                         }
                                     } else {
@@ -251,7 +264,7 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    if (bgEnabled && !notifGranted()) {
+                    if (bgEnabled && notifGrantedState == false) {
                         Text(
                             display("通知已關閉，仍會在書架顯示徽章。"),
                             style = MaterialTheme.typography.bodySmall,
