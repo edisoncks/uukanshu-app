@@ -496,6 +496,9 @@ class BookRepo(
             }
             if (total == 0) return@withLock
             val cur = db.books().book(bookId) ?: return@withLock
+            // Idempotent: already at baseline with no badge → no UPDATE,
+            // so repeat opens don't churn libraryFlow/bookFlow recompose.
+            if (cur.seenTotal == total && cur.newCount == 0) return@withLock
             db.books().updateCheckState(bookId, total, 0, cur.lastCheckedAt)
         }
     }

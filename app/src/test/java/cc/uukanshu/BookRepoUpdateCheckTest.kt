@@ -2,6 +2,7 @@ package cc.uukanshu
 
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import app.cash.turbine.test
 import cc.uukanshu.data.db.AppDb
 import cc.uukanshu.data.net.SiteGateway
 import cc.uukanshu.data.repo.BookRepo
@@ -118,5 +119,41 @@ class BookRepoUpdateCheckTest {
         val all = repo.checkAllUpdates(limit = 20)
         assertEquals(false, all.failed)
         assertEquals(1, all.checked)
+    }
+
+    @Test fun markSeenIdempotentNoSecondWrite() = runTest {
+        // Grow 10→12 (badge 2), first markSeen clears to (12,0);
+        // second markSeen with no growth must be a no-op.
+        repo.detail("1")
+        db.chapters().updateContent("1", 101L, "x")
+        repo.checkUpdate("1")
+        html = tocHtml(12)
+        repo.checkUpdate("1")
+        assertEquals(2, db.books().book("1")!!.newCount)
+        repo.markSeen("1")
+        val afterFirst = db.books().book("1")!!
+        assertEquals(12, afterFirst.seenTotal)
+        assertEquals(0, afterFirst.newCount)
+        repo.markSeen("1")
+        val afterSecond = db.books().book("1")!!
+        assertEquals(afterFirst.seenTotal, afterSecond.seenTotal)
+        assertEquals(afterFirst.newCount, afterSecond.newCount)
+        assertEquals(afterFirst.lastCheckedAt, afterSecond.lastCheckedAt)
+    }
+
+    @Test fun markSeenIdempotentNoFlowChurn() = runTest {
+        // Second idempotent markSeen emits nothing on bookFlow (no UPDATE).
+        repo.detail("1")
+        db.chapters().updateContent("1", 101L, "x")
+        repo.checkUpdate("1")
+        html = tocHtml(12)
+        repo.checkUpdate("1")
+        repo.markSeen("1")
+        db.books().bookFlow("1").test {
+            awaitItem() // current (12,0)
+            repo.markSeen("1") // idempotent → no UPDATE → no emit
+            expectNoEvents()
+            cancelAndIgnoreRemainingEvents()
+        }
     }
 }
