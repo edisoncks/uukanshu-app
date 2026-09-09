@@ -11,12 +11,15 @@ import cc.uukanshu.di.RepoApi
 import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.core.Errors
 import cc.uukanshu.data.repo.TocRevalidator
+import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+private const val TAG = "DetailVM"
 
 class DetailViewModel(
     private val repo: RepoApi,
@@ -70,6 +73,7 @@ class DetailViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                Log.w(TAG, "bookInfoFlow failed for $bookId", e)
             }
         }
         // Live badges/bookmark/download re-attach (survive nav).
@@ -104,13 +108,12 @@ class DetailViewModel(
                 )
                 if (was && !st.downloading && st.error == null && st.total > 0 && st.done >= st.total) {
                     if (_ui.value.load is Load.Ready) {
-                        viewModelScope.launch {
-                            try {
-                                repo.markSeen(bookId)
-                            } catch (e: CancellationException) {
-                                throw e
-                            } catch (e: Exception) {
-                            }
+                        try {
+                            repo.markSeen(bookId)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Log.w(TAG, "markSeen after download failed for $bookId", e)
                         }
                     }
                 }
@@ -160,13 +163,12 @@ class DetailViewModel(
                         )
                     }
                     // Badge clears only after full TOC paints (failed load keeps signal).
-                    viewModelScope.launch {
-                        try {
-                            repo.markSeen(bookId)
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                        }
+                    try {
+                        repo.markSeen(bookId)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w(TAG, "markSeen after paint failed for $bookId", e)
                     }
                 }
                 is TocRevalidator.Revalidate.RejectedEmpty,

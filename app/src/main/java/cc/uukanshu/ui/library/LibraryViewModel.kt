@@ -9,12 +9,16 @@ import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.di.RepoApi
 import cc.uukanshu.core.Errors
+import android.util.Log
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+private const val TAG = "LibraryVM"
 
 class LibraryViewModel(
     private val repo: RepoApi,
@@ -54,8 +58,8 @@ class LibraryViewModel(
 
     private val _ui = MutableStateFlow(Ui())
     val ui: StateFlow<Ui> = _ui
-    // Serialized 追更 check (last-tapped wins guard on Main thread).
-    private var checkingNow = false
+    // Tap debouncer for 追更 check (not serialization; Room serializes via dbWrite).
+    private val checkingNow = AtomicBoolean(false)
 
     init {
         viewModelScope.launch {
@@ -67,7 +71,7 @@ class LibraryViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                // Prefs failure must not break the shelf.
+                Log.w(TAG, "lastBookCheck collect failed", e)
             }
         }
         // Reactive shelf: DB bumps (read/download/delete/clear) re-render
@@ -155,14 +159,13 @@ class LibraryViewModel(
 
     /**
      * Manual 追更: oldest-first bounded visible run (see BookRepo, 20/run).
-     * Guarded synchronously on Main so rapid taps run once; stale-while-
-     * revalidate keeps rows, thin bar shows progress, footer shows retry.
+     * Tap debouncer so rapid taps run once; stale-while-revalidate keeps rows,
+     * thin bar shows progress, footer shows retry.
      * [auto] suppresses footer noise for silent foreground runs.
      * Single write path via UpdateChecker (owns lastBookCheck stamp on success only).
      */
     fun checkUpdates(auto: Boolean = false) {
-        if (checkingNow) return
-        checkingNow = true
+        if (!checkingNow.compareAndSet(false, true)) return
         _ui.update { it.copy(checking = true) }
         viewModelScope.launch {
             try {
@@ -187,7 +190,7 @@ class LibraryViewModel(
                     }
                 }
             } finally {
-                checkingNow = false
+                checkingNow.set(false)
                 _ui.update { it.copy(checking = false) }
             }
         }
