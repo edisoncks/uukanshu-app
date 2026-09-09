@@ -20,6 +20,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -71,10 +73,14 @@ fun UukanshuApp(container: AppContainer, app: Application) {
             })
             val updateUi by updateVm.ui.collectAsState()
             LaunchedEffect(Unit) { updateVm.autoCheck() }
-            // 追更 dot: any shelf book with newChapters > 0. Lightweight collect;
-            // badge text lives in Library rows, tab shows dot only (no count).
-            val shelfForDot by container.repo.libraryFlow().collectAsState(initial = emptyList())
-            val hasUpdates = remember(shelfForDot) { shelfForDot.any { it.newChapters > 0 } }
+            // 追更 dot: boolean only (not the list) + distinctUntilChanged,
+            // so 2000 per-chapter DB writes don't recompose the whole scaffold.
+            // Badge text lives in Library rows; tab shows dot only.
+            val hasUpdates by remember(container.repo) {
+                container.repo.libraryFlow()
+                    .map { list -> list.any { it.newChapters > 0 } }
+                    .distinctUntilChanged()
+            }.collectAsState(initial = false)
             Scaffold(
                 bottomBar = {
                     AppBottomBar(nav = nav, tabs = tabs, showLibraryDot = hasUpdates)

@@ -154,10 +154,11 @@ class LibraryViewModel(
     }
 
     /**
-     * Manual 追更: oldest-first bounded run (see BookRepo, 20/run).
+     * Manual 追更: oldest-first bounded visible run (see BookRepo, 20/run).
      * Guarded synchronously on Main so rapid taps run once; stale-while-
      * revalidate keeps rows, thin bar shows progress, footer shows retry.
      * [auto] suppresses footer noise for silent foreground runs.
+     * Single write path via UpdateChecker (owns lastBookCheck stamp).
      */
     fun checkUpdates(auto: Boolean = false) {
         if (checkingNow) return
@@ -165,13 +166,7 @@ class LibraryViewModel(
         _ui.update { it.copy(checking = true) }
         viewModelScope.launch {
             try {
-                val r = repo.checkAllUpdates()
-                try {
-                    prefs.setLastBookCheck(System.currentTimeMillis())
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                }
+                cc.uukanshu.data.updatecheck.UpdateChecker.checkAll(repo, prefs)
                 // Badges arrive via libraryFlow (Room); nothing to copy here.
                 _ui.update { cur ->
                     when (val l = cur.load) {
