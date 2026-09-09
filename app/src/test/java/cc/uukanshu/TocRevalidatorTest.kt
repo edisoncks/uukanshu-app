@@ -48,6 +48,10 @@ class TocRevalidatorTest {
         override suspend fun getProgress(bookId: String) = null
         override fun progressFlow(bookId: String): Flow<Int?> = emptyFlow()
         override suspend fun bookEntry(bookId: String) = null
+        override fun bookInfoFlow(bookId: String): Flow<BookRepo.BookInfo?> = flowOf(null)
+        override suspend fun checkUpdate(bookId: String): BookRepo.UpdateCheck = BookRepo.UpdateCheck.Ok(0)
+        override suspend fun checkAllUpdates(limit: Int): BookRepo.CheckAllResult = BookRepo.CheckAllResult(0, 0, 0)
+        override suspend fun markSeen(bookId: String) = Unit
         override suspend fun library() = emptyList<BookRepo.CachedBook>()
         override fun libraryFlow(): Flow<List<BookRepo.CachedBook>> = flowOf(emptyList())
         override suspend fun deleteBook(bookId: String) = Unit

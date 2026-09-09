@@ -70,6 +70,11 @@ class MutableFakeRepo(
     override suspend fun getProgress(bookId: String): Int? = null
     override suspend fun bookEntry(bookId: String): BookRepo.BookInfo? =
         cached?.let { BookRepo.BookInfo(bookId, it.meta.title) }
+    override fun bookInfoFlow(bookId: String): Flow<BookRepo.BookInfo?> =
+        flowOf(cached?.let { BookRepo.BookInfo(bookId, it.meta.title) })
+    override suspend fun checkUpdate(bookId: String): BookRepo.UpdateCheck = BookRepo.UpdateCheck.Ok(0)
+    override suspend fun checkAllUpdates(limit: Int): BookRepo.CheckAllResult = BookRepo.CheckAllResult(0, 0, 0)
+    override suspend fun markSeen(bookId: String) = Unit
     override suspend fun library(): List<BookRepo.CachedBook> =
         libraryFailure?.let { throw it } ?: libraryRows
     override fun libraryFlow(): Flow<List<BookRepo.CachedBook>> =
@@ -101,6 +106,10 @@ class MutableFakePrefs(
     override val fontScale: Flow<Float> = flowOf(1f)
     override val lastUpdateCheck: Flow<Long> = flowOf(lastCheck)
     override val skippedVersion: Flow<String?> = flowOf(null)
+    override val bgCheckEnabled: Flow<Boolean> = flowOf(true)
+    override val lastBookCheck: Flow<Long> = flowOf(0L)
+    override suspend fun setBgCheckEnabled(v: Boolean) = Unit
+    override suspend fun setLastBookCheck(now: Long) = Unit
     override suspend fun setSimplified(v: Boolean) {
         started += "simplified=$v"
         _simplified.value = v
