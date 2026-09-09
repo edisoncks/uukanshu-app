@@ -230,14 +230,20 @@ class BookRepo(
         val category: String = "",
         val lastChapterTitle: String = "",
         val updatedAt: Long = 0L,
+        val newCount: Int = 0,
     )
 
     /** Cached book meta (TOC skeleton) for shelf rows of fresh downloads. */
     override suspend fun bookEntry(bookId: String): BookInfo? = withContext(ioDispatcher) {
         db.books().book(bookId)?.let {
-            BookInfo(it.id, it.title, it.author, it.intro, it.category, it.lastChapterTitle, it.updatedAt)
+            BookInfo(it.id, it.title, it.author, it.intro, it.category, it.lastChapterTitle, it.updatedAt, it.newCount)
         }
     }
+
+    override fun bookInfoFlow(bookId: String): Flow<BookInfo?> =
+        db.books().bookFlow(bookId).map {
+            it?.let { e -> BookInfo(e.id, e.title, e.author, e.intro, e.category, e.lastChapterTitle, e.updatedAt, e.newCount) }
+        }
 
     // -- offline library (milestone 7): sequential, no hard cap ------------
 
@@ -248,6 +254,7 @@ class BookRepo(
         val total: Int,
         val cached: Int,
         val bytes: Long,
+        val newChapters: Int = 0,
     )
 
     override suspend fun library(): List<CachedBook> = withContext(ioDispatcher) {
@@ -327,6 +334,132 @@ class BookRepo(
                     if (cached > 0) db.books().touch(bookId, System.currentTimeMillis())
                 }
             }
+        }
+    }
+
+    /** Result of one book's 追更 check: badge count when > 0, else no change. */
+    sealed interface UpdateCheck {
+        data class Ok(val newCount: Int) : UpdateCheck
+        data object SkippedEmpty : UpdateCheck
+        data object SkippedShrink : UpdateCheck
+        data class Failed(val error: Exception) : UpdateCheck
+    }
+
+    data class CheckAllResult(
+        val checked: Int,
+        val newBooks: Int,
+        val newChapters: Int,
+        val perBook: Map<String, Int> = emptyMap(),
+    )
+
+    /**
+     * One book's update check: fresh TOC via detail() (which merges via
+     * replaceToc without bumping shelf order), then badge diff vs seenTotal.
+     * seenTotal never advances here — only markSeen advances it — so the
+     * badge survives until the user opens Detail. First run seeds baseline
+     * with no false badge. Empty/shrink never wipes cache (same guard as Detail).
+     */
+    override suspend fun checkUpdate(bookId: String): UpdateCheck {
+        val before = withContext(ioDispatcher) { db.books().book(bookId) }
+            ?: return UpdateCheck.Failed(java.io.IOException("not cached"))
+        val seenBefore = before.seenTotal
+        val freshSize: Int = try {
+            withContext(ioDispatcher) { detail(bookId).chapters.size }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: TocShrunkException) {
+            withContext(ioDispatcher) {
+                dbWrite.withLock {
+                    val cur = db.books().book(bookId)
+                    if (cur != null) db.books().updateCheckState(bookId, cur.seenTotal, cur.newCount, System.currentTimeMillis())
+                }
+            }
+            return UpdateCheck.SkippedShrink
+        } catch (e: Exception) {
+            return UpdateCheck.Failed(e)
+        }
+        if (freshSize == 0) return UpdateCheck.SkippedEmpty
+        return withContext(ioDispatcher) {
+            dbWrite.withLock {
+                val cur = db.books().book(bookId) ?: return@withLock UpdateCheck.Failed(java.io.IOException("deleted"))
+                val now = System.currentTimeMillis()
+                if (seenBefore == 0 && cur.seenTotal == 0) {
+                    // First baseline: no badge, remember current size.
+                    db.books().updateCheckState(bookId, freshSize, 0, now)
+                    UpdateCheck.Ok(0)
+                } else {
+                    val base = cur.seenTotal.takeIf { it > 0 } ?: freshSize
+                    val n = (freshSize - base).coerceAtLeast(0)
+                    db.books().updateCheckState(bookId, cur.seenTotal.takeIf { it > 0 } ?: freshSize, n, now)
+                    UpdateCheck.Ok(n)
+                }
+            }
+        }
+    }
+
+    /**
+     * Bounded background run: oldest-checked first, at most [limit] books,
+     * sequential with crawlDelay between fetches. Per-book failures are
+     * swallowed (skip) so one Cloudflare block never fails the whole run.
+     * Never throws except on cancellation.
+     */
+    override suspend fun checkAllUpdates(limit: Int): CheckAllResult = withContext(ioDispatcher) {
+        val ids = try {
+            db.books().booksByCheckTime().map { it.id }.take(limit.coerceAtLeast(1))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return@withContext CheckAllResult(0, 0, 0)
+        }
+        var fetchedAny = false
+        val per = mutableMapOf<String, Int>()
+        var books = 0
+        var chapters = 0
+        for (id in ids) {
+            try {
+                if (!db.books().exists(id)) continue
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                continue
+            }
+            if (fetchedAny) {
+                try {
+                    crawlDelay()
+                } catch (e: CancellationException) {
+                    throw e
+                }
+            }
+            val res = try {
+                checkUpdate(id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                continue
+            }
+            fetchedAny = true
+            if (res is UpdateCheck.Ok && res.newCount > 0) {
+                per[id] = res.newCount
+                books++
+                chapters += res.newCount
+            }
+        }
+        CheckAllResult(checked = ids.size, newBooks = books, newChapters = chapters, perBook = per)
+    }
+
+    /** User opened Detail: baseline advances to current TOC, badge clears. Serialized with checks. */
+    override suspend fun markSeen(bookId: String) = withContext(ioDispatcher) {
+        dbWrite.withLock {
+            val total = try {
+                db.chapters().countByBook(bookId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                return@withLock
+            }
+            if (total == 0) return@withLock
+            val cur = db.books().book(bookId) ?: return@withLock
+            db.books().updateCheckState(bookId, total, 0, cur.lastCheckedAt)
         }
     }
 

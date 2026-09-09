@@ -16,7 +16,15 @@ object ShelfOrder {
         maxOf(bookAt, progressAt ?: 0L)
 
     fun preserve(existing: BookEntity?, fresh: BookEntity, now: Long): BookEntity =
-        if (existing != null) fresh.copy(updatedAt = existing.updatedAt)
+        if (existing != null) fresh.copy(
+            updatedAt = existing.updatedAt,
+            // Background TOC refresh must never wipe or bump 追更 state:
+            // shelf order stays, badge baseline stays, check stamp stays.
+            // checkUpdate/markSeen own those columns under dbWrite lock.
+            seenTotal = existing.seenTotal,
+            newCount = existing.newCount,
+            lastCheckedAt = existing.lastCheckedAt,
+        )
         else fresh.copy(updatedAt = now)
 
     fun sort(
@@ -41,7 +49,7 @@ object ShelfOrder {
         return rows.mapNotNull { b ->
             val s = byId[b.id] ?: return@mapNotNull null
             if (s.cached == 0) return@mapNotNull null
-            BookRepo.CachedBook(b.id, b.title, b.author, total = s.total, cached = s.cached, bytes = s.bytes)
+            BookRepo.CachedBook(b.id, b.title, b.author, total = s.total, cached = s.cached, bytes = s.bytes, newChapters = b.newCount)
         }.let { sort(it, bookAt, progressAt) }
     }
 }

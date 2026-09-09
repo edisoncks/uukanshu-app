@@ -27,8 +27,13 @@ interface RepoApi {
     suspend fun getProgress(bookId: String): Int?
     fun progressFlow(bookId: String): Flow<Int?>
     suspend fun bookEntry(bookId: String): BookRepo.BookInfo?
+    fun bookInfoFlow(bookId: String): Flow<BookRepo.BookInfo?>
     suspend fun library(): List<BookRepo.CachedBook>
     fun libraryFlow(): Flow<List<BookRepo.CachedBook>>
+    // -- 追更 (update check): cache-first TOC diff, never bumps shelf order --
+    suspend fun checkUpdate(bookId: String): BookRepo.UpdateCheck
+    suspend fun checkAllUpdates(limit: Int = 20): BookRepo.CheckAllResult
+    suspend fun markSeen(bookId: String)
     suspend fun deleteBook(bookId: String)
     suspend fun clearAll()
     suspend fun crawlDelay()
@@ -41,11 +46,15 @@ interface PrefsApi {
     val theme: Flow<String>
     val lastUpdateCheck: Flow<Long>
     val skippedVersion: Flow<String?>
+    val bgCheckEnabled: Flow<Boolean>
+    val lastBookCheck: Flow<Long>
     suspend fun setSimplified(v: Boolean)
     suspend fun setFontScale(v: Float)
     suspend fun setTheme(v: String)
     suspend fun setLastUpdateCheck(now: Long)
     suspend fun setSkippedVersion(v: String?)
+    suspend fun setBgCheckEnabled(v: Boolean)
+    suspend fun setLastBookCheck(now: Long)
 }
 
 interface AppContainer {
