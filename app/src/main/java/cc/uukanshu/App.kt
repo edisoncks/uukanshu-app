@@ -12,6 +12,18 @@ import cc.uukanshu.data.update.UpdateApi
 import cc.uukanshu.data.update.UpdateDownloader
 
 class App : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        // 追更 channel + daily schedule (KEEP: never churn OS schedule;
+        // worker early-exits when disabled so no DataStore read here).
+        cc.uukanshu.data.updatecheck.Notifier.ensureChannel(this)
+        try {
+            cc.uukanshu.data.updatecheck.BookUpdateScheduler.scheduleKeep(this)
+        } catch (e: Exception) {
+            // WorkManager unavailable in tests / stripped builds: badges still work via manual check.
+        }
+    }
+
     val gate by lazy { UukanshuGate() }
     val db by lazy { AppDb.get(this) }
     // Single-flight lives in SiteApi per HTTP attempt; BookRepo no longer
