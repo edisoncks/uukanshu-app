@@ -86,16 +86,34 @@ class DetailViewModel(
                 _ui.value = _ui.value.copy(bookmark = bm)
             }
         }
-        // Re-attach to app-scoped download.
+        // Re-attach to app-scoped download. On successful finish
+        // (was downloading, now idle, no error, done>=total) advance the
+        // 追更 baseline so the banner clears without leave/re-enter.
+        // Cancel/failure keeps the badge (done<total or error!=null).
         viewModelScope.launch {
+            var prevDownloading = false
             downloads.observe(bookId).collect { st ->
                 if (st == null) return@collect
+                val was = prevDownloading
+                prevDownloading = st.downloading
                 _ui.value = _ui.value.copy(
                     downloading = st.downloading,
                     done = st.done,
                     downloadTotal = st.total,
                     downloadError = st.error,
                 )
+                if (was && !st.downloading && st.error == null && st.total > 0 && st.done >= st.total) {
+                    if (_ui.value.load is Load.Ready) {
+                        viewModelScope.launch {
+                            try {
+                                repo.markSeen(bookId)
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                            }
+                        }
+                    }
+                }
             }
         }
     }
