@@ -69,14 +69,16 @@ The bottom of the screen has four tabs:
 - Shows every book saved on your phone, with how many chapters are saved (… 章) and how much space it uses.
 - Books being downloaded show live progress (下載中 done/total) and can be cancelled (取消) here; tapping one opens its detail page.
 - The top line shows the total (e.g. `3 本 · 12.5 MB`).
+- **追更** ("Follow updates"): books with new chapters on the site show **有更新 N章** ("N new chapters") plus a dot on the 書架 tab. Tap **檢查更新** ("Check for updates") to refresh all, or wait for the daily background check (one summary notification, no spam). Opening the book detail clears its badge; **下載新增** ("Download new") fetches only the missing chapters.
 - Tap a book to open it. Tap **刪除緩存** ("Delete") to remove one book, or **清空全部** ("Clear all") to remove everything. Deleted books need to be downloaded again, so you'll be asked to confirm before clearing everything.
 
 ### 設定 — Settings
 
-Three groups:
+Four groups:
 
 - **外觀** ("Appearance"): 自動 / 淺色 / 深色 (Auto / Light / Dark).
 - **語言** ("Language"): switch between 繁體 (Traditional) and 簡體 (Simplified). Applies everywhere instantly.
+- **追更** ("Follow updates"): toggle 背景自動檢查 (background daily check) on/off, see 上次檢查 (last check). If notifications are denied, badges still appear in 書架.
 - **更新** ("Update"): shows 目前版本 (current version), a 檢查更新 ("Check for updates") button, and the skip-version option.
 
 ## Reading offline
