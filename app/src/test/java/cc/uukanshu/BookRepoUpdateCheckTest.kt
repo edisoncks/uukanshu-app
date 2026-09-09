@@ -85,16 +85,22 @@ class BookRepoUpdateCheckTest {
         db.chapters().updateContent("1", 101L, "x")
         repo.checkUpdate("1")
         assertEquals(10, db.books().book("1")!!.seenTotal)
-        // Shrink to 5 → skip, cache intact.
+        // Shrink to 5 → skip, cache intact, timestamp advances past oldest-first head.
         html = tocHtml(5)
         val shrunk = repo.checkUpdate("1")
         assertTrue(shrunk is BookRepo.UpdateCheck.SkippedShrink)
         assertEquals(10, db.chapters().countByBook("1"))
         assertEquals(10, db.books().book("1")!!.seenTotal)
-        // Empty → skip.
+        assertTrue(db.books().book("1")!!.lastCheckedAt > 0L)
+        // Empty → skip without wipe, timestamp still advances so it sorts last next run.
         html = "<html><body><h1 class=\"booktitle\">T</h1></body></html>"
+        val beforeEmpty = db.books().book("1")!!
         val empty = repo.checkUpdate("1")
         assertTrue(empty is BookRepo.UpdateCheck.SkippedEmpty)
         assertEquals(10, db.chapters().countByBook("1"))
+        assertEquals(beforeEmpty.seenTotal, db.books().book("1")!!.seenTotal)
+        assertEquals(beforeEmpty.newCount, db.books().book("1")!!.newCount)
+        assertTrue(db.books().book("1")!!.lastCheckedAt >= beforeEmpty.lastCheckedAt)
+        assertTrue(db.books().book("1")!!.lastCheckedAt > 0L)
     }
 }

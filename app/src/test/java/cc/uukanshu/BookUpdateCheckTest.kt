@@ -129,4 +129,17 @@ class BookUpdateCheckTest {
         assertEquals(listOf("a"), BookRepo.visibleIds(ordered, stats, 1))
         assertEquals(emptyList<String>(), BookRepo.visibleIds(listOf(BookEntity("x", "X")), emptyList(), 20))
     }
+
+    @Test fun visibleIdsZeroIsEmptyNegativeFailsFast() {
+        val ordered = listOf(BookEntity("a", "A"))
+        val stats = listOf(cc.uukanshu.data.db.ChapterStats("a", total = 10, cached = 5, bytes = 1L))
+        assertEquals(emptyList<String>(), BookRepo.visibleIds(ordered, stats, 0))
+        var thrown = false
+        try {
+            BookRepo.visibleIds(ordered, stats, -1)
+        } catch (e: IllegalArgumentException) {
+            thrown = true
+        }
+        assertTrue(thrown)
+    }
 }
