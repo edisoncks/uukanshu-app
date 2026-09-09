@@ -370,6 +370,8 @@ class BookRepo(
         val newBooks: Int,
         val newChapters: Int,
         val perBook: Map<String, Int> = emptyMap(),
+        /** Whole-run init failure (DB down): empty is failure, not success. Default keeps fakes compiling. */
+        val failed: Boolean = false,
     )
 
     /**
@@ -405,6 +407,8 @@ class BookRepo(
                 val now = System.currentTimeMillis()
                 if (seenBefore == 0 && cur.seenTotal == 0) {
                     // First baseline: no badge, remember current size.
+                    // Upgrade tradeoff by design: seed from fresh (no false badge);
+                    // pre-upgrade growth is missed once — false positives are worse.
                     db.books().updateCheckState(bookId, freshSize, 0, now)
                     UpdateCheck.Ok(0)
                 } else {
@@ -422,18 +426,15 @@ class BookRepo(
      * first, at most [limit] books, sequential with crawlDelay between fetches.
      * TOC-only skeletons skip without timestamp bump so they never starve
      * visible badges. Per-book failures are swallowed (skip) so one Cloudflare
-     * block never fails the whole run. Never throws except on cancellation.
+     * block never fails the whole run. Init-query failure throws (whole-run
+     * failure, not silent success) — callers map it to footer/retry.
+     * Cancellation always propagates.
      */
     override suspend fun checkAllUpdates(limit: Int): CheckAllResult = withContext(ioDispatcher) {
-        val ids = try {
-            val ordered = db.books().booksByCheckTime()
-            val stats = db.chapters().statsByBook()
-            visibleIds(ordered, stats, limit)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            return@withContext CheckAllResult(0, 0, 0)
-        }
+        // Init queries throw: empty shelf returns empty success, DB down throws.
+        val ordered = db.books().booksByCheckTime()
+        val stats = db.chapters().statsByBook()
+        val ids = visibleIds(ordered, stats, limit)
         var fetchedAny = false
         val per = mutableMapOf<String, Int>()
         var books = 0

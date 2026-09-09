@@ -11,11 +11,12 @@ import kotlinx.coroutines.flow.first
  * (see BookRepo, limit 20/run) so a 100-book shelf converges over runs
  * instead of blowing the 10-min Worker limit. Pure + JVM-tested via fakes.
  *
- * Updates [PrefsApi.lastBookCheck] on success. Never throws except on
- * cancellation — per-book failures are skips inside the repo.
+ * Single write path for [PrefsApi.lastBookCheck]: stamped on success only,
+ * never on whole-run failure (else 6h throttle would hide retry).
+ * Per-book failures are skips inside the repo (success, failed=false).
  */
 object UpdateChecker {
-    data class Result(val checked: Int, val newBooks: Int, val newChapters: Int)
+    data class Result(val checked: Int, val newBooks: Int, val newChapters: Int, val failed: Boolean = false)
 
     suspend fun checkAll(
         repo: RepoApi,
@@ -27,8 +28,9 @@ object UpdateChecker {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            return Result(0, 0, 0)
+            return Result(0, 0, 0, failed = true)
         }
+        if (r.failed) return Result(r.checked, r.newBooks, r.newChapters, failed = true)
         try {
             prefs.setLastBookCheck(System.currentTimeMillis())
         } catch (e: CancellationException) {
@@ -36,7 +38,7 @@ object UpdateChecker {
         } catch (e: Exception) {
             // Prefs write failure must not fail the run; badges are in Room.
         }
-        return Result(r.checked, r.newBooks, r.newChapters)
+        return Result(r.checked, r.newBooks, r.newChapters, failed = false)
     }
 
     /** Foreground throttle: library-open auto-check at most once per interval. */

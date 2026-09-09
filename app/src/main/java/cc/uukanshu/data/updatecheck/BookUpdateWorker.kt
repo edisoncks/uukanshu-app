@@ -27,6 +27,9 @@ class BookUpdateWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
             }
             if (!enabled) return Result.success()
             val r = UpdateChecker.checkAll(app.repo, app.prefs)
+            // Whole-run init failure (DB down): transient → retry with backoff.
+            // Checker never throws except cancel, so this is the only retry path.
+            if (r.failed) return Result.retry()
             if (r.newBooks > 0) {
                 try {
                     Notifier.show(applicationContext, r.newBooks, r.newChapters)
