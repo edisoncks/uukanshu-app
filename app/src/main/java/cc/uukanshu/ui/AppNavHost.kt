@@ -6,6 +6,8 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -69,9 +71,13 @@ fun UukanshuApp(container: AppContainer, app: Application) {
             })
             val updateUi by updateVm.ui.collectAsState()
             LaunchedEffect(Unit) { updateVm.autoCheck() }
+            // 追更 dot: any shelf book with newChapters > 0. Lightweight collect;
+            // badge text lives in Library rows, tab shows dot only (no count).
+            val shelfForDot by container.repo.libraryFlow().collectAsState(initial = emptyList())
+            val hasUpdates = remember(shelfForDot) { shelfForDot.any { it.newChapters > 0 } }
             Scaffold(
                 bottomBar = {
-                    AppBottomBar(nav = nav, tabs = tabs)
+                    AppBottomBar(nav = nav, tabs = tabs, showLibraryDot = hasUpdates)
                 },
             ) { inner ->
                 AppNavHost(nav = nav, updateVm = updateVm, modifier = Modifier.padding(inner))
@@ -93,17 +99,24 @@ fun UukanshuApp(container: AppContainer, app: Application) {
 }
 
 @Composable
-private fun AppBottomBar(nav: NavHostController, tabs: List<Tab>) {
+private fun AppBottomBar(nav: NavHostController, tabs: List<Tab>, showLibraryDot: Boolean = false) {
     val entry by nav.currentBackStackEntryAsState()
     val route = entry?.destination?.route
     // Full-screen pages hide the bottom bar (Detail/Reader).
     if (route in tabs.map { it.route }) {
         NavigationBar {
             tabs.forEach { tab ->
+                val isLibrary = tab.route == Routes.LIBRARY
                 NavigationBarItem(
                     selected = route == tab.route,
                     onClick = { nav.navigateToTab(tab.route) },
-                    icon = tab.icon,
+                    icon = {
+                        if (isLibrary && showLibraryDot) {
+                            BadgedBox(badge = { Badge() }) { tab.icon() }
+                        } else {
+                            tab.icon()
+                        }
+                    },
                     label = { Text(tab.label) },
                 )
             }

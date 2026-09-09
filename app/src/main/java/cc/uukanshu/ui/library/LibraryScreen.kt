@@ -59,7 +59,7 @@ fun LibraryScreen(onBook: (String) -> Unit) {
         LibraryViewModel(container.repo, container.prefs, container.t2s, container.downloads)
     })
     val ui by vm.ui.collectAsState()
-    LaunchedEffect(Unit) { vm.refresh() }
+    LaunchedEffect(Unit) { vm.refresh(); vm.autoCheckUpdates() }
     // Saveable so detail->back restores index/offset via the library
     // back-stack entry; plain remember is discarded with the composition.
     val listState = rememberSaveable(saver = LazyListState.Saver) {
@@ -71,8 +71,10 @@ fun LibraryScreen(onBook: (String) -> Unit) {
     Column(Modifier.fillMaxSize().padding(12.dp)) {
         // Shelf rows only: fresh-download progress rows below don't gate this.
         val shelfBooks = (ui.load as? LibraryViewModel.Load.Shelf)?.books.orEmpty()
+        val updatedBooks = shelfBooks.count { it.newChapters > 0 }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(vm.display("已緩存"), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            TextButton(onClick = { vm.checkUpdates() }, enabled = !ui.checking) { Text(vm.display(if (ui.checking) "檢查中" else "檢查更新")) }
             if (shelfBooks.isNotEmpty()) {
                 TextButton(onClick = { confirmClear = true }) { Text(vm.display("清空全部")) }
             }
@@ -98,6 +100,21 @@ fun LibraryScreen(onBook: (String) -> Unit) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (updatedBooks > 0) {
+            Text(
+                "$updatedBooks ${vm.display("本有更新")}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.tertiary,
+            )
+        }
+        Text(
+            vm.display(cc.uukanshu.data.updatecheck.UpdateChecker.formatLastCheck(ui.lastCheck)),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (ui.checking) {
+            LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 4.dp))
+        }
         // Stale-while-revalidate: keep the old list visible during
         // return-refresh so the saveable scroll position isn't lost to a
         // full-screen spinner; spinner only for the initial empty load.
@@ -189,6 +206,13 @@ fun LibraryScreen(onBook: (String) -> Unit) {
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                             )
+                            if (b.newChapters > 0) {
+                                Text(
+                                    vm.display("有更新") + " ${b.newChapters}" + vm.display("章"),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.tertiary,
+                                )
+                            }
                             if (st?.downloading == true) {
                                 LinearProgressIndicator(
                                     progress = { (st.done.toFloat() / st.total.coerceAtLeast(1)).coerceIn(0f, 1f) },

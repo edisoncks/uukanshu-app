@@ -11,6 +11,7 @@ import cc.uukanshu.di.RepoApi
 import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.core.Errors
 import cc.uukanshu.data.repo.TocRevalidator
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -45,6 +46,8 @@ class DetailViewModel(
         val simplified: Boolean = false,
         val cached: Set<Long> = emptySet(),
         val bookmark: BookRepo.Bookmark? = null,
+        // 追更 overlay: badge count from Room, cleared by markSeen after paint.
+        val newCount: Int = 0,
     )
 
     private val _ui = MutableStateFlow(Ui())
@@ -57,6 +60,17 @@ class DetailViewModel(
         viewModelScope.launch {
             _ui.value = _ui.value.copy(simplified = prefs.simplified.first())
             refresh()
+        }
+        // Live 追更 badge: Room source of truth, clears via markSeen below.
+        viewModelScope.launch {
+            try {
+                repo.bookInfoFlow(bookId).collect { info ->
+                    _ui.update { it.copy(newCount = info?.newCount ?: 0) }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+            }
         }
         // Live badges/bookmark/download re-attach (survive nav).
         viewModelScope.launch {
@@ -126,6 +140,15 @@ class DetailViewModel(
                                 offline = false, refreshing = false,
                             ),
                         )
+                    }
+                    // Badge clears only after full TOC paints (failed load keeps signal).
+                    viewModelScope.launch {
+                        try {
+                            repo.markSeen(bookId)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                        }
                     }
                 }
                 is TocRevalidator.Revalidate.RejectedEmpty,

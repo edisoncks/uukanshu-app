@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -175,6 +176,24 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int, page
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
                 )
+                if (ui.newCount > 0 && !ui.downloading) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    ) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                vm.displayTitle("有") + " ${ui.newCount} " + vm.displayTitle("章更新") + " (${vm.displayTitle("共")} ${load.chapters.size} ${vm.displayTitle("章")})",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.tertiary,
+                            )
+                            Button({ vm.downloadAll() }, Modifier.fillMaxWidth()) {
+                                Icon(Icons.Filled.Download, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text(vm.displayTitle("下載新增"))
+                            }
+                        }
+                    }
+                }
                 HorizontalDivider()
             }
             items(load.chapters, key = { it.pageId }) { c ->

@@ -46,14 +46,29 @@ class LibraryViewModel(
         // Titles for fresh downloads not yet qualified for library().
         // Domain type (never Room entities — see BookRepo.BookInfo).
         val pendingTitles: Map<String, BookRepo.BookInfo> = emptyMap(),
+        // 追更 overlay (never a new Load variant): manual/background checks
+        // write badges to Room; this flag is only the thin-bar spinner.
+        val checking: Boolean = false,
+        val lastCheck: Long = 0L,
     )
 
     private val _ui = MutableStateFlow(Ui())
     val ui: StateFlow<Ui> = _ui
+    // Serialized 追更 check (last-tapped wins guard on Main thread).
+    private var checkingNow = false
 
     init {
         viewModelScope.launch {
             _ui.value = _ui.value.copy(simplified = prefs.simplified.first())
+        }
+        viewModelScope.launch {
+            try {
+                prefs.lastBookCheck.collect { t -> _ui.update { it.copy(lastCheck = t) } }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Prefs failure must not break the shelf.
+            }
         }
         // Reactive shelf: DB bumps (read/download/delete/clear) re-render
         // rows without manual refresh. Stale-while-revalidate: keep rows on
@@ -136,6 +151,64 @@ class LibraryViewModel(
 
     fun cancelDownload(id: String) {
         downloads.cancel(id)
+    }
+
+    /**
+     * Manual 追更: oldest-first bounded run (see BookRepo, 20/run).
+     * Guarded synchronously on Main so rapid taps run once; stale-while-
+     * revalidate keeps rows, thin bar shows progress, footer shows retry.
+     * [auto] suppresses footer noise for silent foreground runs.
+     */
+    fun checkUpdates(auto: Boolean = false) {
+        if (checkingNow) return
+        checkingNow = true
+        _ui.update { it.copy(checking = true) }
+        viewModelScope.launch {
+            try {
+                val r = repo.checkAllUpdates()
+                try {
+                    prefs.setLastBookCheck(System.currentTimeMillis())
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                }
+                // Badges arrive via libraryFlow (Room); nothing to copy here.
+                _ui.update { cur ->
+                    when (val l = cur.load) {
+                        is Load.Shelf -> cur.copy(load = l.copy(error = null))
+                        else -> cur
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (!auto) {
+                    _ui.update { cur ->
+                        when (val l = cur.load) {
+                            is Load.Shelf -> cur.copy(load = l.copy(error = Errors.friendly(e)))
+                            else -> cur.copy(load = Load.Failed(Errors.friendly(e)))
+                        }
+                    }
+                }
+            } finally {
+                checkingNow = false
+                _ui.update { it.copy(checking = false) }
+            }
+        }
+    }
+
+    /** Silent foreground check on library open (6h throttle, failures ignored). */
+    fun autoCheckUpdates() {
+        viewModelScope.launch {
+            val last = try {
+                prefs.lastBookCheck.first()
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                return@launch
+            }
+            if (!cc.uukanshu.data.updatecheck.UpdateChecker.shouldForegroundCheck(last)) return@launch
+            checkUpdates(auto = true)
+        }
     }
 
     /** Restart a failed download from the shelf (idempotent start). */
