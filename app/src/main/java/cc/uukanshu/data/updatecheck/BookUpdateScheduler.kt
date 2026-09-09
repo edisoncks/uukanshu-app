@@ -1,6 +1,7 @@
 package cc.uukanshu.data.updatecheck
 
 import android.content.Context
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
@@ -25,6 +26,7 @@ object BookUpdateScheduler {
 
     fun periodicRequest() = PeriodicWorkRequestBuilder<BookUpdateWorker>(24, TimeUnit.HOURS)
         .setConstraints(constraints())
+        .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
         .addTag(UNIQUE)
         .build()
 
