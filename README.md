@@ -53,6 +53,7 @@ The bottom of the screen has four tabs:
 - Chapters you have already saved show a **✓ 已緩存** ("cached") mark.
 - Tap any chapter to start reading. If you were reading before, tap **繼續閱讀** ("Continue reading") to jump back to where you left off.
 - To save the whole book for offline reading, tap **下載整本** ("Download whole book"). You can **取消** ("Cancel") anytime. Downloading again later with **重新下載整本** refreshes it.
+- To send the book link to a friend or open it in a browser, tap **分享連結** ("Share link").
 
 ### Reading page
 
