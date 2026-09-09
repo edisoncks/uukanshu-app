@@ -5,8 +5,11 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import cc.uukanshu.App
+import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
+
+private const val TAG = "BookUpdateWorker"
 
 /**
  * Thin Worker shell: all logic in [UpdateChecker] (faked in JVM tests).
@@ -16,13 +19,17 @@ import kotlinx.coroutines.flow.first
  */
 class BookUpdateWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result {
-        val app = applicationContext as? App ?: return Result.success()
+        val app = applicationContext as? App ?: run {
+            Log.e(TAG, "application is not App, failing loud")
+            return Result.failure()
+        }
         try {
             val enabled = try {
                 app.prefs.bgCheckEnabled.first()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                Log.w(TAG, "bgCheckEnabled read failed, defaulting to true", e)
                 true
             }
             if (!enabled) return Result.success()
@@ -36,8 +43,7 @@ class BookUpdateWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    // Denied permission / notification failure must not fail the run;
-                    // badges are already in Room.
+                    Log.w(TAG, "notification failed, badges already in Room", e)
                 }
             }
             return Result.success(

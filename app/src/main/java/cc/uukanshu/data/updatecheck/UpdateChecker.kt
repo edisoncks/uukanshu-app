@@ -3,8 +3,10 @@ package cc.uukanshu.data.updatecheck
 import cc.uukanshu.data.repo.BookRepo
 import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.di.RepoApi
+import android.util.Log
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.flow.first
+
+private const val TAG = "UpdateChecker"
 
 /**
  * Thin orchestration over [RepoApi.checkAllUpdates]: oldest-first, bounded
@@ -36,7 +38,7 @@ object UpdateChecker {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            // Prefs write failure must not fail the run; badges are in Room.
+            Log.w(TAG, "setLastBookCheck failed, badges already in Room", e)
         }
         return Result(r.checked, r.newBooks, r.newChapters, failed = false)
     }

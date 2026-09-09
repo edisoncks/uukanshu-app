@@ -1,6 +1,7 @@
 package cc.uukanshu
 
 import android.app.Application
+import android.util.Log
 import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.db.AppDb
 import cc.uukanshu.data.download.BookDownloadManager
@@ -20,7 +21,7 @@ class App : Application() {
         try {
             cc.uukanshu.data.updatecheck.BookUpdateScheduler.scheduleKeep(this)
         } catch (e: Exception) {
-            // WorkManager unavailable in tests / stripped builds: badges still work via manual check.
+            Log.w("App", "scheduleKeep failed, badges still work via manual check", e)
         }
     }
 

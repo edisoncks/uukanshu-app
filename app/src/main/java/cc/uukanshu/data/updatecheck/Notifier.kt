@@ -13,6 +13,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import cc.uukanshu.MainActivity
 import cc.uukanshu.R
+import android.util.Log
 
 /**
  * One summary notification for 追更, never per-book spam. Tap opens the app;
@@ -60,7 +61,7 @@ object Notifier {
         try {
             NotificationManagerCompat.from(ctx).notify(NOTIFICATION_ID, notif)
         } catch (e: SecurityException) {
-            // Perm revoked between check and notify: badges already in Room.
+            Log.w("Notifier", "notify failed (perm revoked), badges already in Room", e)
         }
     }
 }
