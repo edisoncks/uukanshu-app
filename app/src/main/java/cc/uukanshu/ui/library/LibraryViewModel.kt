@@ -170,12 +170,25 @@ class LibraryViewModel(
         viewModelScope.launch {
             try {
                 val r = cc.uukanshu.data.updatecheck.UpdateChecker.checkAll(repo, prefs)
-                if (r.failed) throw java.io.IOException("check failed")
-                // Badges arrive via libraryFlow (Room); nothing to copy here.
-                _ui.update { cur ->
-                    when (val l = cur.load) {
-                        is Load.Shelf -> cur.copy(load = l.copy(error = null))
-                        else -> cur
+                if (r.failed) {
+                    // Whole-run failure: footer shows the real cause directly.
+                    // No fake throw for control flow (see review #3).
+                    if (!auto) {
+                        val cause = r.cause ?: java.io.IOException("check failed")
+                        _ui.update { cur ->
+                            when (val l = cur.load) {
+                                is Load.Shelf -> cur.copy(load = l.copy(error = Errors.friendly(cause)))
+                                else -> cur.copy(load = Load.Failed(Errors.friendly(cause)))
+                            }
+                        }
+                    }
+                } else {
+                    // Badges arrive via libraryFlow (Room); nothing to copy here.
+                    _ui.update { cur ->
+                        when (val l = cur.load) {
+                            is Load.Shelf -> cur.copy(load = l.copy(error = null))
+                            else -> cur
+                        }
                     }
                 }
             } catch (e: CancellationException) {

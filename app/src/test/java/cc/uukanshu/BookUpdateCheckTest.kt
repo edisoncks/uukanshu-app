@@ -69,6 +69,24 @@ class BookUpdateCheckTest {
         assertTrue((stamped ?: 0L) > 0L)
     }
 
+    @Test fun checkerInitThrowPreservesCauseWithoutStamp() = runBlocking {
+        val throwing = object : cc.uukanshu.di.RepoApi by MutableFakeRepo() {
+            override suspend fun checkAllUpdates(limit: Int): BookRepo.CheckAllResult =
+                throw java.io.IOException("db down")
+        }
+        var stamped: Long? = null
+        val prefsSpy = object : cc.uukanshu.di.PrefsApi by MutableFakePrefs() {
+            override suspend fun setLastBookCheck(now: Long) {
+                stamped = now
+            }
+        }
+        val r = UpdateChecker.checkAll(throwing, prefsSpy)
+        assertEquals(true, r.failed)
+        assertEquals(null, stamped)
+        // Cause preserved so the footer shows the real error, not generic.
+        assertTrue((r.cause?.message ?: "").contains("db down"))
+    }
+
     @Test fun checkerInitThrowIsFailedWithoutStamp() = runBlocking {
         val throwing = object : cc.uukanshu.di.RepoApi by MutableFakeRepo() {
             override suspend fun checkAllUpdates(limit: Int): BookRepo.CheckAllResult =
@@ -83,6 +101,16 @@ class BookUpdateCheckTest {
         val r = UpdateChecker.checkAll(throwing, prefsSpy)
         assertEquals(true, r.failed)
         assertEquals(null, stamped)
+    }
+
+    @Test fun checkerNeverThrowsOnTransport() = runBlocking {
+        // Worker relies on Result(failed), never a throw, except cancel.
+        val throwing = object : cc.uukanshu.di.RepoApi by MutableFakeRepo() {
+            override suspend fun checkAllUpdates(limit: Int): BookRepo.CheckAllResult =
+                throw java.io.IOException("transport down")
+        }
+        val r = UpdateChecker.checkAll(throwing, MutableFakePrefs())
+        assertEquals(true, r.failed)
     }
 
     @Test fun checkerPassesThroughRepoFailedWithoutStamp() = runBlocking {

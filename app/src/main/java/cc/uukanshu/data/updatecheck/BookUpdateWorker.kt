@@ -51,12 +51,11 @@ class BookUpdateWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
             )
         } catch (e: CancellationException) {
             throw e
-        } catch (e: java.io.IOException) {
-            // Transport-wide failure only: one exponential retry (see scheduler
-            // backoff). Per-book skips never reach here.
-            return Result.retry()
         } catch (e: Exception) {
             // Programming bug: fail loud, never infinite-retry on our own NPE.
+            // No IOException branch: UpdateChecker converts transport/init
+            // failures to Result(failed) so this is unreachable except for
+            // unexpected throws from Notifier/workDataOf.
             return Result.failure()
         }
     }

@@ -65,6 +65,38 @@ class LibraryViewModelTest {
         assertEquals(listOf("a"), load.books.map { it.id })
         assertTrue(load.error != null)
     }
+
+    @Test fun checkUpdatesFailedShowsRealCause() = runTest {
+        // Whole-run init failure must surface the real cause, not generic.
+        val repo = MutableFakeRepo(
+            libraryFlowRows = listOf(book("a")),
+            checkAllFailure = IOException("db down"),
+        )
+        val vm = LibraryViewModel(repo, MutableFakePrefs(), T2S(), BookDownloadManager({ _, _ -> }, this))
+        idle()
+        vm.checkUpdates(auto = false)
+        idle()
+        val load = vm.ui.value.load
+        assertTrue(load is LibraryViewModel.Load.Shelf)
+        load as LibraryViewModel.Load.Shelf
+        assertTrue((load.error ?: "").contains("db down"))
+        assertEquals(false, vm.ui.value.checking)
+    }
+
+    @Test fun checkUpdatesAutoSuppressesFooter() = runTest {
+        val repo = MutableFakeRepo(
+            libraryFlowRows = listOf(book("a")),
+            checkAllFailure = IOException("db down"),
+        )
+        val vm = LibraryViewModel(repo, MutableFakePrefs(), T2S(), BookDownloadManager({ _, _ -> }, this))
+        idle()
+        vm.checkUpdates(auto = true)
+        idle()
+        val load = vm.ui.value.load
+        assertTrue(load is LibraryViewModel.Load.Shelf)
+        load as LibraryViewModel.Load.Shelf
+        assertEquals(null, load.error)
+    }
 }
 
 class HomeViewModelTest {
