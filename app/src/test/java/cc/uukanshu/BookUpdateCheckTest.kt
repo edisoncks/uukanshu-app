@@ -79,4 +79,21 @@ class BookUpdateCheckTest {
         assertEquals(1, r.newBooks)
         assertEquals(7, r.newChapters)
     }
+
+    @Test fun visibleIdsSkipsTocOnlyOldestFirstCaps() {
+        val ordered = listOf(
+            BookEntity("invisible-old", "X"),
+            BookEntity("a", "A"),
+            BookEntity("b", "B"),
+            BookEntity("empty", "E"),
+        )
+        val stats = listOf(
+            cc.uukanshu.data.db.ChapterStats("a", total = 10, cached = 5, bytes = 1L),
+            cc.uukanshu.data.db.ChapterStats("b", total = 10, cached = 10, bytes = 1L),
+            cc.uukanshu.data.db.ChapterStats("empty", total = 5, cached = 0, bytes = 0L),
+        )
+        assertEquals(listOf("a", "b"), BookRepo.visibleIds(ordered, stats, 20))
+        assertEquals(listOf("a"), BookRepo.visibleIds(ordered, stats, 1))
+        assertEquals(emptyList<String>(), BookRepo.visibleIds(listOf(BookEntity("x", "X")), emptyList(), 20))
+    }
 }

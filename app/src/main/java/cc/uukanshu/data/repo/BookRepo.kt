@@ -97,6 +97,26 @@ class BookRepo(
             cachedIds: Set<Long>,
         ): List<Parser.ChapterRef> = chapters.filter { it.pageId !in cachedIds }
 
+        /**
+         * Visible shelf ids only (cached > 0), oldest-check first, capped.
+         * TOC-only skeletons (browsed but never downloaded) are invisible
+         * on the shelf — checking them wastes fetches + delays real badges.
+         * Rows are tiny stubs (no bodies); filtering in Kotlin keeps the
+         * rule pure + JVM-tested instead of a SQL join. Pure.
+         */
+        fun visibleIds(
+            ordered: List<BookEntity>,
+            stats: List<cc.uukanshu.data.db.ChapterStats>,
+            limit: Int,
+        ): List<String> {
+            val cachedById = stats.associate { it.bookId to it.cached }
+            return ordered.asSequence()
+                .filter { (cachedById[it.id] ?: 0) > 0 }
+                .take(limit.coerceAtLeast(1))
+                .map { it.id }
+                .toList()
+        }
+
         /** True when every chapter already has cached text. */
         fun isDownloadComplete(chapters: List<Parser.ChapterRef>, cachedIds: Set<Long>): Boolean =
             chapters.isNotEmpty() && chapters.all { it.pageId in cachedIds }
@@ -398,14 +418,17 @@ class BookRepo(
     }
 
     /**
-     * Bounded background run: oldest-checked first, at most [limit] books,
-     * sequential with crawlDelay between fetches. Per-book failures are
-     * swallowed (skip) so one Cloudflare block never fails the whole run.
-     * Never throws except on cancellation.
+     * Bounded background run: visible shelf only (cached > 0), oldest-checked
+     * first, at most [limit] books, sequential with crawlDelay between fetches.
+     * TOC-only skeletons skip without timestamp bump so they never starve
+     * visible badges. Per-book failures are swallowed (skip) so one Cloudflare
+     * block never fails the whole run. Never throws except on cancellation.
      */
     override suspend fun checkAllUpdates(limit: Int): CheckAllResult = withContext(ioDispatcher) {
         val ids = try {
-            db.books().booksByCheckTime().map { it.id }.take(limit.coerceAtLeast(1))
+            val ordered = db.books().booksByCheckTime()
+            val stats = db.chapters().statsByBook()
+            visibleIds(ordered, stats, limit)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
