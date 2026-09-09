@@ -59,7 +59,7 @@ fun LibraryScreen(onBook: (String) -> Unit) {
         LibraryViewModel(container.repo, container.prefs, container.t2s, container.downloads)
     })
     val ui by vm.ui.collectAsState()
-    LaunchedEffect(Unit) { vm.refresh(); vm.autoCheckUpdates() }
+    LaunchedEffect(Unit) { vm.onOpen() }
     // Saveable so detail->back restores index/offset via the library
     // back-stack entry; plain remember is discarded with the composition.
     val listState = rememberSaveable(saver = LazyListState.Saver) {

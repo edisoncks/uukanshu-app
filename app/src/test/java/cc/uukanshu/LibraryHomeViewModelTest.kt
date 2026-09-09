@@ -115,6 +115,37 @@ class LibraryViewModelTest {
         idle()
         assertEquals(2, repo.checkAllCalls)
     }
+
+    @Test fun onOpenThrottledSkipsCheck() = runTest {
+        // Recent check → refresh only (local), no network.
+        val repo = MutableFakeRepo(
+            libraryRows = listOf(book("a")),
+            libraryFlowRows = listOf(book("a")),
+        )
+        val prefs = MutableFakePrefs(bookCheck = System.currentTimeMillis())
+        val vm = LibraryViewModel(repo, prefs, T2S(), BookDownloadManager({ _, _ -> }, this))
+        idle()
+        val libBefore = repo.libraryCalls
+        vm.onOpen()
+        idle()
+        assertEquals(libBefore + 1, repo.libraryCalls)
+        assertEquals(0, repo.checkAllCalls)
+    }
+
+    @Test fun onOpenColdRunsCheck() = runTest {
+        // Never checked → refresh + silent check, stamp written.
+        val repo = MutableFakeRepo(
+            libraryRows = listOf(book("a")),
+            libraryFlowRows = listOf(book("a")),
+        )
+        val prefs = MutableFakePrefs(bookCheck = 0L)
+        val vm = LibraryViewModel(repo, prefs, T2S(), BookDownloadManager({ _, _ -> }, this))
+        idle()
+        vm.onOpen()
+        idle()
+        assertEquals(1, repo.checkAllCalls)
+        assertEquals(false, vm.ui.value.checking)
+    }
 }
 
 class HomeViewModelTest {

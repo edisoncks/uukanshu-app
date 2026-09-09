@@ -223,6 +223,17 @@ class LibraryViewModel(
         }
     }
 
+    /**
+     * Single entry for Library open: one-shot refresh for rows, then
+     * throttled silent check. Keeps composition to one call so the
+     * two paths don't race from competing launches; refresh (local)
+     * and auto-check (network, throttled) are both needed on cold open.
+     */
+    fun onOpen() {
+        refresh()
+        autoCheckUpdates()
+    }
+
     /** Restart a failed download from the shelf (idempotent start). */
     fun retryDownload(id: String) {
         downloads.start(id)

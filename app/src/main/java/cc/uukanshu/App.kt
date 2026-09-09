@@ -1,7 +1,6 @@
 package cc.uukanshu
 
 import android.app.Application
-import android.util.Log
 import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.db.AppDb
 import cc.uukanshu.data.download.BookDownloadManager
@@ -17,12 +16,11 @@ class App : Application() {
         super.onCreate()
         // 追更 channel + daily schedule (KEEP: never churn OS schedule;
         // worker early-exits when disabled so no DataStore read here).
-        cc.uukanshu.data.updatecheck.Notifier.ensureChannel(this)
-        try {
-            cc.uukanshu.data.updatecheck.BookUpdateScheduler.scheduleKeep(this)
-        } catch (e: Exception) {
-            Log.w("App", "scheduleKeep failed, badges still work via manual check", e)
-        }
+        // Both guarded in AppInit so tests/stripped builds survive.
+        cc.uukanshu.data.updatecheck.AppInit.init(
+            channel = { cc.uukanshu.data.updatecheck.Notifier.ensureChannel(this) },
+            schedule = { cc.uukanshu.data.updatecheck.BookUpdateScheduler.scheduleKeep(this) },
+        )
     }
 
     val gate by lazy { UukanshuGate() }
