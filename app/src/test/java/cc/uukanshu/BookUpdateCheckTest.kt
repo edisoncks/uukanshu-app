@@ -65,7 +65,40 @@ class BookUpdateCheckTest {
         val r = UpdateChecker.checkAll(repo, prefsSpy, limit = 5)
         assertEquals(0, r.checked)
         assertEquals(0, r.newBooks)
+        assertEquals(false, r.failed)
         assertTrue((stamped ?: 0L) > 0L)
+    }
+
+    @Test fun checkerInitThrowIsFailedWithoutStamp() = runBlocking {
+        val throwing = object : cc.uukanshu.di.RepoApi by MutableFakeRepo() {
+            override suspend fun checkAllUpdates(limit: Int): BookRepo.CheckAllResult =
+                throw java.io.IOException("db down")
+        }
+        var stamped: Long? = null
+        val prefsSpy = object : cc.uukanshu.di.PrefsApi by MutableFakePrefs() {
+            override suspend fun setLastBookCheck(now: Long) {
+                stamped = now
+            }
+        }
+        val r = UpdateChecker.checkAll(throwing, prefsSpy)
+        assertEquals(true, r.failed)
+        assertEquals(null, stamped)
+    }
+
+    @Test fun checkerPassesThroughRepoFailedWithoutStamp() = runBlocking {
+        val failed = object : cc.uukanshu.di.RepoApi by MutableFakeRepo() {
+            override suspend fun checkAllUpdates(limit: Int) =
+                BookRepo.CheckAllResult(0, 0, 0, failed = true)
+        }
+        var stamped: Long? = null
+        val prefsSpy = object : cc.uukanshu.di.PrefsApi by MutableFakePrefs() {
+            override suspend fun setLastBookCheck(now: Long) {
+                stamped = now
+            }
+        }
+        val r = UpdateChecker.checkAll(failed, prefsSpy)
+        assertEquals(true, r.failed)
+        assertEquals(null, stamped)
     }
 
     @Test fun checkerAggregatesRepoResult() = runBlocking {
