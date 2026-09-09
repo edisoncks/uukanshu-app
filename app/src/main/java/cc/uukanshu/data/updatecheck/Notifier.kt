@@ -12,6 +12,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import cc.uukanshu.MainActivity
+import cc.uukanshu.R
 
 /**
  * One summary notification for 追更, never per-book spam. Tap opens the app;
@@ -50,7 +51,7 @@ object Notifier {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val notif = NotificationCompat.Builder(ctx, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setContentTitle("uukanshu")
             .setContentText(formatSummary(newBooks, newChapters))
             .setContentIntent(pi)
