@@ -103,4 +103,20 @@ class BookRepoUpdateCheckTest {
         assertTrue(db.books().book("1")!!.lastCheckedAt >= beforeEmpty.lastCheckedAt)
         assertTrue(db.books().book("1")!!.lastCheckedAt > 0L)
     }
+
+    @Test fun checkAllSkipsDeletedWithoutThrow() = runTest {
+        // Two visible books, one deleted before run: bounded run checks
+        // the survivor only (no exists() probe; checkUpdate bails on
+        // missing rows without network). Single survivor → no crawlDelay.
+        repo.detail("1")
+        repo.detail("2")
+        db.chapters().updateContent("1", 101L, "x")
+        db.chapters().updateContent("2", 101L, "x")
+        repo.checkUpdate("1")
+        repo.checkUpdate("2")
+        repo.deleteBook("2")
+        val all = repo.checkAllUpdates(limit = 20)
+        assertEquals(false, all.failed)
+        assertEquals(1, all.checked)
+    }
 }

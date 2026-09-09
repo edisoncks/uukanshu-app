@@ -452,13 +452,9 @@ class BookRepo(
         var books = 0
         var chapters = 0
         for (id in ids) {
-            try {
-                if (!db.books().exists(id)) continue
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                continue
-            }
+            // No exists() probe here: checkUpdate() already bails on
+            // missing rows ("not cached"/"deleted") without network,
+            // so an extra EXISTS per book only doubles DB reads.
             if (fetchedAny) {
                 try {
                     crawlDelay()
