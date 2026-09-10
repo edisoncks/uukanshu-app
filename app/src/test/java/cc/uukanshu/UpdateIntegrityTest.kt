@@ -1,7 +1,11 @@
 package cc.uukanshu
 
+import cc.uukanshu.core.ApkChecksumMismatchException
+import cc.uukanshu.core.ApkIncompleteException
 import cc.uukanshu.data.update.UpdateApi
 import cc.uukanshu.data.update.UpdateDownloader
+import cc.uukanshu.data.update.UpdateInfo
+import cc.uukanshu.ui.update.UpdateViewModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -268,5 +272,56 @@ class ApkStateIntegrityTest {
         assertFalse(f.exists())
         assertFalse(UpdateDownloader.isCompleteIO(f, 10L, sha))
         assertEquals(UpdateDownloader.ApkState.Missing, UpdateDownloader.apkStateIO(f, 10L, sha))
+    }
+}
+
+/** apkGateError: the checksum message only for digest-on-record + sane length. */
+class ApkGateErrorTest {
+    private val sha = "a".repeat(64)
+
+    private fun info(size: Long?, sha256: String?) = UpdateInfo(
+        tag = "v9.9.9",
+        version = "9.9.9",
+        changelog = "notes",
+        apkUrl = "https://example.com/u.apk",
+        apkName = "uukanshu-9.9.9.apk",
+        htmlUrl = "https://example.com/rel",
+        size = size,
+        sha256 = sha256,
+    )
+
+    @Test fun `partial with digest and matching size is checksum failure`() {
+        assertTrue(
+            UpdateViewModel.apkGateError(UpdateDownloader.ApkState.Partial, info(5L, sha), 5L)
+                is ApkChecksumMismatchException,
+        )
+    }
+
+    @Test fun `partial with digest on sizeless release is checksum failure`() {
+        assertTrue(
+            UpdateViewModel.apkGateError(UpdateDownloader.ApkState.Partial, info(null, sha), 5L)
+                is ApkChecksumMismatchException,
+        )
+    }
+
+    @Test fun `partial with digest but wrong length is incomplete`() {
+        assertTrue(
+            UpdateViewModel.apkGateError(UpdateDownloader.ApkState.Partial, info(5L, sha), 9L)
+                is ApkIncompleteException,
+        )
+    }
+
+    @Test fun `partial without digest is incomplete`() {
+        assertTrue(
+            UpdateViewModel.apkGateError(UpdateDownloader.ApkState.Partial, info(5L, null), 5L)
+                is ApkIncompleteException,
+        )
+    }
+
+    @Test fun `missing is incomplete`() {
+        assertTrue(
+            UpdateViewModel.apkGateError(UpdateDownloader.ApkState.Missing, info(5L, sha), 0L)
+                is ApkIncompleteException,
+        )
     }
 }

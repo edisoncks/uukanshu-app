@@ -219,6 +219,9 @@ class UpdateIntegrityVmTest {
         await { vm.ui.value.error != null }
         assertEquals("launched=${launched.get()} error=${vm.ui.value.error}", 0, launched.get())
         assertFalse(vm.ui.value.fileReady)
+        // Corruption with a digest on record and a matching size is a checksum
+        // failure — the gate must say so, not "incomplete".
+        assertEquals(Errors.friendly(ApkChecksumMismatchException()), vm.ui.value.error)
         file.delete()
     }
 
@@ -253,6 +256,43 @@ class UpdateIntegrityVmTest {
         vm.manualCheck()
         await { vm.ui.value.fileReady }
         file.writeBytes(bad)
+        vm.install()
+        await { vm.ui.value.error != null }
+        assertEquals(0, launched.get())
+        assertFalse(vm.ui.value.installing)
+        assertEquals(Errors.friendly(ApkChecksumMismatchException()), vm.ui.value.error)
+    }
+
+    @Test fun `dm success with wrong size errors as incomplete not checksum`() = runTest {
+        // DM SUCCESS is not proof of a complete artifact: if the landed length
+        // disagrees with the release size, the gate failed on size — the honest
+        // message is "incomplete, re-download", not the checksum one.
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        grantCanInstall(app)
+        val file = File.createTempFile("uukanshu-integ", ".apk").also { it.delete() }
+        val dl = FakeDl(file, onSuccess = { file.writeBytes(ByteArray(9)) })
+        val vm = fetchThenStart(info(5L, sha(good)), dl)
+        await { vm.ui.value.error != null }
+        val ui = vm.ui.value
+        assertFalse(ui.fileReady)
+        assertFalse(ui.downloadSucceeded)
+        assertFalse("file must be deleted so a retry re-downloads", file.exists())
+        assertEquals(Errors.friendly(ApkIncompleteException()), ui.error)
+        file.delete()
+    }
+
+    @Test fun `missing file at install gate stays incomplete`() = runTest {
+        // Disk loss after fileReady: the gate sees Missing, not a digest
+        // mismatch — the message must stay "incomplete" (pins the classifier's
+        // else-branch; passes before and after the typed-error fix).
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val file = File(app.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)!!, "uukanshu-integ.apk")
+            .also { it.writeBytes(good) }
+        val launched = AtomicInteger(0)
+        val vm = vmFor(info(5L, sha(good)), FakeDl(file), launched)
+        vm.manualCheck()
+        await { vm.ui.value.fileReady }
+        file.delete()
         vm.install()
         await { vm.ui.value.error != null }
         assertEquals(0, launched.get())

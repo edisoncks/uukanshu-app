@@ -214,7 +214,9 @@ pure `shouldAutoCheck`/`shouldOfferUpdate` policy is JVM-tested
   after a fresh Success so sizeless releases stay installable). The release's
   server-side sha256 (asset `digest` field) is verified before `fileReady` is
   minted (already-have check, DM Success) and at the install gate — a mismatch
-  deletes the file and surfaces a re-download error via `Errors.friendly`
+  deletes the file; gate failures map through the pure `apkGateError`
+  classifier (checksum message when a digest is on record and the length is
+  sane, missing/incomplete otherwise) via `Errors.friendly`
   (Traditional source so `display()` converts); payloads without a digest keep
   the size-only path. Both the DM-Success verification and its receipt are
   pinned to the release the download was enqueued for, not the dialog's

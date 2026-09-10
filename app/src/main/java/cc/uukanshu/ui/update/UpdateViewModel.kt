@@ -96,6 +96,25 @@ class UpdateViewModel(
             if (!manual && remoteVersion == skippedVersion) return false
             return true
         }
+
+        /**
+         * Pure gate-failure classifier (JVM-testable): the typed exception
+         * whose [Errors.friendly] text the dialog shows. A Partial state with
+         * a digest on record and a sane length (sizeless release, or length ==
+         * recorded size) can only be a checksum failure; everything else —
+         * missing file, wrong length, no digest on record — is missing or
+         * incomplete. Both messages tell the user to re-download; the
+         * distinction keeps the message honest about what failed.
+         */
+        fun apkGateError(
+            state: UpdateDownloader.ApkState,
+            info: UpdateInfo,
+            fileLength: Long,
+        ): Exception = when {
+            state == UpdateDownloader.ApkState.Partial && info.sha256 != null &&
+                (info.size == null || fileLength == info.size) -> ApkChecksumMismatchException()
+            else -> ApkIncompleteException()
+        }
     }
 
     private val _ui = MutableStateFlow(Ui())
@@ -301,13 +320,14 @@ class UpdateViewModel(
                                         }
                                     } else {
                                         val file = downloader.apkFile(info)
-                                        val ok = withContext(Dispatchers.IO) {
-                                            UpdateDownloader.isInstallableIO(
+                                        val outcome = withContext(Dispatchers.IO) {
+                                            val state = UpdateDownloader.apkStateIO(
                                                 file, info.size, info.sha256,
                                                 dmSuccess = true,
                                             )
+                                            state to file.length()
                                         }
-                                        if (ok) {
+                                        if (outcome.first == UpdateDownloader.ApkState.Ready) {
                                             _ui.update {
                                                 it.copy(downloading = false, fileReady = true,
                                                     downloadId = null, downloadSucceeded = true)
@@ -317,7 +337,8 @@ class UpdateViewModel(
                                             _ui.update {
                                                 it.copy(downloading = false, fileReady = false,
                                                     downloadId = null, downloadSucceeded = false,
-                                                    error = Errors.friendly(ApkChecksumMismatchException()))
+                                                    error = Errors.friendly(
+                                                        apkGateError(outcome.first, info, outcome.second)))
                                             }
                                         }
                                     }
@@ -372,14 +393,17 @@ class UpdateViewModel(
             // snapshotted on Main so the gate sees one consistent state.
             val file = downloader.apkFile(info)
             val receipt = _ui.value.downloadSucceeded
-            val installable = withContext(Dispatchers.IO) {
-                UpdateDownloader.isInstallableIO(
-                    file, info.size, info.sha256,
-                    receipt,
-                )
+            val gate = withContext(Dispatchers.IO) {
+                UpdateDownloader.apkStateIO(file, info.size, info.sha256, receipt) to file.length()
             }
-            if (!installable) {
-                _ui.update { it.copy(fileReady = false, installing = false, error = Errors.friendly(ApkIncompleteException())) }
+            if (gate.first != UpdateDownloader.ApkState.Ready) {
+                _ui.update {
+                    it.copy(
+                        fileReady = false,
+                        installing = false,
+                        error = Errors.friendly(apkGateError(gate.first, info, gate.second)),
+                    )
+                }
                 return@launch
             }
             // Firing the installer can throw (no handler, FileProvider
