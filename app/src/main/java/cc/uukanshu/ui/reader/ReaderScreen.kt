@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -164,7 +165,14 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ReaderTopBar(book: String, line2: String, backLabel: String, onBack: () -> Unit) {
+    // Static divider under the bar (replaces the one lost with the sticky
+    // header; mirrors the bottom bar). Not scroll-linked: hoisting scroll
+    // state for elevation costs recomposes for zero gain on a static bar.
+    Column {
     TopAppBar(
+        // Outer NavHost padding already carries status height on this route;
+        // M3 default would apply it twice. Detail has no bar and needs it.
+        windowInsets = WindowInsets(0),
         navigationIcon = {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = backLabel)
@@ -186,6 +194,8 @@ private fun ReaderTopBar(book: String, line2: String, backLabel: String, onBack:
             }
         },
     )
+        HorizontalDivider()
+    }
 }
 
 @Composable
