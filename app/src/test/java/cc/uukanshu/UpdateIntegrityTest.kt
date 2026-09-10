@@ -231,4 +231,42 @@ class ApkStateIntegrityTest {
         assertFalse(UpdateDownloader.isComplete(f, 10L, sha, sha))
         assertEquals(UpdateDownloader.ApkState.Missing, UpdateDownloader.apkState(f, 10L, sha, null))
     }
+
+    @Test
+    fun `io wrappers hash lazily and skip read on size mismatch`() {
+        // Size mismatch short-circuits to Partial without hashing: the old
+        // call sites hashed eagerly even when length already failed.
+        val f = with(ten)
+        try {
+            val actual = UpdateDownloader.sha256Hex(f)!!
+            assertTrue(UpdateDownloader.isCompleteIO(f, 10L, actual))
+            assertFalse(UpdateDownloader.isCompleteIO(f, 11L, actual))
+            assertFalse(UpdateDownloader.isCompleteIO(f, 11L, sha))
+            assertTrue(UpdateDownloader.isInstallableIO(f, 10L, actual, dmSuccess = false))
+            assertFalse(UpdateDownloader.isInstallableIO(f, 10L, sha, dmSuccess = true))
+        } finally {
+            f.delete()
+        }
+    }
+
+    @Test
+    fun `io wrapper sizeless path needs receipt`() {
+        val f = with(ten)
+        try {
+            val actual = UpdateDownloader.sha256Hex(f)!!
+            assertTrue(UpdateDownloader.isInstallableIO(f, null, actual, dmSuccess = true))
+            assertFalse(UpdateDownloader.isInstallableIO(f, null, actual, dmSuccess = false))
+            assertFalse(UpdateDownloader.isInstallableIO(f, null, sha, dmSuccess = true))
+        } finally {
+            f.delete()
+        }
+    }
+
+    @Test
+    fun `io wrapper missing stays missing`() {
+        val f = File("/tmp/uukanshu-test-missing-${System.nanoTime()}.apk")
+        assertFalse(f.exists())
+        assertFalse(UpdateDownloader.isCompleteIO(f, 10L, sha))
+        assertEquals(UpdateDownloader.ApkState.Missing, UpdateDownloader.apkStateIO(f, 10L, sha))
+    }
 }

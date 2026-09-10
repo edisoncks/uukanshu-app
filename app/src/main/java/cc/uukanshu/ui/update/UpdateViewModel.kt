@@ -1,5 +1,7 @@
 package cc.uukanshu.ui.update
 
+import cc.uukanshu.core.ApkChecksumMismatchException
+import cc.uukanshu.core.ApkIncompleteException
 import cc.uukanshu.core.Errors
 import android.app.Application
 import androidx.lifecycle.ViewModel
@@ -61,6 +63,8 @@ class UpdateViewModel(
          */
         val downloadSucceeded: Boolean = false,
         val needsUnknownSources: Boolean = false,
+        /** Install-gate verification in flight (hashing on IO); blocks double-tap. */
+        val installing: Boolean = false,
         val error: String? = null,
     )
 
@@ -145,6 +149,7 @@ class UpdateViewModel(
                         upToDate = manual && upToDate,
                         info = null,
                         downloadSucceeded = false,
+                        installing = false,
                     )
                 }
                 return
@@ -153,15 +158,11 @@ class UpdateViewModel(
             // skip straight to the install prompt. Byte-exact size match only;
             // a partial file must re-download, never install.
             val alreadyHave = withContext(Dispatchers.IO) {
-                val file = downloader.apkFile(info)
-                UpdateDownloader.isComplete(
-                    file, info.size, info.sha256,
-                    UpdateDownloader.actualSha256(file, info.sha256),
-                )
+                UpdateDownloader.isCompleteIO(downloader.apkFile(info), info.size, info.sha256)
             }
             _ui.update {
                 it.copy(checking = false, visible = true, info = info,
-                    fileReady = alreadyHave, downloadSucceeded = false)
+                    fileReady = alreadyHave, downloadSucceeded = false, installing = false)
             }
         } catch (e: Exception) {
             if (e is CancellationException) throw e
@@ -198,7 +199,7 @@ class UpdateViewModel(
         // Skipping means go away: clear the pending update so the Settings
         // banner and dialog don't come straight back. Next manual check
         // re-fetches (manual ignores skipped); auto stays suppressed.
-        _ui.update { it.copy(visible = false, upToDate = false, error = null, info = null, downloadSucceeded = false) }
+        _ui.update { it.copy(visible = false, upToDate = false, error = null, info = null, downloadSucceeded = false, installing = false) }
     }
 
     fun startDownload() {
@@ -213,11 +214,7 @@ class UpdateViewModel(
             // straight to install even when the unknown-sources permission
             // was revoked since (install() needs no gate of its own).
             val apkFile = downloader.apkFile(info)
-            if (UpdateDownloader.isComplete(
-                    apkFile, info.size, info.sha256,
-                    UpdateDownloader.actualSha256(apkFile, info.sha256),
-                )
-            ) {
+            if (UpdateDownloader.isCompleteIO(apkFile, info.size, info.sha256)) {
                 withContext(Dispatchers.Main) {
                     _ui.update { it.copy(downloading = false, fileReady = true) }
                 }
@@ -280,18 +277,17 @@ class UpdateViewModel(
                                     // the file is deleted so a retry re-downloads.
                                     // Legacy payloads without a digest keep the
                                     // old size-only path.
-                                    val info = _ui.value.info
-                                    if (info == null || info.sha256 == null) {
+                                    val current = _ui.value.info
+                                    if (current == null || current.sha256 == null) {
                                         _ui.update {
                                             it.copy(downloading = false, fileReady = true,
                                                 downloadId = null, downloadSucceeded = true)
                                         }
                                     } else {
-                                        val file = downloader.apkFile(info)
+                                        val file = downloader.apkFile(current)
                                         val ok = withContext(Dispatchers.IO) {
-                                            UpdateDownloader.isInstallable(
-                                                file, info.size, info.sha256,
-                                                UpdateDownloader.sha256Hex(file),
+                                            UpdateDownloader.isInstallableIO(
+                                                file, current.size, current.sha256,
                                                 dmSuccess = true,
                                             )
                                         }
@@ -305,7 +301,7 @@ class UpdateViewModel(
                                             _ui.update {
                                                 it.copy(downloading = false, fileReady = false,
                                                     downloadId = null, downloadSucceeded = false,
-                                                    error = "APK checksum verification failed, please re-download")
+                                                    error = Errors.friendly(ApkChecksumMismatchException()))
                                             }
                                         }
                                     }
@@ -345,6 +341,14 @@ class UpdateViewModel(
     /** Fire the system package installer for the downloaded APK. */
     fun install() {
         val info = _ui.value.info ?: return
+        // Synchronous Main test-and-set like markChecking: rapid taps must not
+        // launch duplicate verifications/installer intents (the old async gate
+        // fired launcher.start twice on double-tap).
+        val prev = _ui.getAndUpdate { cur ->
+            if (cur.installing) cur
+            else cur.copy(installing = true, error = null)
+        }
+        if (prev.installing) return
         viewModelScope.launch {
             // Last integrity gate before the installer: size + DM receipt as
             // before, plus the release sha256 when shipped. Hashing reads the
@@ -353,14 +357,13 @@ class UpdateViewModel(
             val file = downloader.apkFile(info)
             val receipt = _ui.value.downloadSucceeded
             val installable = withContext(Dispatchers.IO) {
-                UpdateDownloader.isInstallable(
+                UpdateDownloader.isInstallableIO(
                     file, info.size, info.sha256,
-                    UpdateDownloader.actualSha256(file, info.sha256),
                     receipt,
                 )
             }
             if (!installable) {
-                _ui.update { it.copy(fileReady = false, error = "APK file missing or incomplete, please re-download") }
+                _ui.update { it.copy(fileReady = false, installing = false, error = Errors.friendly(ApkIncompleteException())) }
                 return@launch
             }
             // Firing the installer can throw (no handler, FileProvider
@@ -368,9 +371,13 @@ class UpdateViewModel(
             // never crash the app out of an update tap.
             try {
                 launcher.start(UpdateDownloader.installIntent(app, file))
+                _ui.update { it.copy(installing = false) }
             } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                _ui.update { it.copy(error = Errors.friendly(e)) }
+                if (e is CancellationException) {
+                    _ui.update { it.copy(installing = false) }
+                    throw e
+                }
+                _ui.update { it.copy(installing = false, error = Errors.friendly(e)) }
             }
         }
     }

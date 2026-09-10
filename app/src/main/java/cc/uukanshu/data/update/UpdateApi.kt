@@ -114,9 +114,12 @@ class UpdateApi(
 
         /**
          * Whole-call bound for update checks: connect+read are 30s each, so a
-         * slow-drip response could otherwise stretch a "quick" check for
-         * minutes. Same lesson as SiteApi: `callTimeout` aborts at the socket
-         * layer — a coroutine `withTimeout` cannot interrupt a blocking read.
+         * slow-drip response could otherwise stretch a "quick" check to 60s+.
+         * 45s caps the drip while tolerating a slow CDN (faster than the sum,
+         * slower than either alone). Same lesson as SiteApi profiling
+         * (interactive 30s/30s + 90s deadline): `callTimeout` aborts at the
+         * socket layer — a coroutine `withTimeout` cannot interrupt a blocking
+         * read.
          */
         const val UPDATE_CALL_TIMEOUT_S = 45L
 

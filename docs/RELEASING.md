@@ -106,7 +106,8 @@ releases:
   release create` uploads are digested automatically. **Never re-upload or
   replace the asset after publishing**: clients that already fetched the
   payload hold the old digest and will refuse the new bytes (by design — a
-  post-publish swap is a publish mistake, not a refresh). Threat model:
+  post-publish swap is a publish mistake, not a refresh). Recovery is bump
+  to a new `vX.Y.Z`, never overwrite. Threat model:
   catches corruption / wrong-stale content; it is NOT an anti-tamper system
   against a malicious GitHub or a compromised release key (the APK update
   signature check stays the anti-tamper anchor; out-of-band release signing

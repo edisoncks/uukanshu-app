@@ -7,6 +7,9 @@ import cc.uukanshu.data.update.DownloadStatus
 import cc.uukanshu.data.update.ReleaseFetcher
 import cc.uukanshu.data.update.UpdateDownloader
 import cc.uukanshu.data.update.UpdateInfo
+import cc.uukanshu.core.ApkChecksumMismatchException
+import cc.uukanshu.core.ApkIncompleteException
+import cc.uukanshu.core.Errors
 import cc.uukanshu.ui.update.UpdateViewModel
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
@@ -31,6 +34,22 @@ import java.util.concurrent.atomic.AtomicInteger
 @Config(sdk = [31])
 class UpdateIntegrityVmTest {
     @get:Rule val main = MainDispatcherRule()
+
+    @org.junit.Before fun clearFileProviderCache() {
+        // FileProvider caches PathStrategy per authority in a static map: a
+        // successful install in one test poisons the next test's sandbox dir
+        // (each Robolectric test gets its own /tmp/.../external-files). Clear
+        // it so every install resolves against the current sandbox.
+        runCatching {
+            val clazz = Class.forName("androidx.core.content.FileProvider")
+            for (field in clazz.declaredFields) {
+                if (java.util.Map::class.java.isAssignableFrom(field.type)) {
+                    field.isAccessible = true
+                    (field.get(null) as? MutableMap<*, *>)?.clear()
+                }
+            }
+        }
+    }
 
     private val good = byteArrayOf(1, 2, 3, 4, 5)
     private val bad = byteArrayOf(9, 9, 9, 9, 9) // same length — the old size-only gate passed this
@@ -140,7 +159,8 @@ class UpdateIntegrityVmTest {
         assertFalse(ui.downloadSucceeded)
         assertFalse(ui.downloading)
         assertFalse(file.exists())
-        assertTrue("error=${ui.error}", ui.error!!.contains("checksum"))
+        assertTrue("error=${ui.error}", ui.error!!.contains("重新下載"))
+        assertTrue("error=${ui.error}", ui.error!!.contains("校驗"))
         file.delete()
     }
 
@@ -195,4 +215,51 @@ class UpdateIntegrityVmTest {
         assertFalse(vm.ui.value.fileReady)
         file.delete()
     }
+
+    @Test fun `rapid install taps fire installer once`() = runTest {
+        // Repro for async-gate double-fire: two back-to-back taps must share
+        // one Main-guarded verification (see markChecking pattern).
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val file = File(app.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)!!, "uukanshu-integ.apk")
+            .also { it.writeBytes(good) }
+        val launched = AtomicInteger(0)
+        val vm = vmFor(info(5L, sha(good)), FakeDl(file), launched)
+        vm.manualCheck()
+        await { vm.ui.value.fileReady }
+        vm.install()
+        vm.install()
+        await { launched.get() == 1 || vm.ui.value.error != null }
+        // Give the second tap a chance to misfire, then assert single fire.
+        Thread.sleep(200)
+        main.dispatcher.scheduler.advanceUntilIdle()
+        assertEquals("launched=${launched.get()} error=${vm.ui.value.error}", 1, launched.get())
+        assertNull(vm.ui.value.error)
+        assertFalse(vm.ui.value.installing)
+        file.delete()
+    }
+
+    @Test fun `install gate failure clears installing and maps via Errors`() = runTest {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val file = File(app.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)!!, "uukanshu-integ.apk")
+            .also { it.writeBytes(good) }
+        val launched = AtomicInteger(0)
+        val vm = vmFor(info(5L, sha(good)), FakeDl(file), launched)
+        vm.manualCheck()
+        await { vm.ui.value.fileReady }
+        file.writeBytes(bad)
+        vm.install()
+        await { vm.ui.value.error != null }
+        assertEquals(0, launched.get())
+        assertFalse(vm.ui.value.installing)
+        assertEquals(Errors.friendly(ApkIncompleteException()), vm.ui.value.error)
+    }
+
+    @Test fun `dm mismatch error maps via Errors`() = runTest {
+        // Typed mapping, not substring sniffing: Traditional source for display().
+        assertEquals(
+            "APK 校驗失敗，請重新下載",
+            Errors.friendly(ApkChecksumMismatchException()),
+        )
+    }
 }
+

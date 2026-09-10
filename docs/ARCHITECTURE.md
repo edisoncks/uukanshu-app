@@ -207,14 +207,17 @@ pure `shouldAutoCheck`/`shouldOfferUpdate` policy is JVM-tested
   `UpdateDownloader.observe(id)` (emits `DownloadStatus` until terminal,
   then completes) with progress (0..1, indeterminate fallback). The VM
   only maps states to dialog state. Single file-state table `ApkState`
-  (`Missing/Partial/Ready`, `apkState(file, size, sha256, actual, dmSuccess)`;
-  `isComplete` strict without DM receipt for alreadyHave/enqueue,
-  `isInstallable` lenient with receipt after a fresh Success so sizeless
-  releases stay installable). The release's server-side sha256 (asset
-  `digest` field) is verified before `fileReady` is minted (already-have
-  check, DM Success) and at the install gate — a mismatch deletes the file
-  and surfaces a re-download error; payloads without a digest keep the
-  size-only path. FileProvider +
+  (`Missing/Partial/Ready`, pure `apkState(file, size, sha256, actual, dmSuccess)` +
+  IO `apkStateIO/isCompleteIO/isInstallableIO` wrappers that hash lazily on
+  Dispatchers.IO with size-mismatch short-circuit; `isComplete` strict without
+  DM receipt for alreadyHave/enqueue, `isInstallable` lenient with receipt
+  after a fresh Success so sizeless releases stay installable). The release's
+  server-side sha256 (asset `digest` field) is verified before `fileReady` is
+  minted (already-have check, DM Success) and at the install gate — a mismatch
+  deletes the file and surfaces a re-download error via `Errors.friendly`
+  (Traditional source so `display()` converts); payloads without a digest keep
+  the size-only path. Rapid `install()` taps share one Main-guarded `installing`
+  flag (like `markChecking`) with dialog spinner. FileProvider +
   installer intent handoff. Same-version file already on disk skips straight
   to install. `REQUEST_INSTALL_PACKAGES` permission + system "unknown sources"
   grant required (first in-app update prompts once). Intent fires go through the

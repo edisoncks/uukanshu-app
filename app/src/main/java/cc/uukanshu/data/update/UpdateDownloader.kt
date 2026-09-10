@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Environment
 import android.provider.Settings
+import androidx.annotation.WorkerThread
 import androidx.core.content.FileProvider
 import java.io.File
 import java.security.MessageDigest
@@ -46,11 +47,14 @@ class UpdateDownloader(private val context: Context) : ApkDownloader {
      * the release ships one; anything else (missing, empty, partial, wrong
      * digest, or unknown size) is deleted and re-downloaded. Length > 0 alone
      * proves nothing after a kill.
+     *
+     * Blocking file IO (digest) — call on Dispatchers.IO (callers already are).
      */
+    @WorkerThread
     override fun enqueue(info: UpdateInfo): Long {
         deleteStaleApks(keepName = info.apkName)
         val file = apkFile(info)
-        if (isComplete(file, info.size, info.sha256, actualSha256(file, info.sha256))) return -1L
+        if (isCompleteIO(file, info.size, info.sha256)) return -1L
         if (file.exists()) file.delete()
         val req = DownloadManager.Request(Uri.parse(info.apkUrl))
             .setTitle("uukanshu ${info.tag}")
@@ -144,10 +148,11 @@ class UpdateDownloader(private val context: Context) : ApkDownloader {
          * Streaming digest — an APK is ~6 MB, never load it whole. Call on
          * Dispatchers.IO only (call sites already are); ~20ms for 6 MB.
          */
+        @WorkerThread
         fun sha256Hex(file: File): String? = runCatching {
             val md = MessageDigest.getInstance("SHA-256")
             file.inputStream().use { input ->
-                val buf = ByteArray(8 * 1024)
+                val buf = ByteArray(32 * 1024)
                 while (true) {
                     val n = input.read(buf)
                     if (n < 0) break
@@ -162,6 +167,7 @@ class UpdateDownloader(private val context: Context) : ApkDownloader {
          * release without a digest must not pay a file read on the legacy
          * size-only path.
          */
+        @WorkerThread
         fun actualSha256(file: File, expectedSha256: String?): String? =
             if (expectedSha256 == null) null else sha256Hex(file)
 
@@ -230,6 +236,41 @@ class UpdateDownloader(private val context: Context) : ApkDownloader {
             dmSuccess: Boolean,
         ): Boolean =
             apkState(file, expectedSize, expectedSha256, actualSha256, dmSuccess) == ApkState.Ready
+
+        /**
+         * IO wrapper around [apkState]: hashes lazily on Dispatchers.IO.
+         * Size mismatch short-circuits to Partial without touching disk —
+         * the old call sites hashed eagerly even when length already failed.
+         * Double-hash across alreadyHave→enqueue in the same-size-corrupt
+         * path is intentional (~20ms): enqueue stays safe standalone so the
+         * single file-state table keeps one owner (see ARCHITECTURE.md).
+         */
+        @WorkerThread
+        fun apkStateIO(
+            file: File,
+            expectedSize: Long?,
+            expectedSha256: String? = null,
+            dmSuccess: Boolean = false,
+        ): ApkState {
+            if (!file.exists() || file.length() <= 0) return ApkState.Missing
+            if (expectedSize != null && file.length() != expectedSize) return ApkState.Partial
+            return apkState(file, expectedSize, expectedSha256, actualSha256(file, expectedSha256), dmSuccess)
+        }
+
+        /** IO: strict completeness without DM receipt (alreadyHave/enqueue). */
+        @WorkerThread
+        fun isCompleteIO(file: File, expectedSize: Long?, expectedSha256: String? = null): Boolean =
+            apkStateIO(file, expectedSize, expectedSha256, dmSuccess = false) == ApkState.Ready
+
+        /** IO: install gate with fresh receipt + lazy digest. */
+        @WorkerThread
+        fun isInstallableIO(
+            file: File,
+            expectedSize: Long?,
+            expectedSha256: String? = null,
+            dmSuccess: Boolean,
+        ): Boolean =
+            apkStateIO(file, expectedSize, expectedSha256, dmSuccess) == ApkState.Ready
 
         /** Local version via PackageManager (no BuildConfig flag needed). */
         fun currentVersion(context: Context): String = runCatching {
