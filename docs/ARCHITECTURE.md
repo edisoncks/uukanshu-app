@@ -207,11 +207,11 @@ pure `shouldAutoCheck`/`shouldOfferUpdate` policy is JVM-tested
   `UpdateDownloader.observe(id)` (emits `DownloadStatus` until terminal,
   then completes) with progress (0..1, indeterminate fallback). The VM
   only maps states to dialog state. Single file-state table `ApkState`
-  (`Missing/Partial/Ready`, pure `apkState(file, size, sha256, actual, dmSuccess)` +
-  IO `apkStateIO/isCompleteIO/isInstallableIO` wrappers that hash lazily on
-  Dispatchers.IO with size-mismatch short-circuit; `isComplete` strict without
-  DM receipt for alreadyHave/enqueue, `isInstallable` lenient with receipt
-  after a fresh Success so sizeless releases stay installable). The release's
+  (`Missing/Partial/Ready`, pure `apkState(file, size, sha256, computed, dmSuccess)` +
+  IO wrapper `apkStateIO` that hashes lazily on Dispatchers.IO with a
+  size-mismatch short-circuit, plus strict boolean `isCompleteIO` for the
+  no-receipt enqueue/already-have path; a sizeless release installs only
+  with a fresh DM Success receipt). The release's
   server-side sha256 (asset `digest` field) is verified before `fileReady` is
   minted (already-have check, DM Success) and at the install gate — a mismatch
   deletes the file; gate failures map through the pure `apkGateError`

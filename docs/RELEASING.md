@@ -115,8 +115,8 @@ releases:
 - Release body is shown verbatim as the update changelog (keep it concise,
   plain Markdown, no huge dumps — the dialog scrolls at ~220dp).
 - Non-matching APK assets fail closed (no update offered, never a partial
-  install) — see `UpdateViewModel` / `UpdateDownloader.isComplete` /
-  `isInstallable` (byte-exact when size known; sha256-verified when the
+  install) — see `UpdateViewModel` / `UpdateDownloader.apkState` /
+  `apkStateIO` (byte-exact when size known; sha256-verified when the
   release ships a digest; unknown size installs only with a fresh
   DownloadManager Success receipt for that download — a stale file or a bare
   user tap never qualifies).

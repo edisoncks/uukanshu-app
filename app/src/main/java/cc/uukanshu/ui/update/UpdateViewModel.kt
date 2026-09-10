@@ -56,7 +56,7 @@ class UpdateViewModel(
         val fileReady: Boolean = false,
         /**
          * Fresh DownloadManager SUCCESS receipt for the current [info].
-         * Gates the sizeless install path (see `isInstallable`): set only on
+         * Gates the sizeless install path (see `apkState`): set only on
          * `DownloadStatus.Success`, cleared whenever [info] changes, so a
          * killed-process partial with unknown size can never ride an old
          * receipt (or a user tap alone) into the installer.

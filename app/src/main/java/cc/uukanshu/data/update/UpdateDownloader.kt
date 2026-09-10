@@ -130,8 +130,8 @@ class UpdateDownloader(private val context: Context) : ApkDownloader {
 
     /** Single decision table for APK file state: call the wrong gate and a
      * killed-process partial either blocks install or gets installed.
-     * Use [apkState] at call sites; [isComplete]/[isInstallable] stay as
-     * the tested predicates behind it. */
+     * Call sites use [apkState] (pure) or [apkStateIO] (IO wrapper);
+     * [isCompleteIO] is the strict boolean behind enqueue/already-have. */
     sealed interface ApkState {
         data object Missing : ApkState
         /** Present but shorter/longer than the release size, sha256 mismatch (or
@@ -180,7 +180,7 @@ class UpdateDownloader(private val context: Context) : ApkDownloader {
          * Integrity: when the release ships a sha256 digest ([expectedSha256],
          * from the GitHub asset `digest` field), the file must hash to it —
          * a same-size corrupt APK is [ApkState.Partial]. An expected digest
-         * with a null [actualSha256] (not computed) also fails closed; a
+         * with a null [computedSha256] (not computed) also fails closed; a
          * release without a digest keeps the size-only behavior. Threat model:
          * corruption, wrong/stale content planes, post-publish asset swaps —
          * NOT a malicious GitHub (see RELEASING.md § Updater contract).
@@ -189,53 +189,15 @@ class UpdateDownloader(private val context: Context) : ApkDownloader {
             file: File,
             expectedSize: Long?,
             expectedSha256: String? = null,
-            actualSha256: String? = null,
+            computedSha256: String? = null,
             dmSuccess: Boolean = false,
         ): ApkState {
             if (!file.exists() || file.length() <= 0) return ApkState.Missing
             val sizeOk = if (expectedSize != null) file.length() == expectedSize else dmSuccess
             val hashOk = expectedSha256 == null ||
-                (actualSha256 != null && actualSha256.equals(expectedSha256, ignoreCase = true))
+                (computedSha256 != null && computedSha256.equals(expectedSha256, ignoreCase = true))
             return if (sizeOk && hashOk) ApkState.Ready else ApkState.Partial
         }
-
-        /** Byte-exact completeness check shared by enqueue/alreadyHave.
-         *
-         * Strict by design: unknown size never counts as complete, so a
-         * partial file left by a killed process can never skip re-download.
-         * With a digest, the file must hash to it — null [actualSha256] fails
-         * closed so a not-yet-computed hash can never fake a match.
-         */
-        fun isComplete(
-            file: File,
-            expectedSize: Long?,
-            expectedSha256: String? = null,
-            actualSha256: String? = null,
-        ): Boolean =
-            apkState(file, expectedSize, expectedSha256, actualSha256, dmSuccess = false) == ApkState.Ready
-
-        /**
-         * Install gate: byte-exact when the release reports a size, otherwise
-         * only a non-empty file with a fresh DownloadManager SUCCESS receipt
-         * for this download id ([dmSuccess]). The strict [isComplete] path stays
-         * for alreadyHave/enqueue (no receipt there); callers must pass whether
-         * the current file actually just succeeded — never hardcode true, or a
-         * killed-process partial with unknown size sneaks into the installer.
-         *
-         * Last integrity check before the installer fires: when the release
-         * ships a digest, [expectedSha256] must match the freshly computed
-         * [actualSha256]. Android's own update signature check remains the
-         * anti-tamper anchor; this gate catches corruption before the user
-         * meets a system error dialog.
-         */
-        fun isInstallable(
-            file: File,
-            expectedSize: Long?,
-            expectedSha256: String? = null,
-            actualSha256: String? = null,
-            dmSuccess: Boolean,
-        ): Boolean =
-            apkState(file, expectedSize, expectedSha256, actualSha256, dmSuccess) == ApkState.Ready
 
         /**
          * IO wrapper around [apkState]: hashes lazily on Dispatchers.IO.
@@ -254,23 +216,18 @@ class UpdateDownloader(private val context: Context) : ApkDownloader {
         ): ApkState {
             if (!file.exists() || file.length() <= 0) return ApkState.Missing
             if (expectedSize != null && file.length() != expectedSize) return ApkState.Partial
-            return apkState(file, expectedSize, expectedSha256, actualSha256(file, expectedSha256), dmSuccess)
+            return apkState(
+                file, expectedSize,
+                expectedSha256 = expectedSha256,
+                computedSha256 = actualSha256(file, expectedSha256),
+                dmSuccess = dmSuccess,
+            )
         }
 
         /** IO: strict completeness without DM receipt (alreadyHave/enqueue). */
         @WorkerThread
         fun isCompleteIO(file: File, expectedSize: Long?, expectedSha256: String? = null): Boolean =
             apkStateIO(file, expectedSize, expectedSha256, dmSuccess = false) == ApkState.Ready
-
-        /** IO: install gate with fresh receipt + lazy digest. */
-        @WorkerThread
-        fun isInstallableIO(
-            file: File,
-            expectedSize: Long?,
-            expectedSha256: String? = null,
-            dmSuccess: Boolean,
-        ): Boolean =
-            apkStateIO(file, expectedSize, expectedSha256, dmSuccess) == ApkState.Ready
 
         /** Local version via PackageManager (no BuildConfig flag needed). */
         fun currentVersion(context: Context): String = runCatching {

@@ -145,8 +145,9 @@ class ApkStateIntegrityTest {
             // Expected = the file's real hash (sha256Hex correctness itself is
             // pinned by UpdateSha256Test's NIST vectors).
             val actual = UpdateDownloader.sha256Hex(f)!!
-            assertTrue(UpdateDownloader.isComplete(f, 10L, actual, actual))
-            assertTrue(UpdateDownloader.isInstallable(f, 10L, actual, actual, dmSuccess = false))
+            // One call covers both former predicates: isComplete was
+            // apkState(dmSuccess=false), isInstallable(dmSuccess=false) the same.
+            assertEquals(UpdateDownloader.ApkState.Ready, UpdateDownloader.apkState(f, 10L, actual, actual, dmSuccess = false))
         } finally {
             f.delete()
         }
@@ -159,9 +160,8 @@ class ApkStateIntegrityTest {
         try {
             val actual = UpdateDownloader.sha256Hex(f)!!
             assertTrue(actual != sha)
-            assertEquals(UpdateDownloader.ApkState.Partial, UpdateDownloader.apkState(f, 10L, sha, actual))
-            assertFalse(UpdateDownloader.isComplete(f, 10L, sha, actual))
-            assertFalse(UpdateDownloader.isInstallable(f, 10L, sha, actual, dmSuccess = true))
+            assertEquals(UpdateDownloader.ApkState.Partial, UpdateDownloader.apkState(f, 10L, sha, actual, dmSuccess = false))
+            assertEquals(UpdateDownloader.ApkState.Partial, UpdateDownloader.apkState(f, 10L, sha, actual, dmSuccess = true))
         } finally {
             f.delete()
         }
@@ -172,7 +172,7 @@ class ApkStateIntegrityTest {
         // null actual = not verified, never "verified".
         val f = with(ten)
         try {
-            assertEquals(UpdateDownloader.ApkState.Partial, UpdateDownloader.apkState(f, 10L, sha, actualSha256 = null))
+            assertEquals(UpdateDownloader.ApkState.Partial, UpdateDownloader.apkState(f, 10L, sha, computedSha256 = null))
         } finally {
             f.delete()
         }
@@ -185,7 +185,7 @@ class ApkStateIntegrityTest {
         val f = with(ByteArray(9))
         try {
             val actual = UpdateDownloader.sha256Hex(f)!!
-            assertFalse(UpdateDownloader.isComplete(f, 10L, actual, actual))
+            assertEquals(UpdateDownloader.ApkState.Partial, UpdateDownloader.apkState(f, 10L, actual, actual, dmSuccess = false))
         } finally {
             f.delete()
         }
@@ -195,9 +195,9 @@ class ApkStateIntegrityTest {
     fun `legacy no-digest release keeps old behavior`() {
         val f = with(ten)
         try {
-            assertTrue(UpdateDownloader.isComplete(f, 10L))
-            assertTrue(UpdateDownloader.isComplete(f, 10L, null, null))
-            assertFalse(UpdateDownloader.isComplete(f, 11L, null, null))
+            assertEquals(UpdateDownloader.ApkState.Ready, UpdateDownloader.apkState(f, 10L, dmSuccess = false))
+            assertEquals(UpdateDownloader.ApkState.Ready, UpdateDownloader.apkState(f, 10L, null, null, dmSuccess = false))
+            assertEquals(UpdateDownloader.ApkState.Partial, UpdateDownloader.apkState(f, 11L, null, null, dmSuccess = false))
         } finally {
             f.delete()
         }
@@ -208,10 +208,10 @@ class ApkStateIntegrityTest {
         val f = with(ten)
         try {
             val actual = UpdateDownloader.sha256Hex(f)!!
-            assertTrue(UpdateDownloader.isInstallable(f, null, actual, actual, dmSuccess = true))
-            assertFalse(UpdateDownloader.isInstallable(f, null, actual, "b".repeat(64), dmSuccess = true))
+            assertEquals(UpdateDownloader.ApkState.Ready, UpdateDownloader.apkState(f, null, actual, actual, dmSuccess = true))
+            assertEquals(UpdateDownloader.ApkState.Partial, UpdateDownloader.apkState(f, null, actual, "b".repeat(64), dmSuccess = true))
             // Without the receipt the sizeless path stays strict.
-            assertFalse(UpdateDownloader.isInstallable(f, null, actual, actual, dmSuccess = false))
+            assertEquals(UpdateDownloader.ApkState.Partial, UpdateDownloader.apkState(f, null, actual, actual, dmSuccess = false))
         } finally {
             f.delete()
         }
@@ -222,7 +222,7 @@ class ApkStateIntegrityTest {
         val f = with(ten)
         try {
             val actual = UpdateDownloader.sha256Hex(f)!! // lowercase
-            assertTrue(UpdateDownloader.isComplete(f, 10L, actual.uppercase(), actual))
+            assertEquals(UpdateDownloader.ApkState.Ready, UpdateDownloader.apkState(f, 10L, actual.uppercase(), actual, dmSuccess = false))
         } finally {
             f.delete()
         }
@@ -232,7 +232,7 @@ class ApkStateIntegrityTest {
     fun `missing file stays missing under digest`() {
         val f = File("/tmp/uukanshu-test-missing-${System.nanoTime()}.apk")
         assertFalse(f.exists())
-        assertFalse(UpdateDownloader.isComplete(f, 10L, sha, sha))
+        assertEquals(UpdateDownloader.ApkState.Missing, UpdateDownloader.apkState(f, 10L, sha, sha, dmSuccess = false))
         assertEquals(UpdateDownloader.ApkState.Missing, UpdateDownloader.apkState(f, 10L, sha, null))
     }
 
@@ -246,8 +246,8 @@ class ApkStateIntegrityTest {
             assertTrue(UpdateDownloader.isCompleteIO(f, 10L, actual))
             assertFalse(UpdateDownloader.isCompleteIO(f, 11L, actual))
             assertFalse(UpdateDownloader.isCompleteIO(f, 11L, sha))
-            assertTrue(UpdateDownloader.isInstallableIO(f, 10L, actual, dmSuccess = false))
-            assertFalse(UpdateDownloader.isInstallableIO(f, 10L, sha, dmSuccess = true))
+            assertEquals(UpdateDownloader.ApkState.Ready, UpdateDownloader.apkStateIO(f, 10L, actual, dmSuccess = false))
+            assertEquals(UpdateDownloader.ApkState.Partial, UpdateDownloader.apkStateIO(f, 10L, sha, dmSuccess = true))
         } finally {
             f.delete()
         }
@@ -258,9 +258,9 @@ class ApkStateIntegrityTest {
         val f = with(ten)
         try {
             val actual = UpdateDownloader.sha256Hex(f)!!
-            assertTrue(UpdateDownloader.isInstallableIO(f, null, actual, dmSuccess = true))
-            assertFalse(UpdateDownloader.isInstallableIO(f, null, actual, dmSuccess = false))
-            assertFalse(UpdateDownloader.isInstallableIO(f, null, sha, dmSuccess = true))
+            assertEquals(UpdateDownloader.ApkState.Ready, UpdateDownloader.apkStateIO(f, null, actual, dmSuccess = true))
+            assertEquals(UpdateDownloader.ApkState.Partial, UpdateDownloader.apkStateIO(f, null, actual, dmSuccess = false))
+            assertEquals(UpdateDownloader.ApkState.Partial, UpdateDownloader.apkStateIO(f, null, sha, dmSuccess = true))
         } finally {
             f.delete()
         }
@@ -272,6 +272,23 @@ class ApkStateIntegrityTest {
         assertFalse(f.exists())
         assertFalse(UpdateDownloader.isCompleteIO(f, 10L, sha))
         assertEquals(UpdateDownloader.ApkState.Missing, UpdateDownloader.apkStateIO(f, 10L, sha))
+    }
+
+    @Test
+    fun `apkState resolves computedSha256 to parameter not function - fails closed`() {
+        // Renamed from actualSha256 (which shadowed the same-named companion
+        // function): the parameter must resolve, so expected = the file's real
+        // hash with computed = null must fail closed, never "self-verify".
+        val f = with(ten)
+        try {
+            val real = UpdateDownloader.sha256Hex(f)!!
+            assertEquals(
+                UpdateDownloader.ApkState.Partial,
+                UpdateDownloader.apkState(f, 10L, expectedSha256 = real, computedSha256 = null),
+            )
+        } finally {
+            f.delete()
+        }
     }
 }
 
