@@ -10,8 +10,8 @@ import java.io.File
  * this narrow contract. JVM tests fake it; production wires
  * [UpdateDownloader]. Static file-state helpers
  * ([UpdateDownloader.apkState]/[UpdateDownloader.apkStateIO]/etc.) stay on
- * the companion — one decision table, pure + IO wrappers, already
- * unit-tested.
+ * the companion — one decision table (pure primitives + single-stat IO
+ * wrapper + ApkFailure classifier), already unit-tested.
  */
 interface ApkDownloader {
     fun apkFile(info: UpdateInfo): File

@@ -207,23 +207,25 @@ pure `shouldAutoCheck`/`shouldOfferUpdate` policy is JVM-tested
   `UpdateDownloader.observe(id)` (emits `DownloadStatus` until terminal,
   then completes) with progress (0..1, indeterminate fallback). The VM
   only maps states to dialog state. Single file-state table `ApkState`
-  (`Missing/Partial/Ready`, pure `apkState(file, size, sha256, computed, dmSuccess)` +
-  IO wrapper `apkStateIO` that hashes lazily on Dispatchers.IO with a
-  size-mismatch short-circuit, plus strict boolean `isCompleteIO` for the
-  no-receipt enqueue/already-have path; a sizeless release installs only
-  with a fresh DM Success receipt). The release's
+  (`Missing/Partial/Ready`, truly-pure `apkState(exists, length, size, sha256,
+  computed, dmSuccess)` + single-stat IO wrapper `apkStateIO` that hashes
+  lazily on Dispatchers.IO with a size-mismatch short-circuit, plus strict
+  boolean `isCompleteIO` for the no-receipt enqueue/already-have path; a
+  sizeless release installs only with a fresh DM Success receipt). The release's
   server-side sha256 (asset `digest` field) is verified before `fileReady` is
   minted (already-have check, DM Success) and at the install gate — a mismatch
-  deletes the file; gate failures map through the pure `apkGateError`
-  classifier (checksum message when a digest is on record and the length is
-  sane, missing/incomplete otherwise) via `Errors.friendly`
-  (Traditional source so `display()` converts); payloads without a digest keep
-  the size-only path. Both the DM-Success verification and its receipt are
-  pinned to the release the download was enqueued for, not the dialog's
-  current info: a mid-flight re-check or skip must never mint a receipt for
-  (or report errors against) a different version — the terminal download
-  state is just cleared. Rapid `install()` taps share one Main-guarded `installing`
-  flag (like `markChecking`) with dialog spinner. FileProvider +
+  deletes the file; gate failures map through pure `apkGateFailure` to
+  `ApkFailure` (checksum when a digest is on record and the length is sane,
+  incomplete otherwise) via `Errors.friendly` (Traditional source so
+  `display()` converts); payloads without a digest keep the size-only path.
+  Both the DM-Success verification and its receipt are pinned to the enqueued
+  release by full-info equality, not the dialog's current info: a mid-flight
+  re-check or skip must never mint a receipt for (or report errors against)
+  a different payload — the terminal download state is just cleared.
+  `install()` resolves `apkFile` on IO and re-stats before firing to narrow
+  the snapshot→install race (documented, not closed). Rapid `install()` taps
+  share one Main-guarded `installing` flag (like `markChecking`) with dialog
+  text. FileProvider +
   installer intent handoff. Same-version file already on disk skips straight
   to install. `REQUEST_INSTALL_PACKAGES` permission + system "unknown sources"
   grant required (first in-app update prompts once). Intent fires go through the

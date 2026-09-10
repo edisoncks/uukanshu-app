@@ -130,7 +130,7 @@ class UpdateDownloader(private val context: Context) : ApkDownloader {
 
     /** Single decision table for APK file state: call the wrong gate and a
      * killed-process partial either blocks install or gets installed.
-     * Call sites use [apkState] (pure) or [apkStateIO] (IO wrapper);
+     * Call sites use pure [apkState] or IO wrapper [apkStateIO];
      * [isCompleteIO] is the strict boolean behind enqueue/already-have. */
     sealed interface ApkState {
         data object Missing : ApkState
@@ -141,6 +141,9 @@ class UpdateDownloader(private val context: Context) : ApkDownloader {
         data object Ready : ApkState
     }
 
+    /** Gate-failure kind for dialog text via `Errors.friendly` (no exception alloc). */
+    enum class ApkFailure { CHECKSUM_MISMATCH, INCOMPLETE }
+
     companion object {
 
         /**
@@ -149,7 +152,7 @@ class UpdateDownloader(private val context: Context) : ApkDownloader {
          * Dispatchers.IO only (call sites already are); ~20ms for 6 MB.
          */
         @WorkerThread
-        fun sha256Hex(file: File): String? = runCatching {
+        fun sha256Hex(file: File): String? = try {
             val md = MessageDigest.getInstance("SHA-256")
             file.inputStream().use { input ->
                 val buf = ByteArray(32 * 1024)
@@ -159,53 +162,69 @@ class UpdateDownloader(private val context: Context) : ApkDownloader {
                     md.update(buf, 0, n)
                 }
             }
-            md.digest().joinToString("") { "%02x".format(it) }
-        }.getOrNull()
+            val digest = md.digest()
+            val hex = "0123456789abcdef".toCharArray()
+            val out = CharArray(digest.size * 2)
+            for (i in digest.indices) {
+                val v = digest[i].toInt() and 0xFF
+                out[i * 2] = hex[v ushr 4]
+                out[i * 2 + 1] = hex[v and 0x0F]
+            }
+            String(out)
+        } catch (_: Exception) {
+            null
+        }
 
         /**
-         * IO: the computed digest when one must be verified, else null — a
-         * release without a digest must not pay a file read on the legacy
-         * size-only path.
-         */
-        @WorkerThread
-        fun actualSha256(file: File, expectedSha256: String?): String? =
-            if (expectedSha256 == null) null else sha256Hex(file)
-
-        /**
-         * Resolve [ApkState] for [file]. `dmSuccess=true` only immediately
-         * after DownloadManager reported SUCCESS for this id (system receipt);
-         * everywhere else (alreadyHave/enqueue) pass false so unknown size
-         * never counts as complete.
+         * Truly pure decision table: no filesystem access. Callers stat once
+         * and pass [exists]/[length] in (see [apkStateIO]). `dmSuccess=true`
+         * only immediately after DownloadManager SUCCESS for this id;
+         * everywhere else pass false so unknown size never counts as complete.
          *
-         * Integrity: when the release ships a sha256 digest ([expectedSha256],
-         * from the GitHub asset `digest` field), the file must hash to it —
-         * a same-size corrupt APK is [ApkState.Partial]. An expected digest
-         * with a null [computedSha256] (not computed) also fails closed; a
-         * release without a digest keeps the size-only behavior. Threat model:
-         * corruption, wrong/stale content planes, post-publish asset swaps —
-         * NOT a malicious GitHub (see RELEASING.md § Updater contract).
+         * Integrity: when the release ships a sha256 ([expectedSha256] from
+         * the asset `digest`), the file must hash to it — same-size corrupt
+         * is [ApkState.Partial]. Expected digest + null [computedSha256]
+         * fails closed; no digest keeps size-only. Threat model: corruption /
+         * wrong-stale content / post-publish swaps — NOT malicious GitHub
+         * (see RELEASING.md § Updater contract).
          */
         fun apkState(
-            file: File,
+            exists: Boolean,
+            length: Long,
             expectedSize: Long?,
             expectedSha256: String? = null,
             computedSha256: String? = null,
             dmSuccess: Boolean = false,
         ): ApkState {
-            if (!file.exists() || file.length() <= 0) return ApkState.Missing
-            val sizeOk = if (expectedSize != null) file.length() == expectedSize else dmSuccess
+            if (!exists || length <= 0) return ApkState.Missing
+            val sizeOk = if (expectedSize != null) length == expectedSize else dmSuccess
             val hashOk = expectedSha256 == null ||
                 (computedSha256 != null && computedSha256.equals(expectedSha256, ignoreCase = true))
             return if (sizeOk && hashOk) ApkState.Ready else ApkState.Partial
         }
 
         /**
-         * IO wrapper around [apkState]: hashes lazily on Dispatchers.IO.
-         * Size mismatch short-circuits to Partial without touching disk —
-         * the old call sites hashed eagerly even when length already failed.
-         * Double-hash across alreadyHave→enqueue in the same-size-corrupt
-         * path is intentional (~20ms): enqueue stays safe standalone so the
-         * single file-state table keeps one owner (see ARCHITECTURE.md).
+         * Pure gate-failure classifier: checksum message only when a digest
+         * is on record and the length is sane (sizeless, or == recorded size)
+         * so only a hash mismatch is possible; everything else is incomplete.
+         */
+        fun apkGateFailure(
+            state: ApkState,
+            expectedSha256: String?,
+            expectedSize: Long?,
+            fileLength: Long,
+        ): ApkFailure = when {
+            state == ApkState.Partial && expectedSha256 != null &&
+                (expectedSize == null || fileLength == expectedSize) -> ApkFailure.CHECKSUM_MISMATCH
+            else -> ApkFailure.INCOMPLETE
+        }
+
+        /**
+         * IO wrapper around [apkState]: stats once, hashes lazily on
+         * Dispatchers.IO. Size mismatch short-circuits to Partial without
+         * hashing. Double-hash alreadyHave→enqueue on same-size-corrupt is
+         * intentional (~20ms): enqueue stays safe standalone so the single
+         * table keeps one owner (see ARCHITECTURE.md).
          */
         @WorkerThread
         fun apkStateIO(
@@ -214,14 +233,12 @@ class UpdateDownloader(private val context: Context) : ApkDownloader {
             expectedSha256: String? = null,
             dmSuccess: Boolean = false,
         ): ApkState {
-            if (!file.exists() || file.length() <= 0) return ApkState.Missing
-            if (expectedSize != null && file.length() != expectedSize) return ApkState.Partial
-            return apkState(
-                file, expectedSize,
-                expectedSha256 = expectedSha256,
-                computedSha256 = actualSha256(file, expectedSha256),
-                dmSuccess = dmSuccess,
-            )
+            val exists = file.exists()
+            val length = if (exists) file.length() else 0L
+            if (!exists || length <= 0) return ApkState.Missing
+            if (expectedSize != null && length != expectedSize) return ApkState.Partial
+            val computed = if (expectedSha256 == null) null else sha256Hex(file)
+            return apkState(exists, length, expectedSize, expectedSha256, computed, dmSuccess)
         }
 
         /** IO: strict completeness without DM receipt (alreadyHave/enqueue). */

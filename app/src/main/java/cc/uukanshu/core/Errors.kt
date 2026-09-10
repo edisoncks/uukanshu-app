@@ -37,14 +37,6 @@ class BookDeletedDuringDownloadException :
 class HttpStatusException(val code: Int, label: String) :
     java.io.IOException("HTTP $code for $label")
 
-/** Downloaded APK failed sha256 verification (see updater contract). */
-class ApkChecksumMismatchException :
-    java.io.IOException("APK checksum verification failed")
-
-/** APK file missing or incomplete at install time. */
-class ApkIncompleteException :
-    java.io.IOException("APK file missing or incomplete")
-
 /** Single error-formatting policy: [friendly] for UI text, helpers below preserve cancellation. */
 object Errors {
     private val urlRegex = Regex("https?://\\S+")
@@ -75,8 +67,6 @@ object Errors {
             is CloudflareBlockedException -> return "暫時被網站阻擋，請稍後再試或切換網路"
             is TocShrunkException, is EmptyChapterListException -> return "章節列表為空，請稍後再試"
             is BookDeletedDuringDownloadException -> return "下載中書籍已被刪除"
-            is ApkChecksumMismatchException -> return "APK 校驗失敗，請重新下載"
-            is ApkIncompleteException -> return "APK 檔案缺失或不完整，請重新下載"
             is HttpStatusException -> return httpMessage(e.code)
             is UnknownHostException, is SocketTimeoutException, is ConnectException,
             is TimeoutCancellationException -> return "網路連線失敗，請檢查網路後重試"
@@ -108,6 +98,12 @@ object Errors {
             .trim(' ', ':', '—', '-', '，', '。')
             .trim()
         return cleaned.ifBlank { e.javaClass.simpleName }
+    }
+
+    /** Gate-failure text: Traditional source so `display()` converts (see Display). */
+    fun friendly(f: cc.uukanshu.data.update.UpdateDownloader.ApkFailure): String = when (f) {
+        cc.uukanshu.data.update.UpdateDownloader.ApkFailure.CHECKSUM_MISMATCH -> "APK 校驗失敗，請重新下載"
+        cc.uukanshu.data.update.UpdateDownloader.ApkFailure.INCOMPLETE -> "APK 檔案缺失或不完整，請重新下載"
     }
 
     /**
