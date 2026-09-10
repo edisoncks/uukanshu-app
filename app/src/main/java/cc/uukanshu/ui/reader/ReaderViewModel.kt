@@ -350,11 +350,15 @@ class ReaderViewModel(
         }
     }
 
-    fun font(delta: Float) {
+    fun font(delta: Float) = setFontScale(_fontScale.value + delta)
+
+    /** Absolute set for the Slider: coerced to [Prefs.FONT_MIN]..[Prefs.FONT_MAX], idempotent. */
+    fun setFontScale(v: Float) {
         // Atomic read-modify-write on Main: the DataStore write below
         // suspends, so reading inside the coroutine would let two rapid
         // taps both read the old scale and lose one step.
-        val next = Prefs.coerceFontScale(_fontScale.value + delta)
+        val next = Prefs.coerceFontScale(v)
+        if (next == _fontScale.value) return
         _fontScale.value = next
         viewModelScope.launch { prefs.setFontScale(next) }
     }
