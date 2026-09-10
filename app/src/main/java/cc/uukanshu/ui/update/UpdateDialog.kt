@@ -77,9 +77,7 @@ fun UpdateDialog(
                 onDismissRequest = { if (!ui.downloading && !ui.installing) onDismiss() },
                 confirmButton = {
                     when {
-                        ui.fileReady && ui.installing -> TextButton(onClick = {}, enabled = false) {
-                            Text(display("正在驗證…"))
-                        }
+                        ui.fileReady && ui.installing -> Text(display("正在驗證…"))
                         ui.fileReady -> TextButton(onClick = onInstall, enabled = !ui.installing) {
                             Text(display("立即安裝"))
                         }
