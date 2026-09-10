@@ -57,7 +57,7 @@ The bottom of the screen has four tabs:
 
 ### Reading page
 
-- Top bar shows the book name and `position/total`, with a back arrow. The chapter title stays pinned below it while the body scrolls.
+- Top bar shows the book name, with `position/total` and chapter title below it (single line each). The body starts immediately under the bar — no duplicate progress row.
 - Swipe/scroll to read (text is selectable). Use **上一章** ("Previous chapter") and **下一章** ("Next chapter") at the bottom to move between chapters.
 - Tap **⋯** (bottom-left) for reading settings (bottom sheet):
   - Language switch **繁體** (Traditional) / **簡體** (Simplified).
