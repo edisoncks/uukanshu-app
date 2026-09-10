@@ -30,6 +30,12 @@ class ReaderViewModel(
     private val startPageId: Long = 0L,
 ) : ViewModel() {
 
+    /** Next-chapter step: AtEnd stays put (caller shows snackbar), Started loads. */
+    sealed interface NextStep {
+        data object AtEnd : NextStep
+        data class Started(val position: Int) : NextStep
+    }
+
     /** Content state only (position/total/payload); prefs live below so toggles never rebuild content. */
     sealed interface Ui {
         val position: Int
@@ -57,6 +63,7 @@ class ReaderViewModel(
             override val position: Int,
             override val total: Int = 0,
             val message: String,
+            val kind: ReaderErrorKind = ReaderErrorKind.Network,
         ) : Ui {
             override val isLoading: Boolean = false
         }
@@ -72,6 +79,15 @@ class ReaderViewModel(
     val fontScale: StateFlow<Float> = _fontScale
     private val _theme = MutableStateFlow(Prefs.SYSTEM)
     val theme: StateFlow<String> = _theme
+    // Last known book title (TOC meta) for chrome: Ui.Loading carries no book,
+    // so the top bar would flicker blank on every chapter turn without this.
+    private val _bookTitle = MutableStateFlow("")
+    val bookTitle: StateFlow<String> = _bookTitle
+
+    private fun setBookTitle(raw: String) {
+        bookTitleRaw = raw
+        _bookTitle.value = raw
+    }
 
     private fun setTotal(total: Int) {
         _ui.update {
@@ -145,7 +161,7 @@ class ReaderViewModel(
                     val cachedToc = toc.cached(bookId)
                     if (cachedToc != null) {
                         chapters = cachedToc.chapters
-                        if (cachedToc.meta.title.isNotEmpty()) bookTitleRaw = cachedToc.meta.title
+                        if (cachedToc.meta.title.isNotEmpty()) setBookTitle(cachedToc.meta.title)
                     }
                     if (chapters.isEmpty() || position < 1 || position > chapters.size) {
                         // Blocking fetch doubles as the revalidation — no extra
@@ -155,7 +171,7 @@ class ReaderViewModel(
                             val fresh = repo.detail(bookId)
                             if (TocRevalidator.shouldAcceptFresh(fresh.chapters, chapters.size)) {
                                 chapters = fresh.chapters
-                                if (fresh.meta.title.isNotEmpty()) bookTitleRaw = fresh.meta.title
+                                if (fresh.meta.title.isNotEmpty()) setBookTitle(fresh.meta.title)
                                 setTotal(chapters.size)
                             } else if (chapters.isEmpty()) {
                                 throw EmptyChapterListException()
@@ -177,7 +193,7 @@ class ReaderViewModel(
                             when (val res = toc.revalidate(bookId, staleCount)) {
                                 is TocRevalidator.Revalidate.Accepted -> {
                                     chapters = res.detail.chapters
-                                    if (res.detail.meta.title.isNotEmpty()) bookTitleRaw = res.detail.meta.title
+                                    if (res.detail.meta.title.isNotEmpty()) setBookTitle(res.detail.meta.title)
                                     setTotal(chapters.size)
                                 }
                                 else -> Unit // Empty/shrunken/failed: keep stale, reading never breaks.
@@ -196,10 +212,14 @@ class ReaderViewModel(
                 } else position
                 val total = chapters.size
                 if (effective < 1 || effective > total) {
+                    // -1 = stable pageId missed (deleted chapter): offer back-to-detail,
+                    // never silently alias to a neighbor or loop retry on the same -1.
+                    val kind = ReaderErrors.boundsKind(effective)
                     _ui.value = Ui.Error(
                         position = effective,
                         total = total,
-                        message = "章節超出範圍",
+                        message = if (kind == ReaderErrorKind.Deleted) ReaderErrors.deletedMessage() else "章節超出範圍",
+                        kind = kind,
                     )
                     return@launch
                 }
@@ -221,7 +241,7 @@ class ReaderViewModel(
                     // Backfill the authoritative name when TOC meta was empty
                     // (offline edge) but the chapter page knows the book.
                     if (bookTitleRaw.isEmpty() && fetched.book.isNotEmpty()) {
-                        bookTitleRaw = fetched.book
+                        setBookTitle(fetched.book)
                     }
                     val withBook = if (fetched.book.isEmpty() && bookTitleRaw.isNotEmpty()) {
                         fetched.copy(book = bookTitleRaw)
@@ -288,20 +308,44 @@ class ReaderViewModel(
         }
     }
 
+    /** Prev chapter: false = already first (caller stays put). Last-tap wins via load(). */
+    fun prev(): Boolean {
+        val cur = _ui.value
+        if (cur.position <= 1) return false
+        load(cur.position - 1)
+        return true
+    }
+
+    /** Next chapter: AtEnd stays put (caller shows snackbar), else loads. */
+    fun next(): NextStep {
+        val cur = _ui.value
+        // Deleted-chapter error carries position -1: clamp to first instead of
+        // loading 0 (which would just re-error).
+        val target = if (cur.position < 1) 1 else cur.position + 1
+        if (cur.total > 0 && target > cur.total) return NextStep.AtEnd
+        load(target)
+        return NextStep.Started(target)
+    }
+
     fun toggleSimplified() {
+        setSimplified(!_simplified.value)
+    }
+
+    /** Idempotent set for radio/switch rows: tapping the active option is a no-op. */
+    fun setSimplified(v: Boolean) {
+        if (v == _simplified.value) return
         // Compute and publish synchronously on the caller (Main) thread:
         // two rapid taps must toggle twice, never read the same stale value.
-        val next = !_simplified.value
-        _simplified.value = next
+        _simplified.value = v
         val raw = currentRaw
         // Re-render current chapter without refetch or reload.
         val cur = _ui.value
         if (raw != null && cur is Ui.Content) {
-            val (book, title, text) = render(raw, next)
+            val (book, title, text) = render(raw, v)
             _ui.value = cur.copy(book = book, title = title, text = text)
         }
         viewModelScope.launch {
-            prefs.setSimplified(next)
+            prefs.setSimplified(v)
             if (raw == null) load(_ui.value.position)
         }
     }
@@ -327,7 +371,13 @@ class ReaderViewModel(
 
     /** Cycle system → light → dark theme. Applied app-wide via prefs. */
     fun cycleTheme() {
-        val next = Prefs.next(_theme.value)
+        setTheme(Prefs.next(_theme.value))
+    }
+
+    /** Idempotent set for radio rows: tapping the active mode is a no-op. */
+    fun setTheme(mode: String) {
+        val next = Prefs.normalizeTheme(mode)
+        if (next == _theme.value) return
         _theme.value = next
         viewModelScope.launch { prefs.setTheme(next) }
     }
