@@ -11,6 +11,7 @@ import cc.uukanshu.core.ApkChecksumMismatchException
 import cc.uukanshu.core.ApkIncompleteException
 import cc.uukanshu.core.Errors
 import cc.uukanshu.ui.update.UpdateViewModel
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -63,12 +64,16 @@ class UpdateIntegrityVmTest {
         }
     }
 
-    /** Fake DM: shared temp file; hooks simulate the download's side effects. */
+    /** Fake DM: shared temp file; hooks simulate the download's side effects.
+     *  [gate] non-null holds the download in flight after Running until the
+     *  test releases it (mid-flight state swaps become deterministic; null
+     *  keeps the original immediate-Success behavior for existing tests). */
     private class FakeDl(
         val file: File,
         var onEnqueue: () -> Long = { 42L },
         var onRunning: () -> Unit = {},
         var onSuccess: () -> Unit = {},
+        private val gate: kotlinx.coroutines.CompletableDeferred<Unit>? = null,
     ) : ApkDownloader {
         override fun apkFile(info: UpdateInfo): File = file
         override fun enqueue(info: UpdateInfo): Long = onEnqueue()
@@ -76,6 +81,7 @@ class UpdateIntegrityVmTest {
         override fun observe(downloadId: Long) = flow {
             onRunning()
             emit(DownloadStatus.Running(0.5f))
+            gate?.await()
             onSuccess()
             emit(DownloadStatus.Success)
         }
@@ -260,6 +266,86 @@ class UpdateIntegrityVmTest {
             "APK 校驗失敗，請重新下載",
             Errors.friendly(ApkChecksumMismatchException()),
         )
+    }
+
+    /** A stateful fetcher: first call returns [first], then [second] — the
+     *  mid-flight re-check a user can trigger while a download is in flight. */
+    private fun swapFetcher(a: UpdateInfo, b: UpdateInfo) = object : ReleaseFetcher {
+        val fetched = AtomicInteger(0)
+        override fun fetchLatest(): UpdateInfo = if (fetched.incrementAndGet() == 1) a else b
+    }
+
+    @Test fun `mid-flight recheck then success never mints or errors for the wrong version`() = runTest {
+        // DM-Success must pin the release the download was enqueued for: a
+        // re-check swapping the dialog's info mid-flight must not verify
+        // against (or report errors for) a version whose file was never
+        // downloaded, and must not mint a receipt for it.
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        grantCanInstall(app)
+        val file = File.createTempFile("uukanshu-swap", ".apk").also { it.delete() }
+        val gate = CompletableDeferred<Unit>()
+        val dl = FakeDl(file, gate = gate, onSuccess = { file.writeBytes(good) })
+        val vm = UpdateViewModel(
+            ApplicationProvider.getApplicationContext(),
+            MutableFakePrefs(),
+            swapFetcher(info(5L, sha(good)), info(999_999L, "b".repeat(64), version = "9.9.10")),
+            dl,
+            ActivityLauncher { },
+        )
+        vm.manualCheck()
+        await { vm.ui.value.info?.version == "9.9.9" }
+        vm.startDownload()
+        await { vm.ui.value.downloading && vm.ui.value.downloadId == 42L }
+        // Mid-flight: dialog swaps to the newer release.
+        vm.manualCheck()
+        await { vm.ui.value.info?.version == "9.9.10" }
+        file.writeBytes(good) // DM lands v9.9.9's bytes, which match release A's digest
+        gate.complete(Unit)
+        await { !vm.ui.value.downloading }
+        val ui = vm.ui.value
+        assertNull("error=${ui.error}", ui.error)
+        assertTrue("artifact must survive a version swap", file.exists())
+        assertEquals(
+            "artifact must still match release A's digest",
+            sha(good),
+            UpdateDownloader.sha256Hex(file),
+        )
+        assertFalse("no fileReady for a version this download never produced", ui.fileReady)
+        assertFalse(ui.downloadSucceeded)
+        assertFalse(ui.downloading)
+        file.delete()
+    }
+
+    @Test fun `skip during flight then success mints nothing while hidden`() = runTest {
+        // Receipts attach only to a dialog that still describes the enqueued
+        // release: skip nulls info, so the Success must not mint fileReady or
+        // downloadSucceeded — reopening must show the offer, not an install
+        // prompt for a version the user skipped.
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        grantCanInstall(app)
+        val file = File.createTempFile("uukanshu-skip", ".apk").also { it.delete() }
+        val gate = CompletableDeferred<Unit>()
+        val dl = FakeDl(file, gate = gate, onSuccess = { file.writeBytes(good) })
+        val vm = vmFor(info(5L, sha(good)), dl)
+        vm.manualCheck()
+        await { vm.ui.value.info != null }
+        vm.startDownload()
+        await { vm.ui.value.downloading && vm.ui.value.downloadId == 42L }
+        vm.skipVersion()
+        await { vm.ui.value.info == null && !vm.ui.value.visible }
+        gate.complete(Unit)
+        await { !vm.ui.value.downloading }
+        val ui = vm.ui.value
+        assertFalse("receipt minted with no update info", ui.fileReady)
+        assertFalse(ui.downloadSucceeded)
+        assertFalse(ui.visible)
+        vm.reopen()
+        await { vm.ui.value.visible }
+        assertFalse(
+            "reopened dialog must not offer install for a skipped version",
+            vm.ui.value.fileReady,
+        )
+        file.delete()
     }
 }
 

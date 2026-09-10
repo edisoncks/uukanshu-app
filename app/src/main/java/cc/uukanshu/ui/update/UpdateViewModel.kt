@@ -271,23 +271,39 @@ class UpdateViewModel(
                                     it.copy(progress = s.progress)
                                 }
                                 is DownloadStatus.Success -> {
-                                    // Verify the release digest before minting
-                                    // fileReady/receipt: a same-size corrupt APK
-                                    // never reaches the installer. On mismatch
-                                    // the file is deleted so a retry re-downloads.
-                                    // Legacy payloads without a digest keep the
-                                    // old size-only path.
-                                    val current = _ui.value.info
-                                    if (current == null || current.sha256 == null) {
+                                    // The bytes on disk belong to the release this
+                                    // download was enqueued for — not to whatever
+                                    // _ui.value.info holds at completion time (a
+                                    // mid-flight re-check or skip may have swapped
+                                    // or nulled it). Verify against the enqueued
+                                    // release and mint the receipt only while the
+                                    // dialog still describes that version; otherwise
+                                    // the download outlived its dialog — clear the
+                                    // terminal state silently (a bare return would
+                                    // wedge "downloading" forever; stale-file
+                                    // cleanup happens on the next enqueue). Within
+                                    // the matching version: verify the release digest
+                                    // before minting fileReady/receipt (a same-size
+                                    // corrupt APK never reaches the installer; on
+                                    // mismatch the file is deleted so a retry
+                                    // re-downloads), and payloads without a digest
+                                    // keep the size-only path.
+                                    if (_ui.value.info?.version != info.version) {
+                                        _ui.update {
+                                            it.copy(downloading = false, downloadId = null)
+                                        }
+                                        return@collect
+                                    }
+                                    if (info.sha256 == null) {
                                         _ui.update {
                                             it.copy(downloading = false, fileReady = true,
                                                 downloadId = null, downloadSucceeded = true)
                                         }
                                     } else {
-                                        val file = downloader.apkFile(current)
+                                        val file = downloader.apkFile(info)
                                         val ok = withContext(Dispatchers.IO) {
                                             UpdateDownloader.isInstallableIO(
-                                                file, current.size, current.sha256,
+                                                file, info.size, info.sha256,
                                                 dmSuccess = true,
                                             )
                                         }

@@ -216,7 +216,11 @@ pure `shouldAutoCheck`/`shouldOfferUpdate` policy is JVM-tested
   minted (already-have check, DM Success) and at the install gate — a mismatch
   deletes the file and surfaces a re-download error via `Errors.friendly`
   (Traditional source so `display()` converts); payloads without a digest keep
-  the size-only path. Rapid `install()` taps share one Main-guarded `installing`
+  the size-only path. Both the DM-Success verification and its receipt are
+  pinned to the release the download was enqueued for, not the dialog's
+  current info: a mid-flight re-check or skip must never mint a receipt for
+  (or report errors against) a different version — the terminal download
+  state is just cleared. Rapid `install()` taps share one Main-guarded `installing`
   flag (like `markChecking`) with dialog spinner. FileProvider +
   installer intent handoff. Same-version file already on disk skips straight
   to install. `REQUEST_INSTALL_PACKAGES` permission + system "unknown sources"
