@@ -83,10 +83,17 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
 
     Scaffold(
         topBar = {
+            val (pos, total, title) = when (val s = ui) {
+                is ReaderViewModel.Ui.Content -> Triple(s.position, s.total, s.title)
+                else -> Triple(ui.position, ui.total, "")
+            }
             ReaderTopBar(
                 book = vm.display(bookTitleRaw),
-                position = ui.position,
-                total = ui.total,
+                line2 = if (total > 0) {
+                    // Title already converted in VM — never display() twice.
+                    // Loading/Error have no title: progress alone keeps height constant.
+                    if (title.isEmpty()) "${pos} / ${total}" else ReaderHeader.line2(pos, total, title)
+                } else "…",
                 backLabel = vm.display("返回"),
                 onBack = onBack,
             )
@@ -126,11 +133,8 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
                 )
                 is ReaderViewModel.Ui.Content -> ReaderContent(
                     bookId = bookId,
-                    // Content fields are already converted in the VM
-                    // (render(raw, simplified)) — never display() twice.
                     position = s.position,
-                    total = s.total,
-                    title = s.title,
+                    // Text already converted in the VM — never display() twice.
                     paragraphs = ReaderParagraphs.split(s.text),
                     fontScale = fontScale,
                 )
@@ -159,7 +163,7 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ReaderTopBar(book: String, position: Int, total: Int, backLabel: String, onBack: () -> Unit) {
+private fun ReaderTopBar(book: String, line2: String, backLabel: String, onBack: () -> Unit) {
     TopAppBar(
         navigationIcon = {
             IconButton(onClick = onBack) {
@@ -173,13 +177,12 @@ private fun ReaderTopBar(book: String, position: Int, total: Int, backLabel: Str
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                 )
-                if (total > 0) {
-                    Text(
-                        "$position / $total",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                Text(
+                    line2,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
             }
         },
     )
@@ -188,37 +191,26 @@ private fun ReaderTopBar(book: String, position: Int, total: Int, backLabel: Str
 @Composable
 private fun ReaderContent(
     bookId: String,
+    // Position keys scroll-reset only (header is gone): same chapter keeps
+    // scroll, new chapter jumps to top. Never display it here — TopBar owns it.
     position: Int,
-    total: Int,
-    title: String,
     paragraphs: List<String>,
     fontScale: Float,
 ) {
     val scroll = rememberScrollState()
     // Paging chapters reuses this composition: jump to top on chapter change.
     LaunchedEffect(bookId, position) { runCatching { scroll.scrollTo(0) } }
-    Column(Modifier.fillMaxSize()) {
-        // Sticky header: stays put while body scrolls so position context
-        // is never lost on long chapters.
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-            Text(
-                "$position / $total $title",
-                style = MaterialTheme.typography.titleMedium,
-            )
-            HorizontalDivider(Modifier.padding(top = 8.dp))
-        }
-        SelectionContainer {
-            Column(
-                Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 16.dp),
-            ) {
-                paragraphs.forEach { p ->
-                    Text(
-                        p,
-                        fontSize = (17 * fontScale).sp,
-                        lineHeight = (28 * fontScale).sp,
-                        modifier = Modifier.padding(bottom = 12.dp),
-                    )
-                }
+    SelectionContainer {
+        Column(
+            Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            paragraphs.forEach { p ->
+                Text(
+                    p,
+                    fontSize = (17 * fontScale).sp,
+                    lineHeight = (28 * fontScale).sp,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
             }
         }
     }
