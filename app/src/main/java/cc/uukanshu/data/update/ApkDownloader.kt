@@ -9,8 +9,9 @@ import java.io.File
  * Extracted from [UpdateDownloader] so the update ViewModel depends on
  * this narrow contract. JVM tests fake it; production wires
  * [UpdateDownloader]. Static file-state helpers
- * ([UpdateDownloader.isComplete]/[isInstallable]/etc.) stay on the
- * companion — they are pure and already unit-tested.
+ * ([UpdateDownloader.apkState]/[UpdateDownloader.apkStateIO]/etc.) stay on
+ * the companion — one decision table (pure primitives + single-stat IO
+ * wrapper + ApkFailure classifier), already unit-tested.
  */
 interface ApkDownloader {
     fun apkFile(info: UpdateInfo): File

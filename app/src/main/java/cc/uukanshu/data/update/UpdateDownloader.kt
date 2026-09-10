@@ -6,8 +6,10 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Environment
 import android.provider.Settings
+import androidx.annotation.WorkerThread
 import androidx.core.content.FileProvider
 import java.io.File
+import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -41,14 +43,18 @@ class UpdateDownloader(private val context: Context) : ApkDownloader {
     /**
      * Enqueue the download. Returns the [DownloadManager] id, or -1 when a
      * complete file for this version is already on disk (caller can install).
-     * Completeness means byte-exact match against the GitHub asset size;
-     * anything else (missing, empty, partial, or unknown size) is deleted
-     * and re-downloaded. Length > 0 alone proves nothing after a kill.
+     * Completeness means byte-exact size match — and sha256 digest match when
+     * the release ships one; anything else (missing, empty, partial, wrong
+     * digest, or unknown size) is deleted and re-downloaded. Length > 0 alone
+     * proves nothing after a kill.
+     *
+     * Blocking file IO (digest) — call on Dispatchers.IO (callers already are).
      */
+    @WorkerThread
     override fun enqueue(info: UpdateInfo): Long {
         deleteStaleApks(keepName = info.apkName)
         val file = apkFile(info)
-        if (isComplete(file, info.size)) return -1L
+        if (isCompleteIO(file, info.size, info.sha256)) return -1L
         if (file.exists()) file.delete()
         val req = DownloadManager.Request(Uri.parse(info.apkUrl))
             .setTitle("uukanshu ${info.tag}")
@@ -124,51 +130,121 @@ class UpdateDownloader(private val context: Context) : ApkDownloader {
 
     /** Single decision table for APK file state: call the wrong gate and a
      * killed-process partial either blocks install or gets installed.
-     * Use [apkState] at call sites; [isComplete]/[isInstallable] stay as
-     * the tested predicates behind it. */
+     * Call sites use pure [apkState] or IO wrapper [apkStateIO];
+     * [isCompleteIO] is the strict boolean behind enqueue/already-have. */
     sealed interface ApkState {
         data object Missing : ApkState
-        /** Present but shorter/longer than the release size (or empty). */
+        /** Present but shorter/longer than the release size, sha256 mismatch (or
+         * an expected digest with no computed hash), or empty. */
         data object Partial : ApkState
         /** Byte-exact match, or non-empty after a fresh DM SUCCESS with unknown size. */
         data object Ready : ApkState
     }
 
+    /** Gate-failure kind for dialog text via `Errors.friendly` (no exception alloc). */
+    enum class ApkFailure { CHECKSUM_MISMATCH, INCOMPLETE }
+
     companion object {
 
         /**
-         * Resolve [ApkState] for [file]. `dmSuccess=true` only immediately
-         * after DownloadManager reported SUCCESS for this id (system receipt);
-         * everywhere else (alreadyHave/enqueue) pass false so unknown size
-         * never counts as complete.
+         * IO: sha256 of [file] as lowercase hex, or null when unreadable.
+         * Streaming digest — an APK is ~6 MB, never load it whole. Call on
+         * Dispatchers.IO only (call sites already are); ~20ms for 6 MB.
          */
-        fun apkState(file: File, expectedSize: Long?, dmSuccess: Boolean = false): ApkState {
-            if (!file.exists() || file.length() <= 0) return ApkState.Missing
-            if (expectedSize != null) {
-                return if (file.length() == expectedSize) ApkState.Ready else ApkState.Partial
+        @WorkerThread
+        fun sha256Hex(file: File): String? = try {
+            val md = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buf = ByteArray(32 * 1024)
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    md.update(buf, 0, n)
+                }
             }
-            // Unknown size: strict without a DM receipt, lenient with one.
-            return if (dmSuccess) ApkState.Ready else ApkState.Partial
+            val digest = md.digest()
+            val hex = "0123456789abcdef".toCharArray()
+            val out = CharArray(digest.size * 2)
+            for (i in digest.indices) {
+                val v = digest[i].toInt() and 0xFF
+                out[i * 2] = hex[v ushr 4]
+                out[i * 2 + 1] = hex[v and 0x0F]
+            }
+            String(out)
+        } catch (_: Exception) {
+            null
         }
 
-        /** Byte-exact completeness check shared by enqueue/alreadyHave.
+        /**
+         * Truly pure decision table: no filesystem access. Callers stat once
+         * and pass [exists]/[length] in (see [apkStateIO]). `dmSuccess=true`
+         * only immediately after DownloadManager SUCCESS for this id;
+         * everywhere else pass false so unknown size never counts as complete.
          *
-         * Strict by design: unknown size never counts as complete, so a
-         * partial file left by a killed process can never skip re-download.
+         * Integrity: when the release ships a sha256 ([expectedSha256] from
+         * the asset `digest`), the file must hash to it — same-size corrupt
+         * is [ApkState.Partial]. Expected digest + null [computedSha256]
+         * fails closed; no digest keeps size-only. Threat model: corruption /
+         * wrong-stale content / post-publish swaps — NOT malicious GitHub
+         * (see RELEASING.md § Updater contract).
          */
-        fun isComplete(file: File, expectedSize: Long?): Boolean =
-            apkState(file, expectedSize, dmSuccess = false) == ApkState.Ready
+        fun apkState(
+            exists: Boolean,
+            length: Long,
+            expectedSize: Long?,
+            expectedSha256: String? = null,
+            computedSha256: String? = null,
+            dmSuccess: Boolean = false,
+        ): ApkState {
+            if (!exists || length <= 0) return ApkState.Missing
+            val sizeOk = if (expectedSize != null) length == expectedSize else dmSuccess
+            val hashOk = expectedSha256 == null ||
+                (computedSha256 != null && computedSha256.equals(expectedSha256, ignoreCase = true))
+            return if (sizeOk && hashOk) ApkState.Ready else ApkState.Partial
+        }
 
         /**
-         * Install gate: byte-exact when the release reports a size, otherwise
-         * only a non-empty file with a fresh DownloadManager SUCCESS receipt
-         * for this download id ([dmSuccess]). The strict [isComplete] path stays
-         * for alreadyHave/enqueue (no receipt there); callers must pass whether
-         * the current file actually just succeeded — never hardcode true, or a
-         * killed-process partial with unknown size sneaks into the installer.
+         * Pure gate-failure classifier: checksum message only when a digest
+         * is on record and the length is sane (sizeless, or == recorded size)
+         * so only a hash mismatch is possible; everything else is incomplete.
          */
-        fun isInstallable(file: File, expectedSize: Long?, dmSuccess: Boolean): Boolean =
-            apkState(file, expectedSize, dmSuccess) == ApkState.Ready
+        fun apkGateFailure(
+            state: ApkState,
+            expectedSha256: String?,
+            expectedSize: Long?,
+            fileLength: Long,
+        ): ApkFailure = when {
+            state == ApkState.Partial && expectedSha256 != null &&
+                (expectedSize == null || fileLength == expectedSize) -> ApkFailure.CHECKSUM_MISMATCH
+            else -> ApkFailure.INCOMPLETE
+        }
+
+        /**
+         * IO wrapper around [apkState]: stats once, hashes lazily on
+         * Dispatchers.IO. Size mismatch short-circuits to Partial without
+         * hashing. Double-hash alreadyHave→enqueue on same-size-corrupt is
+         * intentional (~20ms): enqueue stays safe standalone so the single
+         * table keeps one owner (see ARCHITECTURE.md).
+         */
+        @WorkerThread
+        fun apkStateIO(
+            file: File,
+            expectedSize: Long?,
+            expectedSha256: String? = null,
+            dmSuccess: Boolean = false,
+        ): ApkState {
+            val exists = file.exists()
+            val length = if (exists) file.length() else 0L
+            if (!exists || length <= 0) return ApkState.Missing
+            if (expectedSize != null && length != expectedSize) return ApkState.Partial
+            val computed = if (expectedSha256 == null) null else sha256Hex(file)
+            return apkState(exists, length, expectedSize, expectedSha256, computed, dmSuccess)
+        }
+
+        /** IO: strict completeness without DM receipt (alreadyHave/enqueue). */
+        @WorkerThread
+        fun isCompleteIO(file: File, expectedSize: Long?, expectedSha256: String? = null): Boolean =
+            apkStateIO(file, expectedSize, expectedSha256, dmSuccess = false) == ApkState.Ready
 
         /** Local version via PackageManager (no BuildConfig flag needed). */
         fun currentVersion(context: Context): String = runCatching {

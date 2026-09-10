@@ -207,9 +207,25 @@ pure `shouldAutoCheck`/`shouldOfferUpdate` policy is JVM-tested
   `UpdateDownloader.observe(id)` (emits `DownloadStatus` until terminal,
   then completes) with progress (0..1, indeterminate fallback). The VM
   only maps states to dialog state. Single file-state table `ApkState`
-  (`Missing/Partial/Ready`, `apkState(file, size, dmSuccess)`; `isComplete`
-  strict without DM receipt for alreadyHave/enqueue, `isInstallable` lenient
-  with receipt after a fresh Success so sizeless releases stay installable), FileProvider +
+  (`Missing/Partial/Ready`, truly-pure `apkState(exists, length, size, sha256,
+  computed, dmSuccess)` + single-stat IO wrapper `apkStateIO` that hashes
+  lazily on Dispatchers.IO with a size-mismatch short-circuit, plus strict
+  boolean `isCompleteIO` for the no-receipt enqueue/already-have path; a
+  sizeless release installs only with a fresh DM Success receipt). The release's
+  server-side sha256 (asset `digest` field) is verified before `fileReady` is
+  minted (already-have check, DM Success) and at the install gate — a mismatch
+  deletes the file; gate failures map through pure `apkGateFailure` to
+  `ApkFailure` (checksum when a digest is on record and the length is sane,
+  incomplete otherwise) via `Errors.friendly` (Traditional source so
+  `display()` converts); payloads without a digest keep the size-only path.
+  Both the DM-Success verification and its receipt are pinned to the enqueued
+  release by full-info equality, not the dialog's current info: a mid-flight
+  re-check or skip must never mint a receipt for (or report errors against)
+  a different payload — the terminal download state is just cleared.
+  `install()` resolves `apkFile` on IO and re-stats before firing to narrow
+  the snapshot→install race (documented, not closed). Rapid `install()` taps
+  share one Main-guarded `installing` flag (like `markChecking`) with dialog
+  text. FileProvider +
   installer intent handoff. Same-version file already on disk skips straight
   to install. `REQUEST_INSTALL_PACKAGES` permission + system "unknown sources"
   grant required (first in-app update prompts once). Intent fires go through the
@@ -219,5 +235,6 @@ pure `shouldAutoCheck`/`shouldOfferUpdate` policy is JVM-tested
   re-openable from Settings; browser-download fallback always offered on
   error; release body is shown verbatim as the changelog (kept concise).
 - **Release-shape dependency:** tag `vX.Y.Z` == `versionName X.Y.Z`, exactly
-  one asset named `uukanshu-X.Y.Z.apk` (enforced by exact-name match). Full contract in
+  one asset named `uukanshu-X.Y.Z.apk` (enforced by exact-name match; its
+  server-side sha256 `digest` is verified in-app before install). Full contract in
   [RELEASING.md](RELEASING.md#updater-contract-do-not-break).

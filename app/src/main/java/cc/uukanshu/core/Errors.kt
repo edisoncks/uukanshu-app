@@ -100,6 +100,12 @@ object Errors {
         return cleaned.ifBlank { e.javaClass.simpleName }
     }
 
+    /** Gate-failure text: Traditional source so `display()` converts (see Display). */
+    fun friendly(f: cc.uukanshu.data.update.UpdateDownloader.ApkFailure): String = when (f) {
+        cc.uukanshu.data.update.UpdateDownloader.ApkFailure.CHECKSUM_MISMATCH -> "APK 校驗失敗，請重新下載"
+        cc.uukanshu.data.update.UpdateDownloader.ApkFailure.INCOMPLETE -> "APK 檔案缺失或不完整，請重新下載"
+    }
+
     /**
      * String overload for non-exception failure reasons (e.g.
      * `DownloadStatus.Failed.reason` from DownloadManager). Applies the

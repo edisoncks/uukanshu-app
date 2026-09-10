@@ -148,19 +148,15 @@ class HardeningTest {
     // -- ApkState: single decision table -------------------------------------
 
     @Test fun apkStateDecisionTable() {
-        val f = File.createTempFile("apk", ".apk").apply { writeBytes(ByteArray(10)) }
-        try {
-            assertEquals(UpdateDownloader.ApkState.Ready, UpdateDownloader.apkState(f, 10L, false))
-            assertEquals(UpdateDownloader.ApkState.Partial, UpdateDownloader.apkState(f, 11L, false))
-            // Unknown size without DM receipt never counts as complete.
-            assertEquals(UpdateDownloader.ApkState.Partial, UpdateDownloader.apkState(f, null, false))
-            // Unknown size with DM SUCCESS receipt is installable.
-            assertEquals(UpdateDownloader.ApkState.Ready, UpdateDownloader.apkState(f, null, true))
-        } finally {
-            f.delete()
-        }
-        val missing = File("/tmp/uukanshu-test-missing-${System.nanoTime()}.apk")
-        assertEquals(UpdateDownloader.ApkState.Missing, UpdateDownloader.apkState(missing, 10L, false))
+        // Pure table: literals in, state out — no temp files.
+        assertEquals(UpdateDownloader.ApkState.Ready, UpdateDownloader.apkState(true, 10L, 10L, dmSuccess = false))
+        assertEquals(UpdateDownloader.ApkState.Partial, UpdateDownloader.apkState(true, 10L, 11L, dmSuccess = false))
+        // Unknown size without DM receipt never counts as complete.
+        assertEquals(UpdateDownloader.ApkState.Partial, UpdateDownloader.apkState(true, 10L, null, dmSuccess = false))
+        // Unknown size with DM SUCCESS receipt is installable.
+        assertEquals(UpdateDownloader.ApkState.Ready, UpdateDownloader.apkState(true, 10L, null, dmSuccess = true))
+        assertEquals(UpdateDownloader.ApkState.Missing, UpdateDownloader.apkState(false, 0L, 10L, dmSuccess = false))
+        assertEquals(UpdateDownloader.ApkState.Missing, UpdateDownloader.apkState(true, 0L, 10L, dmSuccess = false))
     }
 
     @Test fun backgroundRevalidateCancellationPropagates() = runBlocking {

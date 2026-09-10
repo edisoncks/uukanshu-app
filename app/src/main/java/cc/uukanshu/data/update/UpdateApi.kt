@@ -24,6 +24,16 @@ data class UpdateInfo(
     val htmlUrl: String,
     /** Asset size in bytes from GitHub, null when unknown. */
     val size: Long? = null,
+    /**
+     * Server-side sha256 of the APK, normalized to 64 lowercase hex chars.
+     * GitHub computes the asset `digest` at upload time, so it travels in the
+     * same authenticated `/releases/latest` payload that names the asset — no
+     * release-process change. Null when absent/malformed (legacy payload):
+     * the size-only completeness path still applies. The downloaded file must
+     * hash to this before anything counts as Ready/installable
+     * (see [UpdateDownloader.apkState]).
+     */
+    val sha256: String? = null,
 )
 
 /** Numeric dot-separated compare (`1.0.15` > `1.0.9`); pure + unit-tested. */
@@ -81,10 +91,7 @@ object VersionCompare {
 }
 
 class UpdateApi(
-    private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .build(),
+    private val client: OkHttpClient = defaultClient(),
 ) : ReleaseFetcher {
     /** Blocking; call on Dispatchers.IO. Throws [IOException] on failure. */
     @Throws(IOException::class)
@@ -104,6 +111,34 @@ class UpdateApi(
     companion object {
         const val REPO = "edisoncks/uukanshu-app"
         const val LATEST_URL = "https://api.github.com/repos/$REPO/releases/latest"
+
+        /**
+         * Whole-call bound for update checks: connect+read are 30s each, so a
+         * slow-drip response could otherwise stretch a "quick" check to 60s+.
+         * 45s caps the drip while tolerating a slow CDN (faster than the sum,
+         * slower than either alone). Same lesson as SiteApi profiling
+         * (interactive 30s/30s + 90s deadline): `callTimeout` aborts at the
+         * socket layer — a coroutine `withTimeout` cannot interrupt a blocking
+         * read.
+         */
+        const val UPDATE_CALL_TIMEOUT_S = 45L
+
+        /** Testable default so the bound is asserted, not hoped for. */
+        fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .callTimeout(UPDATE_CALL_TIMEOUT_S, TimeUnit.SECONDS)
+            .build()
+
+        private val digestRe = Regex("sha256:([0-9a-f]{64})")
+
+        /**
+         * Normalize a GitHub asset `digest` (`sha256:<64 hex>`) to 64 lowercase
+         * hex chars. Anything else (other algorithm, wrong length, trailing
+         * junk, null) is null: fail closed to size-only, never crash a check.
+         */
+        fun parseDigest(raw: String?): String? =
+            raw?.lowercase(java.util.Locale.ROOT)?.let { digestRe.matchEntire(it)?.groupValues?.get(1) }
 
         /**
          * Pure parse of a `releases/latest` payload; null when unusable.
@@ -136,6 +171,10 @@ class UpdateApi(
             if (name != expectedName) return null
             // GitHub reports asset size as a JSON number; absent on old payloads.
             val size = (asset["size"] as? Number)?.toLong()?.takeIf { it > 0 }
+            // Server-side sha256 (see UpdateInfo.sha256). Malformed/absent
+            // digest is lenient (null), never a parse failure: an old payload
+            // without it must keep updating via the size-only path.
+            val sha256 = parseDigest(asset["digest"] as? String)
             UpdateInfo(
                 tag = tag,
                 version = VersionCompare.normalize(tag),
@@ -144,6 +183,7 @@ class UpdateApi(
                 apkName = name,
                 htmlUrl = ((root["html_url"] as? String) ?: "").trim(),
                 size = size,
+                sha256 = sha256,
             )
         }.getOrNull()
     }

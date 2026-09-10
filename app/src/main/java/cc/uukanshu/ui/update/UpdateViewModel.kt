@@ -54,13 +54,15 @@ class UpdateViewModel(
         val fileReady: Boolean = false,
         /**
          * Fresh DownloadManager SUCCESS receipt for the current [info].
-         * Gates the sizeless install path (see `isInstallable`): set only on
+         * Gates the sizeless install path (see `apkState`): set only on
          * `DownloadStatus.Success`, cleared whenever [info] changes, so a
          * killed-process partial with unknown size can never ride an old
          * receipt (or a user tap alone) into the installer.
          */
         val downloadSucceeded: Boolean = false,
         val needsUnknownSources: Boolean = false,
+        /** Install-gate verification in flight (hashing on IO); blocks double-tap. */
+        val installing: Boolean = false,
         val error: String? = null,
     )
 
@@ -92,6 +94,8 @@ class UpdateViewModel(
             if (!manual && remoteVersion == skippedVersion) return false
             return true
         }
+
+
     }
 
     private val _ui = MutableStateFlow(Ui())
@@ -145,6 +149,7 @@ class UpdateViewModel(
                         upToDate = manual && upToDate,
                         info = null,
                         downloadSucceeded = false,
+                        installing = false,
                     )
                 }
                 return
@@ -153,11 +158,11 @@ class UpdateViewModel(
             // skip straight to the install prompt. Byte-exact size match only;
             // a partial file must re-download, never install.
             val alreadyHave = withContext(Dispatchers.IO) {
-                UpdateDownloader.isComplete(downloader.apkFile(info), info.size)
+                UpdateDownloader.isCompleteIO(downloader.apkFile(info), info.size, info.sha256)
             }
             _ui.update {
                 it.copy(checking = false, visible = true, info = info,
-                    fileReady = alreadyHave, downloadSucceeded = false)
+                    fileReady = alreadyHave, downloadSucceeded = false, installing = false)
             }
         } catch (e: Exception) {
             if (e is CancellationException) throw e
@@ -194,7 +199,7 @@ class UpdateViewModel(
         // Skipping means go away: clear the pending update so the Settings
         // banner and dialog don't come straight back. Next manual check
         // re-fetches (manual ignores skipped); auto stays suppressed.
-        _ui.update { it.copy(visible = false, upToDate = false, error = null, info = null, downloadSucceeded = false) }
+        _ui.update { it.copy(visible = false, upToDate = false, error = null, info = null, downloadSucceeded = false, installing = false) }
     }
 
     fun startDownload() {
@@ -208,7 +213,8 @@ class UpdateViewModel(
             // Already-have check first: a complete APK on disk skips
             // straight to install even when the unknown-sources permission
             // was revoked since (install() needs no gate of its own).
-            if (UpdateDownloader.isComplete(downloader.apkFile(info), info.size)) {
+            val apkFile = downloader.apkFile(info)
+            if (UpdateDownloader.isCompleteIO(apkFile, info.size, info.sha256)) {
                 withContext(Dispatchers.Main) {
                     _ui.update { it.copy(downloading = false, fileReady = true) }
                 }
@@ -264,9 +270,61 @@ class UpdateViewModel(
                                 is DownloadStatus.Running -> _ui.update {
                                     it.copy(progress = s.progress)
                                 }
-                                is DownloadStatus.Success -> _ui.update {
-                                    it.copy(downloading = false, fileReady = true,
-                                        downloadId = null, downloadSucceeded = true)
+                                is DownloadStatus.Success -> {
+                                    // The bytes on disk belong to the release this
+                                    // download was enqueued for — not to whatever
+                                    // _ui.value.info holds at completion time (a
+                                    // mid-flight re-check or skip may have swapped
+                                    // or nulled it). Verify against the enqueued
+                                    // release and mint the receipt only while the
+                                    // dialog still describes that version; otherwise
+                                    // the download outlived its dialog — clear the
+                                    // terminal state silently (a bare return would
+                                    // wedge "downloading" forever; stale-file
+                                    // cleanup happens on the next enqueue). Within
+                                    // the matching version: verify the release digest
+                                    // before minting fileReady/receipt (a same-size
+                                    // corrupt APK never reaches the installer; on
+                                    // mismatch the file is deleted so a retry
+                                    // re-downloads), and payloads without a digest
+                                    // keep the size-only path.
+                                    if (_ui.value.info != info) {
+                                        _ui.update {
+                                            it.copy(downloading = false, downloadId = null)
+                                        }
+                                        return@collect
+                                    }
+                                    if (info.sha256 == null) {
+                                        _ui.update {
+                                            it.copy(downloading = false, fileReady = true,
+                                                downloadId = null, downloadSucceeded = true)
+                                        }
+                                    } else {
+                                        val outcome = withContext(Dispatchers.IO) {
+                                            val file = downloader.apkFile(info)
+                                            val state = UpdateDownloader.apkStateIO(
+                                                file, info.size, info.sha256,
+                                                dmSuccess = true,
+                                            )
+                                            Triple(file, state, if (file.exists()) file.length() else 0L)
+                                        }
+                                        if (outcome.second == UpdateDownloader.ApkState.Ready) {
+                                            _ui.update {
+                                                it.copy(downloading = false, fileReady = true,
+                                                    downloadId = null, downloadSucceeded = true)
+                                            }
+                                        } else {
+                                            val file = outcome.first
+                                            withContext(Dispatchers.IO) { runCatching { file.delete() } }
+                                            val failure = UpdateDownloader.apkGateFailure(
+                                                outcome.second, info.sha256, info.size, outcome.third)
+                                            _ui.update {
+                                                it.copy(downloading = false, fileReady = false,
+                                                    downloadId = null, downloadSucceeded = false,
+                                                    error = Errors.friendly(failure))
+                                            }
+                                        }
+                                    }
                                 }
                                 is DownloadStatus.Failed -> _ui.update {
                                     it.copy(downloading = false, error = Errors.friendlyText(s.reason),
@@ -303,19 +361,66 @@ class UpdateViewModel(
     /** Fire the system package installer for the downloaded APK. */
     fun install() {
         val info = _ui.value.info ?: return
-        val file = downloader.apkFile(info)
-        if (!UpdateDownloader.isInstallable(file, info.size, _ui.value.downloadSucceeded)) {
-            _ui.update { it.copy(fileReady = false, error = "APK file missing or incomplete, please re-download") }
-            return
+        // Synchronous Main test-and-set like markChecking: rapid taps must not
+        // launch duplicate verifications/installer intents (the old async gate
+        // fired launcher.start twice on double-tap).
+        val prev = _ui.getAndUpdate { cur ->
+            if (cur.installing) cur
+            else cur.copy(installing = true, error = null)
         }
-        // Firing the installer can throw (no handler, FileProvider
-        // misconfiguration, install blocked): surface it in the dialog,
-        // never crash the app out of an update tap.
-        try {
-            launcher.start(UpdateDownloader.installIntent(app, file))
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            _ui.update { it.copy(error = Errors.friendly(e)) }
+        if (prev.installing) return
+        viewModelScope.launch {
+            // Last integrity gate before the installer: size + DM receipt as
+            // before, plus the release sha256 when shipped. Hashing reads the
+            // whole APK — Dispatchers.IO, never Main; `downloadSucceeded` is
+            // snapshotted on Main so the gate sees one consistent state.
+            // `apkFile()` runs on IO (getExternalFilesDir does disk I/O).
+            // Pre-fire re-stat narrows the snapshot→install race window;
+            // it does not close it (installer fd race remains).
+            val receipt = _ui.value.downloadSucceeded
+            val gate = withContext(Dispatchers.IO) {
+                val file = downloader.apkFile(info)
+                val state = UpdateDownloader.apkStateIO(file, info.size, info.sha256, receipt)
+                Triple(file, state, if (file.exists()) file.length() else 0L)
+            }
+            if (gate.second != UpdateDownloader.ApkState.Ready) {
+                val failure = UpdateDownloader.apkGateFailure(gate.second, info.sha256, info.size, gate.third)
+                _ui.update {
+                    it.copy(
+                        fileReady = false,
+                        installing = false,
+                        error = Errors.friendly(failure),
+                    )
+                }
+                return@launch
+            }
+            val nowLen = withContext(Dispatchers.IO) {
+                val f = gate.first
+                if (f.exists()) f.length() else 0L
+            }
+            if (nowLen != gate.third) {
+                _ui.update {
+                    it.copy(
+                        fileReady = false,
+                        installing = false,
+                        error = Errors.friendly(UpdateDownloader.ApkFailure.INCOMPLETE),
+                    )
+                }
+                return@launch
+            }
+            // Firing the installer can throw (no handler, FileProvider
+            // misconfiguration, install blocked): surface it in the dialog,
+            // never crash the app out of an update tap.
+            try {
+                launcher.start(UpdateDownloader.installIntent(app, gate.first))
+                _ui.update { it.copy(installing = false) }
+            } catch (e: Exception) {
+                if (e is CancellationException) {
+                    _ui.update { it.copy(installing = false) }
+                    throw e
+                }
+                _ui.update { it.copy(installing = false, error = Errors.friendly(e)) }
+            }
         }
     }
 

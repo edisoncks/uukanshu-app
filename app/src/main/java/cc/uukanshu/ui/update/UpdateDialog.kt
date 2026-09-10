@@ -68,15 +68,17 @@ fun UpdateDialog(
 
         info != null -> {
             val title = when {
+                ui.fileReady && ui.installing -> display("正在驗證")
                 ui.fileReady -> display("已下載完成")
                 ui.downloading -> display("正在下載更新")
                 else -> display("發現新版本 ${info.tag}")
             }
             AlertDialog(
-                onDismissRequest = { if (!ui.downloading) onDismiss() },
+                onDismissRequest = { if (!ui.downloading && !ui.installing) onDismiss() },
                 confirmButton = {
                     when {
-                        ui.fileReady -> TextButton(onClick = onInstall) {
+                        ui.fileReady && ui.installing -> Text(display("正在驗證…"))
+                        ui.fileReady -> TextButton(onClick = onInstall, enabled = !ui.installing) {
                             Text(display("立即安裝"))
                         }
                         ui.downloading -> TextButton(onClick = onCancelDownload) {
@@ -89,7 +91,7 @@ fun UpdateDialog(
                 },
                 dismissButton = {
                     when {
-                        ui.downloading -> null
+                        ui.downloading || ui.installing -> null
                         ui.fileReady -> TextButton(onClick = onDismiss) {
                             Text(display("稍後"))
                         }
@@ -160,7 +162,14 @@ fun UpdateDialog(
                                 Text(display("改用瀏覽器下載"))
                             }
                         }
-                        if (!ui.downloading && !ui.fileReady) {
+                        if (ui.installing) {
+                            LinearProgressIndicator(Modifier.fillMaxWidth())
+                            Text(
+                                display("正在驗證…"),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        if (!ui.downloading && !ui.fileReady && !ui.installing) {
                             TextButton(
                                 onClick = onSkip,
                                 modifier = Modifier.padding(top = 4.dp),
