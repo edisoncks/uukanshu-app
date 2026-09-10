@@ -7,8 +7,6 @@ import cc.uukanshu.data.update.DownloadStatus
 import cc.uukanshu.data.update.ReleaseFetcher
 import cc.uukanshu.data.update.UpdateDownloader
 import cc.uukanshu.data.update.UpdateInfo
-import cc.uukanshu.core.ApkChecksumMismatchException
-import cc.uukanshu.core.ApkIncompleteException
 import cc.uukanshu.core.Errors
 import cc.uukanshu.ui.update.UpdateViewModel
 import kotlinx.coroutines.CompletableDeferred
@@ -221,7 +219,7 @@ class UpdateIntegrityVmTest {
         assertFalse(vm.ui.value.fileReady)
         // Corruption with a digest on record and a matching size is a checksum
         // failure — the gate must say so, not "incomplete".
-        assertEquals(Errors.friendly(ApkChecksumMismatchException()), vm.ui.value.error)
+        assertEquals(Errors.friendly(UpdateDownloader.ApkFailure.CHECKSUM_MISMATCH), vm.ui.value.error)
         file.delete()
     }
 
@@ -260,7 +258,7 @@ class UpdateIntegrityVmTest {
         await { vm.ui.value.error != null }
         assertEquals(0, launched.get())
         assertFalse(vm.ui.value.installing)
-        assertEquals(Errors.friendly(ApkChecksumMismatchException()), vm.ui.value.error)
+        assertEquals(Errors.friendly(UpdateDownloader.ApkFailure.CHECKSUM_MISMATCH), vm.ui.value.error)
     }
 
     @Test fun `dm success with wrong size errors as incomplete not checksum`() = runTest {
@@ -277,7 +275,7 @@ class UpdateIntegrityVmTest {
         assertFalse(ui.fileReady)
         assertFalse(ui.downloadSucceeded)
         assertFalse("file must be deleted so a retry re-downloads", file.exists())
-        assertEquals(Errors.friendly(ApkIncompleteException()), ui.error)
+        assertEquals(Errors.friendly(UpdateDownloader.ApkFailure.INCOMPLETE), ui.error)
         file.delete()
     }
 
@@ -297,14 +295,14 @@ class UpdateIntegrityVmTest {
         await { vm.ui.value.error != null }
         assertEquals(0, launched.get())
         assertFalse(vm.ui.value.installing)
-        assertEquals(Errors.friendly(ApkIncompleteException()), vm.ui.value.error)
+        assertEquals(Errors.friendly(UpdateDownloader.ApkFailure.INCOMPLETE), vm.ui.value.error)
     }
 
     @Test fun `dm mismatch error maps via Errors`() = runTest {
         // Typed mapping, not substring sniffing: Traditional source for display().
         assertEquals(
             "APK 校驗失敗，請重新下載",
-            Errors.friendly(ApkChecksumMismatchException()),
+            Errors.friendly(UpdateDownloader.ApkFailure.CHECKSUM_MISMATCH),
         )
     }
 
@@ -387,5 +385,34 @@ class UpdateIntegrityVmTest {
         )
         file.delete()
     }
-}
 
+    @Test fun `same version different digest swap never mints`() = runTest {
+        // Full-info pin (not version-string): same version, different digest
+        // mid-flight must still clear terminal state without mint or error.
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        grantCanInstall(app)
+        val file = File.createTempFile("uukanshu-swap-samever", ".apk").also { it.delete() }
+        val gate = CompletableDeferred<Unit>()
+        val dl = FakeDl(file, gate = gate, onSuccess = { file.writeBytes(good) })
+        val vm = UpdateViewModel(
+            ApplicationProvider.getApplicationContext(),
+            MutableFakePrefs(),
+            swapFetcher(info(5L, sha(good)), info(5L, "b".repeat(64))),
+            dl,
+            ActivityLauncher { },
+        )
+        vm.manualCheck()
+        await { vm.ui.value.info?.sha256 == sha(good) }
+        vm.startDownload()
+        await { vm.ui.value.downloading && vm.ui.value.downloadId == 42L }
+        vm.manualCheck()
+        await { vm.ui.value.info?.sha256 == "b".repeat(64) }
+        gate.complete(Unit)
+        await { !vm.ui.value.downloading }
+        val ui = vm.ui.value
+        assertNull("error=${ui.error}", ui.error)
+        assertFalse(ui.fileReady)
+        assertFalse(ui.downloadSucceeded)
+        file.delete()
+    }
+}

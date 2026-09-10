@@ -138,7 +138,7 @@ class UpdateApi(
          * junk, null) is null: fail closed to size-only, never crash a check.
          */
         fun parseDigest(raw: String?): String? =
-            raw?.lowercase()?.let { digestRe.matchEntire(it)?.groupValues?.get(1) }
+            raw?.lowercase(java.util.Locale.ROOT)?.let { digestRe.matchEntire(it)?.groupValues?.get(1) }
 
         /**
          * Pure parse of a `releases/latest` payload; null when unusable.
