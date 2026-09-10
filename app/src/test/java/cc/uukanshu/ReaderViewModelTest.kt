@@ -138,6 +138,26 @@ class ReaderViewModelTest {
         assertEquals(Prefs.FONT_MIN, vm.fontScale.value)
     }
 
+    @Test fun setFontScaleClampsAndIdempotent() = runTest {
+        val repo = MutableFakeRepo(
+            fresh = testDetail(101L),
+            chaptersText = mutableMapOf(101L to "t1"),
+        )
+        val prefs = MutableFakePrefs()
+        val vm = ReaderViewModel(repo, T2S(), prefs, "1", 1, 101L)
+        idle()
+        // Absolute set for the Slider: out-of-range coerces to bounds.
+        vm.setFontScale(2f)
+        assertEquals(Prefs.FONT_MAX, vm.fontScale.value)
+        vm.setFontScale(0f)
+        assertEquals(Prefs.FONT_MIN, vm.fontScale.value)
+        // Idempotent: same value is a no-op, stays put.
+        vm.setFontScale(Prefs.FONT_MIN)
+        assertEquals(Prefs.FONT_MIN, vm.fontScale.value)
+        vm.setFontScale(1.3f)
+        assertEquals(1.3f, vm.fontScale.value!!)
+    }
+
     @Test fun cycleThemeRotatesSystemLightDark() = runTest {
         val repo = MutableFakeRepo(
             fresh = testDetail(101L),
