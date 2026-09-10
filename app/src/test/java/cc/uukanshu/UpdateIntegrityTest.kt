@@ -10,6 +10,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
+/** The default update client bounds the whole call, not just connect/read. */
+class UpdateApiCallTimeoutTest {
+    @Test
+    fun `default client bounds whole call`() {
+        assertEquals(
+            UpdateApi.UPDATE_CALL_TIMEOUT_S * 1000L,
+            UpdateApi.defaultClient().callTimeoutMillis.toLong(),
+        )
+    }
+}
+
 /** `/releases/latest` payload → UpdateInfo.sha256 (asset `digest` field). */
 class UpdateDigestParseTest {
     private fun payload(digest: String?): String {

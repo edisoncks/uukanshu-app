@@ -91,10 +91,7 @@ object VersionCompare {
 }
 
 class UpdateApi(
-    private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .build(),
+    private val client: OkHttpClient = defaultClient(),
 ) : ReleaseFetcher {
     /** Blocking; call on Dispatchers.IO. Throws [IOException] on failure. */
     @Throws(IOException::class)
@@ -114,6 +111,21 @@ class UpdateApi(
     companion object {
         const val REPO = "edisoncks/uukanshu-app"
         const val LATEST_URL = "https://api.github.com/repos/$REPO/releases/latest"
+
+        /**
+         * Whole-call bound for update checks: connect+read are 30s each, so a
+         * slow-drip response could otherwise stretch a "quick" check for
+         * minutes. Same lesson as SiteApi: `callTimeout` aborts at the socket
+         * layer — a coroutine `withTimeout` cannot interrupt a blocking read.
+         */
+        const val UPDATE_CALL_TIMEOUT_S = 45L
+
+        /** Testable default so the bound is asserted, not hoped for. */
+        fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .callTimeout(UPDATE_CALL_TIMEOUT_S, TimeUnit.SECONDS)
+            .build()
 
         private val digestRe = Regex("sha256:([0-9a-f]{64})")
 
