@@ -4,20 +4,25 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -45,9 +50,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -257,38 +259,37 @@ private fun ReaderBottomBar(
     onPrev: () -> Unit,
     onNext: () -> Unit,
 ) {
-    // Single sticky bottom nav: settings in ⋯ (left, out of thumb way),
+    // Match TopBar: surface + single divider (no tonal slab), tonal nav
+    // keeps focus on text. Settings in IconButton (left, out of thumb way),
     // prev/next dominate the thumb zone.
-    Surface(tonalElevation = 3.dp) {
+    Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
         Column {
             HorizontalDivider()
             Row(
-                Modifier.fillMaxWidth().padding(8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Label the button by meaning (not the ⋯ glyph): parent keeps
-                // OnClick + Role.Button, child glyph hidden so TalkBack reads
-                // "閱讀設定, Button" once instead of "ellipsis" + glyph.
-                TextButton(
-                    onClick = onSettings,
-                    modifier = Modifier.semantics { contentDescription = display("閱讀設定") },
-                ) {
-                    Text("⋯", fontSize = 20.sp, modifier = Modifier.clearAndSetSemantics { })
+                IconButton(onClick = onSettings) {
+                    Icon(Icons.Filled.Tune, contentDescription = display("閱讀設定"))
                 }
-                Button(
+                FilledTonalButton(
                     onClick = onPrev,
                     enabled = !ui.isLoading && ui.position > 1,
                     modifier = Modifier.weight(1f),
                 ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
                     Text(display("上一章"))
                 }
-                Button(
+                FilledTonalButton(
                     onClick = onNext,
                     enabled = !ui.isLoading,
                     modifier = Modifier.weight(1f),
                 ) {
                     Text(display("下一章"))
+                    Spacer(Modifier.width(8.dp))
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null)
                 }
             }
         }
