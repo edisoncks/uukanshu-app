@@ -153,7 +153,11 @@ class UpdateViewModel(
             // skip straight to the install prompt. Byte-exact size match only;
             // a partial file must re-download, never install.
             val alreadyHave = withContext(Dispatchers.IO) {
-                UpdateDownloader.isComplete(downloader.apkFile(info), info.size)
+                val file = downloader.apkFile(info)
+                UpdateDownloader.isComplete(
+                    file, info.size, info.sha256,
+                    UpdateDownloader.actualSha256(file, info.sha256),
+                )
             }
             _ui.update {
                 it.copy(checking = false, visible = true, info = info,
@@ -208,7 +212,12 @@ class UpdateViewModel(
             // Already-have check first: a complete APK on disk skips
             // straight to install even when the unknown-sources permission
             // was revoked since (install() needs no gate of its own).
-            if (UpdateDownloader.isComplete(downloader.apkFile(info), info.size)) {
+            val apkFile = downloader.apkFile(info)
+            if (UpdateDownloader.isComplete(
+                    apkFile, info.size, info.sha256,
+                    UpdateDownloader.actualSha256(apkFile, info.sha256),
+                )
+            ) {
                 withContext(Dispatchers.Main) {
                     _ui.update { it.copy(downloading = false, fileReady = true) }
                 }
@@ -264,9 +273,42 @@ class UpdateViewModel(
                                 is DownloadStatus.Running -> _ui.update {
                                     it.copy(progress = s.progress)
                                 }
-                                is DownloadStatus.Success -> _ui.update {
-                                    it.copy(downloading = false, fileReady = true,
-                                        downloadId = null, downloadSucceeded = true)
+                                is DownloadStatus.Success -> {
+                                    // Verify the release digest before minting
+                                    // fileReady/receipt: a same-size corrupt APK
+                                    // never reaches the installer. On mismatch
+                                    // the file is deleted so a retry re-downloads.
+                                    // Legacy payloads without a digest keep the
+                                    // old size-only path.
+                                    val info = _ui.value.info
+                                    if (info == null || info.sha256 == null) {
+                                        _ui.update {
+                                            it.copy(downloading = false, fileReady = true,
+                                                downloadId = null, downloadSucceeded = true)
+                                        }
+                                    } else {
+                                        val file = downloader.apkFile(info)
+                                        val ok = withContext(Dispatchers.IO) {
+                                            UpdateDownloader.isInstallable(
+                                                file, info.size, info.sha256,
+                                                UpdateDownloader.sha256Hex(file),
+                                                dmSuccess = true,
+                                            )
+                                        }
+                                        if (ok) {
+                                            _ui.update {
+                                                it.copy(downloading = false, fileReady = true,
+                                                    downloadId = null, downloadSucceeded = true)
+                                            }
+                                        } else {
+                                            withContext(Dispatchers.IO) { runCatching { file.delete() } }
+                                            _ui.update {
+                                                it.copy(downloading = false, fileReady = false,
+                                                    downloadId = null, downloadSucceeded = false,
+                                                    error = "APK checksum verification failed, please re-download")
+                                            }
+                                        }
+                                    }
                                 }
                                 is DownloadStatus.Failed -> _ui.update {
                                     it.copy(downloading = false, error = Errors.friendlyText(s.reason),
@@ -303,19 +345,33 @@ class UpdateViewModel(
     /** Fire the system package installer for the downloaded APK. */
     fun install() {
         val info = _ui.value.info ?: return
-        val file = downloader.apkFile(info)
-        if (!UpdateDownloader.isInstallable(file, info.size, _ui.value.downloadSucceeded)) {
-            _ui.update { it.copy(fileReady = false, error = "APK file missing or incomplete, please re-download") }
-            return
-        }
-        // Firing the installer can throw (no handler, FileProvider
-        // misconfiguration, install blocked): surface it in the dialog,
-        // never crash the app out of an update tap.
-        try {
-            launcher.start(UpdateDownloader.installIntent(app, file))
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            _ui.update { it.copy(error = Errors.friendly(e)) }
+        viewModelScope.launch {
+            // Last integrity gate before the installer: size + DM receipt as
+            // before, plus the release sha256 when shipped. Hashing reads the
+            // whole APK — Dispatchers.IO, never Main; `downloadSucceeded` is
+            // snapshotted on Main so the gate sees one consistent state.
+            val file = downloader.apkFile(info)
+            val receipt = _ui.value.downloadSucceeded
+            val installable = withContext(Dispatchers.IO) {
+                UpdateDownloader.isInstallable(
+                    file, info.size, info.sha256,
+                    UpdateDownloader.actualSha256(file, info.sha256),
+                    receipt,
+                )
+            }
+            if (!installable) {
+                _ui.update { it.copy(fileReady = false, error = "APK file missing or incomplete, please re-download") }
+                return@launch
+            }
+            // Firing the installer can throw (no handler, FileProvider
+            // misconfiguration, install blocked): surface it in the dialog,
+            // never crash the app out of an update tap.
+            try {
+                launcher.start(UpdateDownloader.installIntent(app, file))
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                _ui.update { it.copy(error = Errors.friendly(e)) }
+            }
         }
     }
 

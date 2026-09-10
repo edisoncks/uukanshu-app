@@ -27,6 +27,16 @@ class UpdateViewModelTest {
         main.dispatcher.scheduler.advanceUntilIdle()
     }
 
+    /** Poll until [cond] or deadline: code under test hops to real Dispatchers.IO. */
+    private fun awaitUi(cond: () -> Boolean) {
+        var tries = 0
+        while (!cond() && tries < 100) {
+            Thread.sleep(50)
+            main.dispatcher.scheduler.advanceUntilIdle()
+            tries++
+        }
+    }
+
     private class CountingFetcher(val calls: AtomicInteger, val info: UpdateInfo) : ReleaseFetcher {
         override fun fetchLatest(): UpdateInfo {
             calls.incrementAndGet()
@@ -97,6 +107,8 @@ class UpdateViewModelTest {
         }
         assertEquals("9.9.9", vm.ui.value.info?.version)
         vm.install()
+        // install() verifies the gate on Dispatchers.IO: wait for the verdict.
+        awaitUi { vm.ui.value.error != null }
         assertEquals(true, vm.ui.value.error?.isNotEmpty())
     }
 
@@ -128,6 +140,8 @@ class UpdateViewModelTest {
             tries++
         }
         vm.install()
+        // install() verifies the gate on Dispatchers.IO: wait for the verdict.
+        awaitUi { vm.ui.value.error != null }
         assertEquals(0, launched)
         assertEquals(true, vm.ui.value.error?.isNotEmpty())
         assertFalse(vm.ui.value.fileReady)

@@ -73,7 +73,13 @@ so keep it short, no huge dumps).
 
 ### 5. Smoke-test
 
-1. Open the **Releases** page and confirm exactly one APK is attached.
+1. Open the **Releases** page and confirm exactly one APK is attached, and
+   that the API exposes its digest (the in-app updater verifies it):
+
+   ```sh
+   curl -s https://api.github.com/repos/edisoncks/uukanshu-app/releases/latest \
+     | jq -r '.assets[0].digest'
+   ```
 2. On a device (Android 12+), download the APK from the release and install
    it once (clean-install path).
 3. Smoke-test the in-app path: install the *previous* release, trigger the
@@ -93,10 +99,23 @@ releases:
   `uukanshu-{tag-version}.apk` match; any other `.apk`, including a
   version-mismatched `uukanshu-*.apk`, is ignored and yields no update).
   Never rename it and never attach a second APK.
+- The APK is integrity-checked in-app via the asset's server-side sha256
+  (`digest` field, computed by GitHub at upload): the downloaded file must
+  hash to it before it counts as ready or installable; a mismatch deletes
+  the file and asks for a re-download. Nothing to compute by hand — `gh
+  release create` uploads are digested automatically. **Never re-upload or
+  replace the asset after publishing**: clients that already fetched the
+  payload hold the old digest and will refuse the new bytes (by design — a
+  post-publish swap is a publish mistake, not a refresh). Threat model:
+  catches corruption / wrong-stale content; it is NOT an anti-tamper system
+  against a malicious GitHub or a compromised release key (the APK update
+  signature check stays the anti-tamper anchor; out-of-band release signing
+  would be the escalation).
 - Release body is shown verbatim as the update changelog (keep it concise,
   plain Markdown, no huge dumps — the dialog scrolls at ~220dp).
 - Non-matching APK assets fail closed (no update offered, never a partial
   install) — see `UpdateViewModel` / `UpdateDownloader.isComplete` /
-  `isInstallable` (byte-exact when size known; unknown size installs only with
-  a fresh DownloadManager Success receipt for that download — a stale file or a
-  bare user tap never qualifies).
+  `isInstallable` (byte-exact when size known; sha256-verified when the
+  release ships a digest; unknown size installs only with a fresh
+  DownloadManager Success receipt for that download — a stale file or a bare
+  user tap never qualifies).

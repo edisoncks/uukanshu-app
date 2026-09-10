@@ -8,6 +8,7 @@ import android.os.Environment
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import java.io.File
+import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -41,14 +42,15 @@ class UpdateDownloader(private val context: Context) : ApkDownloader {
     /**
      * Enqueue the download. Returns the [DownloadManager] id, or -1 when a
      * complete file for this version is already on disk (caller can install).
-     * Completeness means byte-exact match against the GitHub asset size;
-     * anything else (missing, empty, partial, or unknown size) is deleted
-     * and re-downloaded. Length > 0 alone proves nothing after a kill.
+     * Completeness means byte-exact size match — and sha256 digest match when
+     * the release ships one; anything else (missing, empty, partial, wrong
+     * digest, or unknown size) is deleted and re-downloaded. Length > 0 alone
+     * proves nothing after a kill.
      */
     override fun enqueue(info: UpdateInfo): Long {
         deleteStaleApks(keepName = info.apkName)
         val file = apkFile(info)
-        if (isComplete(file, info.size)) return -1L
+        if (isComplete(file, info.size, info.sha256, actualSha256(file, info.sha256))) return -1L
         if (file.exists()) file.delete()
         val req = DownloadManager.Request(Uri.parse(info.apkUrl))
             .setTitle("uukanshu ${info.tag}")
@@ -128,7 +130,8 @@ class UpdateDownloader(private val context: Context) : ApkDownloader {
      * the tested predicates behind it. */
     sealed interface ApkState {
         data object Missing : ApkState
-        /** Present but shorter/longer than the release size (or empty). */
+        /** Present but shorter/longer than the release size, sha256 mismatch (or
+         * an expected digest with no computed hash), or empty. */
         data object Partial : ApkState
         /** Byte-exact match, or non-empty after a fresh DM SUCCESS with unknown size. */
         data object Ready : ApkState
@@ -137,27 +140,73 @@ class UpdateDownloader(private val context: Context) : ApkDownloader {
     companion object {
 
         /**
+         * IO: sha256 of [file] as lowercase hex, or null when unreadable.
+         * Streaming digest — an APK is ~6 MB, never load it whole. Call on
+         * Dispatchers.IO only (call sites already are); ~20ms for 6 MB.
+         */
+        fun sha256Hex(file: File): String? = runCatching {
+            val md = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buf = ByteArray(8 * 1024)
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    md.update(buf, 0, n)
+                }
+            }
+            md.digest().joinToString("") { "%02x".format(it) }
+        }.getOrNull()
+
+        /**
+         * IO: the computed digest when one must be verified, else null — a
+         * release without a digest must not pay a file read on the legacy
+         * size-only path.
+         */
+        fun actualSha256(file: File, expectedSha256: String?): String? =
+            if (expectedSha256 == null) null else sha256Hex(file)
+
+        /**
          * Resolve [ApkState] for [file]. `dmSuccess=true` only immediately
          * after DownloadManager reported SUCCESS for this id (system receipt);
          * everywhere else (alreadyHave/enqueue) pass false so unknown size
          * never counts as complete.
+         *
+         * Integrity: when the release ships a sha256 digest ([expectedSha256],
+         * from the GitHub asset `digest` field), the file must hash to it —
+         * a same-size corrupt APK is [ApkState.Partial]. An expected digest
+         * with a null [actualSha256] (not computed) also fails closed; a
+         * release without a digest keeps the size-only behavior. Threat model:
+         * corruption, wrong/stale content planes, post-publish asset swaps —
+         * NOT a malicious GitHub (see RELEASING.md § Updater contract).
          */
-        fun apkState(file: File, expectedSize: Long?, dmSuccess: Boolean = false): ApkState {
+        fun apkState(
+            file: File,
+            expectedSize: Long?,
+            expectedSha256: String? = null,
+            actualSha256: String? = null,
+            dmSuccess: Boolean = false,
+        ): ApkState {
             if (!file.exists() || file.length() <= 0) return ApkState.Missing
-            if (expectedSize != null) {
-                return if (file.length() == expectedSize) ApkState.Ready else ApkState.Partial
-            }
-            // Unknown size: strict without a DM receipt, lenient with one.
-            return if (dmSuccess) ApkState.Ready else ApkState.Partial
+            val sizeOk = if (expectedSize != null) file.length() == expectedSize else dmSuccess
+            val hashOk = expectedSha256 == null ||
+                (actualSha256 != null && actualSha256.equals(expectedSha256, ignoreCase = true))
+            return if (sizeOk && hashOk) ApkState.Ready else ApkState.Partial
         }
 
         /** Byte-exact completeness check shared by enqueue/alreadyHave.
          *
          * Strict by design: unknown size never counts as complete, so a
          * partial file left by a killed process can never skip re-download.
+         * With a digest, the file must hash to it — null [actualSha256] fails
+         * closed so a not-yet-computed hash can never fake a match.
          */
-        fun isComplete(file: File, expectedSize: Long?): Boolean =
-            apkState(file, expectedSize, dmSuccess = false) == ApkState.Ready
+        fun isComplete(
+            file: File,
+            expectedSize: Long?,
+            expectedSha256: String? = null,
+            actualSha256: String? = null,
+        ): Boolean =
+            apkState(file, expectedSize, expectedSha256, actualSha256, dmSuccess = false) == ApkState.Ready
 
         /**
          * Install gate: byte-exact when the release reports a size, otherwise
@@ -166,9 +215,21 @@ class UpdateDownloader(private val context: Context) : ApkDownloader {
          * for alreadyHave/enqueue (no receipt there); callers must pass whether
          * the current file actually just succeeded — never hardcode true, or a
          * killed-process partial with unknown size sneaks into the installer.
+         *
+         * Last integrity check before the installer fires: when the release
+         * ships a digest, [expectedSha256] must match the freshly computed
+         * [actualSha256]. Android's own update signature check remains the
+         * anti-tamper anchor; this gate catches corruption before the user
+         * meets a system error dialog.
          */
-        fun isInstallable(file: File, expectedSize: Long?, dmSuccess: Boolean): Boolean =
-            apkState(file, expectedSize, dmSuccess) == ApkState.Ready
+        fun isInstallable(
+            file: File,
+            expectedSize: Long?,
+            expectedSha256: String? = null,
+            actualSha256: String? = null,
+            dmSuccess: Boolean,
+        ): Boolean =
+            apkState(file, expectedSize, expectedSha256, actualSha256, dmSuccess) == ApkState.Ready
 
         /** Local version via PackageManager (no BuildConfig flag needed). */
         fun currentVersion(context: Context): String = runCatching {

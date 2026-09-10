@@ -24,6 +24,16 @@ data class UpdateInfo(
     val htmlUrl: String,
     /** Asset size in bytes from GitHub, null when unknown. */
     val size: Long? = null,
+    /**
+     * Server-side sha256 of the APK, normalized to 64 lowercase hex chars.
+     * GitHub computes the asset `digest` at upload time, so it travels in the
+     * same authenticated `/releases/latest` payload that names the asset — no
+     * release-process change. Null when absent/malformed (legacy payload):
+     * the size-only completeness path still applies. The downloaded file must
+     * hash to this before anything counts as Ready/installable
+     * (see [UpdateDownloader.apkState]).
+     */
+    val sha256: String? = null,
 )
 
 /** Numeric dot-separated compare (`1.0.15` > `1.0.9`); pure + unit-tested. */
@@ -105,6 +115,16 @@ class UpdateApi(
         const val REPO = "edisoncks/uukanshu-app"
         const val LATEST_URL = "https://api.github.com/repos/$REPO/releases/latest"
 
+        private val digestRe = Regex("sha256:([0-9a-f]{64})")
+
+        /**
+         * Normalize a GitHub asset `digest` (`sha256:<64 hex>`) to 64 lowercase
+         * hex chars. Anything else (other algorithm, wrong length, trailing
+         * junk, null) is null: fail closed to size-only, never crash a check.
+         */
+        fun parseDigest(raw: String?): String? =
+            raw?.lowercase()?.let { digestRe.matchEntire(it)?.groupValues?.get(1) }
+
         /**
          * Pure parse of a `releases/latest` payload; null when unusable.
          * Uses [JsonMini] (not org.json) so it also runs in JVM unit tests.
@@ -136,6 +156,10 @@ class UpdateApi(
             if (name != expectedName) return null
             // GitHub reports asset size as a JSON number; absent on old payloads.
             val size = (asset["size"] as? Number)?.toLong()?.takeIf { it > 0 }
+            // Server-side sha256 (see UpdateInfo.sha256). Malformed/absent
+            // digest is lenient (null), never a parse failure: an old payload
+            // without it must keep updating via the size-only path.
+            val sha256 = parseDigest(asset["digest"] as? String)
             UpdateInfo(
                 tag = tag,
                 version = VersionCompare.normalize(tag),
@@ -144,6 +168,7 @@ class UpdateApi(
                 apkName = name,
                 htmlUrl = ((root["html_url"] as? String) ?: "").trim(),
                 size = size,
+                sha256 = sha256,
             )
         }.getOrNull()
     }

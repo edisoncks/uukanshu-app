@@ -207,9 +207,14 @@ pure `shouldAutoCheck`/`shouldOfferUpdate` policy is JVM-tested
   `UpdateDownloader.observe(id)` (emits `DownloadStatus` until terminal,
   then completes) with progress (0..1, indeterminate fallback). The VM
   only maps states to dialog state. Single file-state table `ApkState`
-  (`Missing/Partial/Ready`, `apkState(file, size, dmSuccess)`; `isComplete`
-  strict without DM receipt for alreadyHave/enqueue, `isInstallable` lenient
-  with receipt after a fresh Success so sizeless releases stay installable), FileProvider +
+  (`Missing/Partial/Ready`, `apkState(file, size, sha256, actual, dmSuccess)`;
+  `isComplete` strict without DM receipt for alreadyHave/enqueue,
+  `isInstallable` lenient with receipt after a fresh Success so sizeless
+  releases stay installable). The release's server-side sha256 (asset
+  `digest` field) is verified before `fileReady` is minted (already-have
+  check, DM Success) and at the install gate — a mismatch deletes the file
+  and surfaces a re-download error; payloads without a digest keep the
+  size-only path. FileProvider +
   installer intent handoff. Same-version file already on disk skips straight
   to install. `REQUEST_INSTALL_PACKAGES` permission + system "unknown sources"
   grant required (first in-app update prompts once). Intent fires go through the
@@ -219,5 +224,6 @@ pure `shouldAutoCheck`/`shouldOfferUpdate` policy is JVM-tested
   re-openable from Settings; browser-download fallback always offered on
   error; release body is shown verbatim as the changelog (kept concise).
 - **Release-shape dependency:** tag `vX.Y.Z` == `versionName X.Y.Z`, exactly
-  one asset named `uukanshu-X.Y.Z.apk` (enforced by exact-name match). Full contract in
+  one asset named `uukanshu-X.Y.Z.apk` (enforced by exact-name match; its
+  server-side sha256 `digest` is verified in-app before install). Full contract in
   [RELEASING.md](RELEASING.md#updater-contract-do-not-break).
