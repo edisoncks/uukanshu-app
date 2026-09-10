@@ -57,11 +57,13 @@ The bottom of the screen has four tabs:
 
 ### Reading page
 
-- Swipe/scroll to read. Use **上一章** ("Previous chapter") and **下一章** ("Next chapter") at the bottom to move between chapters.
-- Tap **⋯** (bottom-left) for reading options:
-  - Switch between **繁體** (Traditional) and **簡體** (Simplified).
-  - Make text bigger (**A+**) or smaller (**A-**).
-  - Change theme (主題：自動 / 淺色 / 深色 — Auto / Light / Dark).
+- Top bar shows the book name and `position/total`, with a back arrow. The chapter title stays pinned below it while the body scrolls.
+- Swipe/scroll to read (text is selectable). Use **上一章** ("Previous chapter") and **下一章** ("Next chapter") at the bottom to move between chapters.
+- Tap **⋯** (bottom-left) for reading settings (bottom sheet):
+  - Language switch **繁體** (Traditional) / **簡體** (Simplified).
+  - Font size **A- / A+** with live preview (remembers your size).
+  - Theme radio **自動 / 淺色 / 深色** (Auto / Light / Dark).
+- A deleted chapter shows **該章節已刪除** with **回到目錄** ("Back to details") instead of a looping retry.
 - The app automatically saves your place and pre-saves the next few chapters, so turning the page works even with a weak connection.
 
 ### 書架 — Library (your saved books)

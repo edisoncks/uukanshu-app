@@ -119,7 +119,10 @@ class MutableFakePrefs(
     override val simplified: Flow<Boolean> = _simplified
     private val _theme = MutableStateFlow(Prefs.SYSTEM)
     override val theme: Flow<String> = _theme
-    override val fontScale: Flow<Float> = flowOf(1f)
+    // Mutable like _simplified/_theme: production clamps on write (see Prefs),
+    // so the fake must persist + clamp too or font tests pass on fake, fail on real.
+    private val _fontScale = MutableStateFlow(Prefs.FONT_DEFAULT)
+    override val fontScale: Flow<Float> = _fontScale
     override val lastUpdateCheck: Flow<Long> = flowOf(lastCheck)
     override val skippedVersion: Flow<String?> = flowOf(null)
     override val bgCheckEnabled: Flow<Boolean> = flowOf(true)
@@ -132,7 +135,9 @@ class MutableFakePrefs(
         started += "simplified=$v"
         _simplified.value = v
     }
-    override suspend fun setFontScale(v: Float) = Unit
+    override suspend fun setFontScale(v: Float) {
+        _fontScale.value = Prefs.coerceFontScale(v)
+    }
     override suspend fun setTheme(v: String) {
         // Mirror production write-normalization so tests cannot pass on the
         // fake while failing on Prefs (see PrefsStoreTest.themeWriteNormalizesUnknown).

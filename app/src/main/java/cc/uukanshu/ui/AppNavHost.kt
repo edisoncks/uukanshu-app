@@ -158,6 +158,7 @@ private fun AppNavHost(nav: NavHostController, updateVm: UpdateViewModel, modifi
                 bookId = entry.arguments?.getString("bookId").orEmpty(),
                 position = entry.arguments?.getInt("position") ?: 1,
                 pageId = entry.arguments?.getLong("pageId") ?: 0L,
+                onBack = { nav.popBackStack() },
             )
         }
     }
