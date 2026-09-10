@@ -54,6 +54,7 @@ class FakeRepo(
 }
 
 class FakePrefs : PrefsApi {
+    // Stub only — not for persistence tests. Use MutableFakePrefs for font/theme writes.
     override val simplified: Flow<Boolean> = flowOf(false)
     override val fontScale: Flow<Float> = flowOf(1f)
     override val theme: Flow<String> = flowOf("system")

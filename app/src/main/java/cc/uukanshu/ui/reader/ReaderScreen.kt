@@ -44,6 +44,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -93,7 +96,7 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
                 ui = ui,
                 display = vm::display,
                 onSettings = { showSheet = true },
-                onPrev = { vm.prev() },
+                onPrev = { vm.prev(); Unit },
                 onNext = {
                     when (vm.next()) {
                         is ReaderViewModel.NextStep.AtEnd ->
@@ -136,6 +139,7 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
     }
 
     if (showSheet) {
+        // Fresh per open: hoisting reuses half-expanded state across opens.
         ModalBottomSheet(
             onDismissRequest = { showSheet = false },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -198,7 +202,7 @@ private fun ReaderContent(
         // is never lost on long chapters.
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
             Text(
-                "$position/$total $title",
+                "$position / $total $title",
                 style = MaterialTheme.typography.titleMedium,
             )
             HorizontalDivider(Modifier.padding(top = 8.dp))
@@ -261,8 +265,14 @@ private fun ReaderBottomBar(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = onSettings) {
-                    Text("⋯", fontSize = 20.sp)
+                // Label the button by meaning (not the ⋯ glyph): parent keeps
+                // OnClick + Role.Button, child glyph hidden so TalkBack reads
+                // "閱讀設定, Button" once instead of "ellipsis" + glyph.
+                TextButton(
+                    onClick = onSettings,
+                    modifier = Modifier.semantics { contentDescription = display("閱讀設定") },
+                ) {
+                    Text("⋯", fontSize = 20.sp, modifier = Modifier.clearAndSetSemantics { })
                 }
                 Button(
                     onClick = onPrev,
