@@ -6,9 +6,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -418,8 +421,12 @@ private fun ReaderSettingsSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Card(Modifier.fillMaxWidth()) {
+                // IntrinsicSize.Max + fillMaxHeight: the 自動 tile carries an
+                // extra 跟隨系統 subtitle, so without stretching the three
+                // tiles render at different heights.
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)
+                        .height(IntrinsicSize.Max),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     val options = listOf(
@@ -436,7 +443,7 @@ private fun ReaderSettingsSheet(
                             contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
                             else MaterialTheme.colorScheme.onSurfaceVariant,
                             border = if (selected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f).fillMaxHeight()
                                 .selectable(
                                     selected = selected,
                                     onClick = { onSetTheme(value) },
@@ -444,21 +451,25 @@ private fun ReaderSettingsSheet(
                                 ),
                         ) {
                             Column(
-                                Modifier.padding(vertical = 12.dp, horizontal = 8.dp),
+                                Modifier.fillMaxHeight().padding(vertical = 12.dp, horizontal = 8.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 ) {
                                     Text("Aa", style = MaterialTheme.typography.titleLarge)
+                                    // Reserve icon space when unselected so tiles
+                                    // never jitter width on selection change.
                                     if (selected) {
                                         Icon(
                                             Icons.Filled.Check,
                                             contentDescription = null,
                                             modifier = Modifier.size(16.dp),
                                         )
+                                    } else {
+                                        Spacer(Modifier.size(16.dp))
                                     }
                                 }
                                 Text(display(name), style = MaterialTheme.typography.bodyLarge)
