@@ -153,6 +153,60 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
             }
         }
 
+        // 追更 card: background daily TOC check, same rhythm as other cards.
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SectionHeader(display("追更"))
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(display("背景自動檢查"), style = MaterialTheme.typography.bodyLarge)
+                        Switch(
+                            checked = bgEnabled,
+                            onCheckedChange = { on ->
+                                scope.launch {
+                                    prefs.setBgCheckEnabled(on)
+                                    if (on) {
+                                        BookUpdateScheduler.scheduleUpdate(ctx)
+                                        if (!notifGranted() && Build.VERSION.SDK_INT >= 33) {
+                                            try {
+                                                notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                            } catch (e: Exception) {
+                                                Log.w("Settings", "notification permission request failed", e)
+                                            }
+                                        }
+                                    } else {
+                                        BookUpdateScheduler.cancel(ctx)
+                                    }
+                                }
+                            },
+                        )
+                    }
+                    Text(
+                        if (bgEnabled) display("每天自動檢查一次，有更新時通知。")
+                        else display("已關閉背景檢查，可在書架手動檢查。"),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        display(UpdateChecker.formatLastCheck(lastBookCheck)),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (bgEnabled && notifGrantedState == false) {
+                        Text(
+                            display("通知已關閉，仍會在書架顯示徽章。"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+
         // Update card: version + check + status all in one place.
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionHeader(display("更新"))
@@ -216,60 +270,6 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
                         TextButton(onClick = { updateVm.skipVersion() }) {
                             Text(display("跳過此版本"))
                         }
-                    }
-                }
-            }
-        }
-
-        // 追更 card: background daily TOC check, same rhythm as other cards.
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            SectionHeader(display("追更"))
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(display("背景自動檢查"), style = MaterialTheme.typography.bodyLarge)
-                        Switch(
-                            checked = bgEnabled,
-                            onCheckedChange = { on ->
-                                scope.launch {
-                                    prefs.setBgCheckEnabled(on)
-                                    if (on) {
-                                        BookUpdateScheduler.scheduleUpdate(ctx)
-                                        if (!notifGranted() && Build.VERSION.SDK_INT >= 33) {
-                                            try {
-                                                notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                            } catch (e: Exception) {
-                                                Log.w("Settings", "notification permission request failed", e)
-                                            }
-                                        }
-                                    } else {
-                                        BookUpdateScheduler.cancel(ctx)
-                                    }
-                                }
-                            },
-                        )
-                    }
-                    Text(
-                        if (bgEnabled) display("每天自動檢查一次，有更新時通知。")
-                        else display("已關閉背景檢查，可在書架手動檢查。"),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        display(UpdateChecker.formatLastCheck(lastBookCheck)),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (bgEnabled && notifGrantedState == false) {
-                        Text(
-                            display("通知已關閉，仍會在書架顯示徽章。"),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
                     }
                 }
             }
