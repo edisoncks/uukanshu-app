@@ -260,6 +260,7 @@ fun DetailScreen(
 @Composable
 private fun DetailTopBar(title: String, backLabel: String, onBack: () -> Unit) {
     // Same chrome as ReaderTopBar: static bar + divider, no scroll-linked elevation.
+    // Single line earns the default large title; Reader stays medium (two lines).
     Column {
         TopAppBar(
             // Outer NavHost padding owns status height once; Detail + Reader both zero.
@@ -272,7 +273,7 @@ private fun DetailTopBar(title: String, backLabel: String, onBack: () -> Unit) {
             title = {
                 Text(
                     title.ifEmpty { "…" },
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
