@@ -181,8 +181,7 @@ private fun ReaderTopBar(book: String, line2: String, backLabel: String, onBack:
     // state for elevation costs recomposes for zero gain on a static bar.
     Column {
     TopAppBar(
-        // Outer NavHost padding already carries status height on this route;
-        // M3 default would apply it twice. Detail has no bar and needs it.
+        // Outer NavHost padding owns status height once; Detail + Reader both zero.
         windowInsets = WindowInsets(0),
         navigationIcon = {
             IconButton(onClick = onBack) {
