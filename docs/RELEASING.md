@@ -67,9 +67,9 @@ gh release create vX.Y.Z \
   --notes "…concise changelog, plain Markdown (shown verbatim in the in-app update dialog)…"
 ```
 
-Write the release notes for end users (what changed, in a few lines) —
+Write the release notes in Traditional Chinese for non-technical users (what changed, in a few lines) —
 they are shown verbatim as the update changelog (dialog scrolls at ~220dp,
-so keep it short, no huge dumps).
+so keep it short, no huge dumps, no jargon).
 
 ### 5. Smoke-test
 
@@ -112,8 +112,8 @@ releases:
   against a malicious GitHub or a compromised release key (the APK update
   signature check stays the anti-tamper anchor; out-of-band release signing
   would be the escalation).
-- Release body is shown verbatim as the update changelog (keep it concise,
-  plain Markdown, no huge dumps — the dialog scrolls at ~220dp).
+- Release body is shown verbatim as the update changelog (Traditional Chinese for non-technical users; keep it concise,
+  plain Markdown, no huge dumps, no jargon — the dialog scrolls at ~220dp).
 - Non-matching APK assets fail closed (no update offered, never a partial
   install) — see `UpdateViewModel` / `UpdateDownloader.apkState` /
   `apkStateIO` (byte-exact when size known; sha256-verified when the
