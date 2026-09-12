@@ -31,12 +31,13 @@ Wireframes below use placeholder text (`示例` = example, not real novel conten
 
 ### Book detail
 
-```
+```txt
 ← Book Title Example   (top bar: back + title)
 ---
 Author: Example
 [ Continue: Ch.12 ]
-[ Download whole book ]  [ Share link ]
+[ Download whole book ]
+[ Share link ]
 
 872 chapters · 3 saved
 1. Ch.1 Example  ✓
@@ -49,7 +50,7 @@ Author: Example
 
 ### Reader
 
-```
+```txt
 ← Book Title Example
 307 / 872 Ch.8
 ---
