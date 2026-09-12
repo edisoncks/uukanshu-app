@@ -144,6 +144,7 @@ private fun AppNavHost(nav: NavHostController, updateVm: UpdateViewModel, modifi
             DetailScreen(
                 bookId = entry.arguments?.getString("bookId").orEmpty(),
                 onChapter = { id, pos, pageId -> nav.navigateToChapter(id, pos, pageId) },
+                onBack = { nav.popBackStack() },
             )
         }
         composable(

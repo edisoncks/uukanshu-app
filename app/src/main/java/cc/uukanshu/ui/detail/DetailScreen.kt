@@ -13,25 +13,32 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -52,8 +59,13 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int, pageId: Long) -> Unit) {
+fun DetailScreen(
+    bookId: String,
+    onChapter: (bookId: String, position: Int, pageId: Long) -> Unit,
+    onBack: () -> Unit,
+) {
     val container = cc.uukanshu.di.LocalContainer.current
     val context = LocalContext.current
     val vm: DetailViewModel = viewModel(
@@ -63,12 +75,25 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int, page
         },
     )
     val ui by vm.ui.collectAsState()
+    val barTitle = when (val load = ui.load) {
+        is DetailViewModel.Load.Ready -> vm.displayTitle(load.meta.title)
+        else -> "…"
+    }
 
-    when (val load = ui.load) {
-        is DetailViewModel.Load.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    Scaffold(
+        topBar = {
+            DetailTopBar(
+                title = barTitle,
+                backLabel = vm.displayTitle("返回"),
+                onBack = onBack,
+            )
+        },
+    ) { inner ->
+        when (val load = ui.load) {
+        is DetailViewModel.Load.Loading -> Box(Modifier.fillMaxSize().padding(inner), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
         }
-        is DetailViewModel.Load.Failed -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        is DetailViewModel.Load.Failed -> Box(Modifier.fillMaxSize().padding(inner), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 // Error text renders through display() like everything else
                 // (see Display): friendly() is Traditional-only.
@@ -76,13 +101,13 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int, page
                 Button({ vm.refresh() }, Modifier.padding(top = 12.dp)) { Text(vm.displayTitle("重試")) }
             }
         }
-        is DetailViewModel.Load.Ready -> LazyColumn(Modifier.fillMaxSize().padding(12.dp)) {
+        is DetailViewModel.Load.Ready -> LazyColumn(Modifier.fillMaxSize().padding(inner).padding(12.dp)) {
             item {
                 val m = load.meta
                 if (load.refreshing) {
                     LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 4.dp))
                 }
-                Text(vm.displayTitle(m.title), style = MaterialTheme.typography.headlineSmall)
+                // TopBar owns the title (see DetailTopBar) — body starts at author.
                 if (load.offline) {
                     Text(
                         vm.displayTitle("離線模式 · 緩存版本"),
@@ -227,6 +252,33 @@ fun DetailScreen(bookId: String, onChapter: (bookId: String, position: Int, page
                 HorizontalDivider()
             }
         }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DetailTopBar(title: String, backLabel: String, onBack: () -> Unit) {
+    // Same chrome as ReaderTopBar: static bar + divider, no scroll-linked elevation.
+    Column {
+        TopAppBar(
+            // Outer NavHost padding owns status height once; Detail + Reader both zero.
+            windowInsets = WindowInsets(0),
+            navigationIcon = {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = backLabel)
+                }
+            },
+            title = {
+                Text(
+                    title.ifEmpty { "…" },
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            },
+        )
+        HorizontalDivider()
     }
 }
 
