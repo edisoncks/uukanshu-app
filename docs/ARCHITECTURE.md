@@ -168,14 +168,15 @@ UI (ViewModels)
 ## Offline cache model
 
 - Chapters are cached raw (Traditional) keyed by stable `(bookId, pageId)`
-  (DB v3+; `position` is display order only, indexed). The old
-  `(bookId, position)` key misfiled text after TOC shifts.
+  (DB v3+; `position` is display order only, indexed). `position` shifts when
+  the site inserts chapters, so text is never keyed by it — a TOC shift can
+  never misfile cached content or continue-reading targets.
 - Detail badges (✓ 已緩存) and counts (已緩存 N 章) derive from cached
   pageIds (`cachedPositionsFlow: Set<Long>`); Library shows per-book `cached/total` + bytes.
 - Bookmarks are `(position, pageId)` (DB v4): continue-reading resolves by
   stable `pageId` (`resolveBookmark`), falling back to `position` only
   for pre-v4 rows (pageId 0). A vanished non-zero pageId means a deleted
-  chapter: no target (never the neighbor now sitting at the old position).
+  chapter: no target (never the neighbor that now sits at the stale position).
   The reader's `resolveEffectivePosition` follows the same rule (−1 routes
   into its out-of-range Error path).
 - Reader and Detail prefer cache, then network, then save raw — all content
