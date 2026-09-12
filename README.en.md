@@ -33,15 +33,18 @@ Wireframes below use placeholder text (`示例` = example, not real novel conten
 
 ```txt
 ← Book Title Example   (top bar: back + title)
----
+-------------------------------
 Author: Example
 [ Continue: Ch.12 ]
 [ Download whole book ]
 [ Share link ]
 
 872 chapters · 3 saved
+-------------------------------
 1. Ch.1 Example  ✓
-2. Ch.2 Example
+2. Ch.2 Example  ✓
+3. Ch.3 Example  ✓
+4. Ch.4 Example
 ```
 
 - The top bar keeps the book title visible while scrolling; back is top-left.
@@ -53,10 +56,12 @@ Author: Example
 ```txt
 ← Book Title Example
 307 / 872 Ch.8
----
+-------------------------------
+
 Body text…
 (selectable)
----
+
+-------------------------------
 [⋯] [Prev] [Next]
 ```
 
