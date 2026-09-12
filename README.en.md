@@ -32,20 +32,15 @@ Wireframes below use placeholder text (`示例` = example, not real novel conten
 ### Book detail
 
 ```
-┌─────────────────────────┐
-│ ←  Book Title Example   │  ← Top bar: back + title
-├─────────────────────────┤
-│ Author: Example         │
-│ [   Continue: Ch.12   ] │
-│ [ Download whole book ] │
-│ [   Share book URL    ] │
-│                         │
-│ 872 chapters · 3 saved  │
-│ 1. Ch.1 Example  ✓      │
-│ 2. Ch.2 Example  ✓      │
-│ 2. Ch.3 Example  ✓      │
-│ 2. Ch.4 Example         │
-└─────────────────────────┘
+← Book Title Example   (top bar: back + title)
+---
+Author: Example
+[ Continue: Ch.12 ]
+[ Download whole book ]  [ Share link ]
+
+872 chapters · 3 saved
+1. Ch.1 Example  ✓
+2. Ch.2 Example
 ```
 
 - The top bar keeps the book title visible while scrolling; back is top-left.
@@ -55,20 +50,13 @@ Wireframes below use placeholder text (`示例` = example, not real novel conten
 ### Reader
 
 ```
-┌─────────────────────────┐
-│ ← Book Title Example    │
-│   307 / 872 Ch.8        │
-├─────────────────────────┤
-│  Body text…             │
-│  (selectable)           │
-│                         │
-│                         │
-│                         │
-│                         │
-│                         │
-├─────────────────────────┤
-│ [⋯] [Prev] [Next]       │
-└─────────────────────────┘
+← Book Title Example
+307 / 872 Ch.8
+---
+Body text…
+(selectable)
+---
+[⋯] [Prev] [Next]
 ```
 
 - Scroll to read, switch chapters at the bottom. The **⋯** sheet holds language (繁體/簡體), font size (remembered), and theme (auto/light/dark).
