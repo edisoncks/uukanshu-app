@@ -5,8 +5,8 @@ default with a global Simplified toggle (see below).
 
 ## App shell
 
-- `MainActivity.kt`: builds `RealAppContainer(app)` and calls
-  `setContent { UukanshuApp(container, app) }` — nothing else. Shell lives in
+- `MainActivity.kt`: `setContent` remembers a `RealAppContainer(app)` and
+  passes it to `UukanshuApp(container, app)` — nothing else. Shell lives in
   `ui/AppNavHost.kt` (`UukanshuApp`); theme lives in `ui/AppTheme.kt`
   (pure `isDark(theme, systemDark)`, JVM-tested) wrapping dynamic color on
   `minSdk 31` with plain-scheme fallback, driven by `Prefs.theme`.
