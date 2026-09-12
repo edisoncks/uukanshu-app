@@ -1,123 +1,111 @@
 # uukanshu
 
-A clean, minimalist Android reading app for novels from [uukanshu.cc](https://uukanshu.cc) — just the story, no ads, no images.
+[English](README.en.md) | 繁體中文
 
-The app's buttons and menus are shown in Traditional Chinese. This guide uses English with the on-screen Chinese labels in brackets, so you can match them on your phone.
+在手機上看 [uukanshu.cc](https://uukanshu.cc) 小說的 App —— 只有正文，沒有廣告，沒有圖片。
 
 ---
 
-## Install
+## 安裝
 
-1. On your Android phone, open the [**Releases page**](https://github.com/edisoncks/uukanshu-app/releases/latest).
-2. Download the file named `uukanshu-{version}.apk` (for example `uukanshu-1.0.19.apk`).
-3. Open the downloaded file to install it.
-   - Your phone needs **Android 12 or newer**.
-   - If asked, allow **"Install unknown apps"** for your browser or file manager. This is needed because the app is installed directly instead of through the Play Store.
+1. 在手機上打開 [**下載頁**](https://github.com/edisoncks/uukanshu-app/releases/latest)。
+2. 下載 `uukanshu-{版本}.apk`（例如 `uukanshu-1.2.8.apk`）。
+3. 打開下載好的檔案來安裝。
+   - 需要 **Android 12 或以上**。
+   - 如果手機問你，允許瀏覽器「安裝未知應用」一次就可以。
 
-That's it — open the **uukanshu** app and start reading.
+裝好打開 **uukanshu** 就可以開始看了。
 
-> For developers: building from source, signing, and project internals live in [`docs/`](docs/README.md).
+## 更新
 
-## Update the app
+- 有新版本會自動提醒你（每天最多檢查一次）。
+- 也可以自己檢查：**設定 → 更新 → 檢查更新**。
+- 點 **立即更新**，等下載完再點 **立即安裝**。書架、下載和設定都會留著。
+- 第一次在 App 內更新時，允許 **uukanshu**「安裝未知應用」一次即可。
 
-You don't need to reinstall manually every time:
+## 怎麼用
 
-- The app checks for new versions automatically (at most once a day) and will pop up a message when one is available.
-- You can also check anytime: go to the **Settings tab → 設定 → 更新 → 檢查更新** ("Check for updates").
-- The Settings screen also shows your **currently installed version** (目前版本).
-- When updating, tap **立即更新** ("Update now"), wait for the download, then tap **立即安裝** ("Install now"). Your bookshelf, downloads, and settings are kept.
-- If you don't want a particular version, tap **跳過此版本** ("Skip this version").
-- If the in-app download doesn't work, download the new APK from the Releases page (same steps as Install) and install it over the old one.
+下面是示意圖（`示例` 都是假字，不是真的小說內容）：
 
-The first time you update inside the app, your phone may ask you to allow **"Install unknown apps" for uukanshu** — allow it once and you won't be asked again.
+### 書籍詳情頁
 
-## How to use
+```
+┌─────────────────────────┐
+│ ←  書名示例             │  ← 頂部：返回 + 書名
+├─────────────────────────┤
+│ 作者：示例  連載中      │
+│ [  繼續閱讀：第12章  ]  │
+│ [      下載整本      ]  │
+│ [      分享連結      ]  │
+│                         │
+│ 共 872 章 · 已緩存 3 章 │
+│ 1. 第一章 示例   ✓      │
+│ 2. 第二章 示例   ✓      │
+│ 2. 第三章 示例   ✓      │
+│ 2. 第四章 示例          │
+└─────────────────────────┘
+```
 
-The bottom of the screen has four tabs:
+- 頂部一直顯示書名，滑到第幾百章也不會迷路，左上角可以返回。
+- **繼續閱讀** 回到上次看到的地方；**下載整本** 把整本存到手機離線看。
+- 存好的章節會顯示 **✓ 已緩存**；想傳給朋友就點 **分享連結**。
 
-### 首頁 — Home
+### 閱讀頁
 
-- **最近更新** ("Recently updated"): the latest updated novels.
-- **分類** ("Categories"): browse by genre (10 genres, e.g. 玄幻奇幻, 武俠仙俠, 現代都市…). Tap a genre chip, scroll down for more pages.
-- Tap any book cover/title card to open its detail page.
+```
+┌─────────────────────────┐
+│ ← 書名示例              │
+│   307 / 872 第八章示例  │
+├─────────────────────────┤
+│  正文示例……             │
+│  (文字可以選取)         │
+│                         │
+│                         │
+│                         │
+│                         │
+│                         │
+├─────────────────────────┤
+│ [⋯] [上一章] [下一章]   │
+└─────────────────────────┘
+```
 
-### 搜索 — Search
+- 上下滑動看書，底部換章。點左下 **⋯** 可以調：
+  - 繁體 / 簡體、字體大小（會記住）、自動 / 淺色 / 深色。
 
-- Tap the Search tab, type a book title (書名搜索…), and results appear automatically.
-- Tap a result to open its detail page.
+### 底部四個分頁
 
-### Book detail page
+- **首頁**：最近更新和分類，點書名進詳情頁。
+- **搜索**：輸入書名找書。
+- **書架**：存在手機上的書。有新章節會顯示 **有更新 N章**，點 **檢查更新** 或等每天自動提醒。打開詳情頁就會消掉小紅點。
+- **設定**：外觀、語言、追更、更新（目前版本也在這裡）。
 
-- Shows the title, author, status, category, and introduction.
-- Shows how many chapters exist in total (共 … 章) and how many are already saved on your phone (已緩存 … 章).
-- Chapters you have already saved show a **✓ 已緩存** ("cached") mark.
-- Tap any chapter to start reading. If you were reading before, tap **繼續閱讀** ("Continue reading") to jump back to where you left off.
-- To save the whole book for offline reading, tap **下載整本** ("Download whole book"). You can **取消** ("Cancel") anytime. Downloading again later with **重新下載整本** refreshes it.
-- To send the book link to a friend or open it in a browser, tap **分享連結** ("Share link").
+## 離線看書
 
-### Reading page
+- 打開過或下載過的章節，沒網路也能看。
+- 詳情頁出現 **離線模式 · 緩存版本**，就是在看存好的版本。
+- 手機沒空間了，去 **書架** 刪掉看完的書。
 
-- Top bar shows the book name, with `position/total` and chapter title below it (single line each). The body starts immediately under the bar — no duplicate progress row.
-- Swipe/scroll to read (text is selectable). Use **上一章** ("Previous chapter") and **下一章** ("Next chapter") at the bottom to move between chapters.
-- Tap **⋯** (bottom-left) for reading settings (bottom sheet):
-  - Language switch **繁體** (Traditional) / **簡體** (Simplified).
-  - Font size **A- / A+** with live preview (remembers your size).
-  - Theme radio **自動 / 淺色 / 深色** (Auto / Light / Dark).
-- A deleted chapter shows **該章節已刪除** with **回到目錄** ("Back to details") instead of a looping retry.
-- The app automatically saves your place and pre-saves the next few chapters, so turning the page works even with a weak connection.
+## 常見問題
 
-### 書架 — Library (your saved books)
+| 情況                    | 怎麼做                                               |
+| ----------------------- | ---------------------------------------------------- |
+| 裝不上                  | 確認 Android 12 以上，並允許「安裝未知應用」後重試。 |
+| 下載的檔案打不開        | 檔案沒下完整，刪掉重下一次。                         |
+| 檢查更新失敗 / 書打不開 | 檢查網路，點 **重試**。存好的章節不受影響。          |
+| 簡繁體不對              | 到 **設定 → 語言** 或閱讀頁 **⋯** 裡切換。           |
+| 字太小 / 太大           | 閱讀頁 **⋯** 裡用 A- / A+ 調整，會記住。             |
 
-- Shows every book saved on your phone, with how many chapters are saved (… 章) and how much space it uses.
-- Books being downloaded show live progress (下載中 done/total) and can be cancelled (取消) here; tapping one opens its detail page.
-- The top line shows the total (e.g. `3 本 · 12.5 MB`).
-- **追更** ("Follow updates"): books with new chapters on the site show **有更新 N章** ("N new chapters") plus a dot on the 書架 tab. Tap **檢查更新** ("Check for updates") to refresh all, or wait for the daily background check (one summary notification, no spam). Opening the book detail clears its badge; **下載新增** ("Download new") fetches only the missing chapters.
-- Tap a book to open it. Tap **刪除緩存** ("Delete") to remove one book, or **清空全部** ("Clear all") to remove everything. Deleted books need to be downloaded again, so you'll be asked to confirm before clearing everything.
+## 隱私
 
-### 設定 — Settings
+- 不用註冊，沒有廣告。
+- 進度、下載和設定只留在你的手機上。
+- App 只會連 uukanshu.cc 拿小說文字，以及到 GitHub 檢查更新。
 
-Four groups:
+## 需要幫忙？
 
-- **外觀** ("Appearance"): 自動 / 淺色 / 深色 (Auto / Light / Dark).
-- **語言** ("Language"): switch between 繁體 (Traditional) and 簡體 (Simplified). Applies everywhere instantly.
-- **追更** ("Follow updates"): toggle 背景自動檢查 (background daily check) on/off, see 上次檢查 (last check). If notifications are denied, badges still appear in 書架.
-- **更新** ("Update"): shows 目前版本 (current version), a 檢查更新 ("Check for updates") button, and the skip-version option.
+- 回報問題請 [開 issue](https://github.com/edisoncks/uukanshu-app/issues)，寫上 App 版本（設定 → 更新 → 目前版本）、手機型號，以及你點了什麼。
+- 想裝舊版，去 [所有版本](https://github.com/edisoncks/uukanshu-app/releases)找。
 
-## Reading offline
+## 開發者
 
-- Once a chapter is opened or downloaded, it stays on your phone and can be read without internet.
-- On the detail page, **離線模式 · 緩存版本** ("Offline mode · cached version") means you're seeing the saved copy because the network is unavailable.
-- To free space, delete books from the 書架 (Library) tab.
-
-## Troubleshooting
-
-| Problem | What to do |
-|---|---|
-| "Can't install" / "App not installed" | Make sure your phone runs **Android 12+** and that you allowed **Install unknown apps** for your browser (first install) or for **uukanshu** (in-app update). Then try opening the APK again. |
-| "Package appears to be invalid" | The APK didn't download completely. Delete it and download again from the Releases page. |
-| Update check fails | Check your internet connection and tap **重試** ("Retry"). If it keeps failing, download the APK from the Releases page manually. |
-| Book or chapter won't load | Check your connection and tap **重試** ("Retry"). Saved chapters still work offline. |
-| Text shows the "wrong" Chinese | Flip the language switch in **設定 → 語言** or in the reader's **⋯** menu. |
-| Text too small / big | Use **A- / A+** in the reader's **⋯** menu. The size is remembered. |
-| Running out of space | Go to **書架** (Library) to see per-book sizes and delete books you finished. |
-
-## Privacy
-
-- No account, no login, no ads.
-- Your reading progress, downloads, and settings stay on your phone.
-- The app connects to the internet only to fetch novel text from uukanshu.cc and to check GitHub Releases for app updates.
-
-## Need help?
-
-- To report a problem or suggest a feature, please [open an issue](https://github.com/edisoncks/uukanshu-app/issues) with your app version (see 設定 → 更新 → 目前版本), your phone model / Android version, and what you tapped before the problem happened.
-- To install a specific older version, browse [all releases](https://github.com/edisoncks/uukanshu-app/releases).
-
-## For developers
-
-Technical documentation lives in [`docs/`](docs/README.md):
-
-- [Development setup & building](docs/DEVELOPMENT.md) — toolchain, build, test, signing
-- [Architecture](docs/ARCHITECTURE.md) — screens, data flow, storage, update flow
-- [Scraping notes](docs/SCRAPING.md) — how the app reads uukanshu.cc
-- [Releasing](docs/RELEASING.md) — how to cut a release (updater contract)
-- [Contributing](docs/CONTRIBUTING.md) — commits, tests, workflow
+建置、架構和發版說明在 [`docs/`](docs/README.md)。
