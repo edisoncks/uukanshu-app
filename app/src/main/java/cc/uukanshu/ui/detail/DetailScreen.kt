@@ -181,7 +181,7 @@ fun DetailScreen(
                         }
                     }
                 }
-                ui.downloadError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                ui.downloadError?.let { Text(vm.displayTitle(it), color = MaterialTheme.colorScheme.error) }
                 // Secondary action: sits below the primary download block so
                 // 繼續閱讀/下載整本 stay dominant; outlined keeps hierarchy.
                 OutlinedButton(
