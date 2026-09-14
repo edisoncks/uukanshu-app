@@ -179,7 +179,7 @@ fun LibraryScreen(onBook: (String) -> Unit) {
                                 }
                             }
                             st?.error?.let {
-                                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                                Text(vm.display(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                                 // Failed fresh download: retry here instead of
                                 // forcing a trip to the detail page.
                                 if (st.downloading != true) {
@@ -225,7 +225,7 @@ fun LibraryScreen(onBook: (String) -> Unit) {
                                 )
                             }
                             st?.error?.let {
-                                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                                Text(vm.display(it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 if (st?.downloading == true) {

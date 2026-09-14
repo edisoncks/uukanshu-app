@@ -329,7 +329,7 @@ class BookRepo(
         if (chapters.isEmpty()) throw EmptyChapterListException()
         // In-memory id set avoids N+1 queries; snapshot so concurrent clear can't fake hits.
         val cachedIds = withContext(ioDispatcher) {
-            runCatching { db.chapters().cachedPageIds(bookId).toMutableSet() }
+            Errors.runCatchingExceptCancel { db.chapters().cachedPageIds(bookId).toMutableSet() }
                 .getOrDefault(mutableSetOf())
         }
         val missingIds = missing(chapters, cachedIds).mapTo(mutableSetOf()) { it.pageId }

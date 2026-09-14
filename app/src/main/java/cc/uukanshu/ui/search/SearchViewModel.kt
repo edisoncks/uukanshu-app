@@ -94,7 +94,9 @@ class SearchViewModel(
                             Ui.Loading(
                                 simplified = s.simplified,
                                 totalOrNull = s.totalOrNull,
-                                books = (s as? Ui.Success)?.books.orEmpty(),
+                                books = (s as? Ui.Success)?.books
+                                    ?: (s as? Ui.Loading)?.books
+                                    ?: emptyList(),
                             ),
                         )
                         try {
