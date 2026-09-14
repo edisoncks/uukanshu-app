@@ -135,4 +135,43 @@ class SearchViewModelTest {
         advanceSearch()
         assertTrue(vm.ui.value is SearchViewModel.Ui.Success)
     }
+
+    @Test fun loadingKeepsStaleResultsAcrossConsecutiveQueries() = runTest {
+        // A third query while the second search is still in flight must not
+        // blank the stale rows: the previous Loading already carries them.
+        val books = listOf(Parser.BookItem(id = "1", title = "A"))
+        val base = MutableFakeRepo(searchResult = Parser.SearchResult(1, books))
+        val gate = CompletableDeferred<Unit>()
+        var searchCalls = 0
+        val repo = object : RepoApi by base {
+            override suspend fun search(keyword: String): Parser.SearchResult {
+                if (++searchCalls >= 2) gate.await()
+                return base.search(keyword)
+            }
+        }
+        val vm = SearchViewModel(repo, MutableFakePrefs(), T2S())
+        main.dispatcher.scheduler.advanceUntilIdle()
+        vm.query("first")
+        advanceSearch()
+        assertTrue(vm.ui.value is SearchViewModel.Ui.Success)
+        vm.query("second")
+        main.dispatcher.scheduler.advanceTimeBy(500)
+        main.dispatcher.scheduler.runCurrent()
+        val second = vm.ui.value
+        assertTrue("expected Loading, got $second", second is SearchViewModel.Ui.Loading)
+        assertEquals(listOf("1"), (second as SearchViewModel.Ui.Loading).books.map { it.id })
+        // Third query while the second search is still hanging.
+        vm.query("third")
+        main.dispatcher.scheduler.advanceTimeBy(500)
+        main.dispatcher.scheduler.runCurrent()
+        val third = vm.ui.value
+        assertTrue("expected Loading, got $third", third is SearchViewModel.Ui.Loading)
+        assertEquals(
+            "consecutive in-flight query must keep the stale rows",
+            listOf("1"),
+            (third as SearchViewModel.Ui.Loading).books.map { it.id },
+        )
+        gate.complete(Unit)
+        advanceSearch()
+    }
 }
