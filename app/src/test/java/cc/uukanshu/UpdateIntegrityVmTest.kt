@@ -96,14 +96,8 @@ class UpdateIntegrityVmTest {
         sha256 = sha256,
     )
 
-    private fun await(cond: () -> Boolean) {
-        var tries = 0
-        while (!cond() && tries < 100) {
-            Thread.sleep(50)
-            main.dispatcher.scheduler.advanceUntilIdle()
-            tries++
-        }
-    }
+    /** Drive every pending coroutine on the shared test scheduler to quiescence. */
+    private fun await() = main.dispatcher.scheduler.advanceUntilIdle()
 
     /** Robolectric's PackageManager shadow defaults the install grant to
      * false; flip it so startDownload proceeds past the unknown-sources
@@ -122,23 +116,24 @@ class UpdateIntegrityVmTest {
             },
             dl,
             ActivityLauncher { launched?.incrementAndGet() },
+            ioDispatcher = main.dispatcher,
         )
 
     private fun fetchThenStart(info: UpdateInfo, dl: FakeDl): UpdateViewModel {
         val vm = vmFor(info, dl)
         vm.manualCheck()
-        await { vm.ui.value.info != null }
+        await()
         vm.startDownload()
         return vm
     }
 
-    @Test fun `dm success with matching digest readies file`() = runTest {
+    @Test fun `dm success with matching digest readies file`() = runTest(main.dispatcher) {
         val app = ApplicationProvider.getApplicationContext<android.app.Application>()
         grantCanInstall(app)
         val file = File.createTempFile("uukanshu-integ", ".apk").also { it.delete() }
         val dl = FakeDl(file, onSuccess = { file.writeBytes(good) })
         val vm = fetchThenStart(info(5L, sha(good)), dl)
-        await { vm.ui.value.fileReady }
+        await()
         val ui = vm.ui.value
         assertTrue(
             "fileReady=${ui.fileReady} error=${ui.error} needs=${ui.needsUnknownSources} downloading=${ui.downloading}",
@@ -150,13 +145,13 @@ class UpdateIntegrityVmTest {
         file.delete()
     }
 
-    @Test fun `dm success with mismatched digest deletes file and errors`() = runTest {
+    @Test fun `dm success with mismatched digest deletes file and errors`() = runTest(main.dispatcher) {
         val app = ApplicationProvider.getApplicationContext<android.app.Application>()
         grantCanInstall(app)
         val file = File.createTempFile("uukanshu-integ", ".apk").also { it.delete() }
         val dl = FakeDl(file, onSuccess = { file.writeBytes(bad) })
         val vm = fetchThenStart(info(5L, sha(good)), dl)
-        await { vm.ui.value.error != null }
+        await()
         // Fail closed: no install path, file gone so a retry re-downloads.
         val ui = vm.ui.value
         assertFalse("fileReady=${ui.fileReady} error=${ui.error}", ui.fileReady)
@@ -168,13 +163,13 @@ class UpdateIntegrityVmTest {
         file.delete()
     }
 
-    @Test fun `legacy release without digest keeps size-only success`() = runTest {
+    @Test fun `legacy release without digest keeps size-only success`() = runTest(main.dispatcher) {
         val app = ApplicationProvider.getApplicationContext<android.app.Application>()
         grantCanInstall(app)
         val file = File.createTempFile("uukanshu-integ", ".apk").also { it.delete() }
         val dl = FakeDl(file, onSuccess = { file.writeBytes(good) })
         val vm = fetchThenStart(info(5L, null), dl)
-        await { vm.ui.value.fileReady }
+        await()
         val ui = vm.ui.value
         assertTrue(
             "fileReady=${ui.fileReady} error=${ui.error} needs=${ui.needsUnknownSources}",
@@ -184,7 +179,7 @@ class UpdateIntegrityVmTest {
         file.delete()
     }
 
-    @Test fun `install gate accepts digest-verified file`() = runTest {
+    @Test fun `install gate accepts digest-verified file`() = runTest(main.dispatcher) {
         val app = ApplicationProvider.getApplicationContext<android.app.Application>()
         // Under the app's external Download dir: FileProvider's configured root
         // (external-files-path Download/) must cover the APK, as in production.
@@ -193,16 +188,16 @@ class UpdateIntegrityVmTest {
         val launched = AtomicInteger(0)
         val vm = vmFor(info(5L, sha(good)), FakeDl(file), launched)
         vm.manualCheck()
-        await { vm.ui.value.fileReady }
+        await()
         vm.install()
-        await { launched.get() == 1 || vm.ui.value.error != null }
+        await()
         val ui = vm.ui.value
         assertEquals("launched=${launched.get()} error=${ui.error} fileReady=${ui.fileReady}", 1, launched.get())
         assertNull(ui.error)
         file.delete()
     }
 
-    @Test fun `install gate rejects corrupt file with digest`() = runTest {
+    @Test fun `install gate rejects corrupt file with digest`() = runTest(main.dispatcher) {
         // fileReady minted while the file was good, disk corrupted after:
         // the install gate re-verifies (IO) and refuses — last line of defense.
         val app = ApplicationProvider.getApplicationContext<android.app.Application>()
@@ -211,10 +206,10 @@ class UpdateIntegrityVmTest {
         val launched = AtomicInteger(0)
         val vm = vmFor(info(5L, sha(good)), FakeDl(file), launched)
         vm.manualCheck()
-        await { vm.ui.value.fileReady }
+        await()
         file.writeBytes(bad)
         vm.install()
-        await { vm.ui.value.error != null }
+        await()
         assertEquals("launched=${launched.get()} error=${vm.ui.value.error}", 0, launched.get())
         assertFalse(vm.ui.value.fileReady)
         // Corruption with a digest on record and a matching size is a checksum
@@ -223,7 +218,7 @@ class UpdateIntegrityVmTest {
         file.delete()
     }
 
-    @Test fun `rapid install taps fire installer once`() = runTest {
+    @Test fun `rapid install taps fire installer once`() = runTest(main.dispatcher) {
         // Repro for async-gate double-fire: two back-to-back taps must share
         // one Main-guarded verification (see markChecking pattern).
         val app = ApplicationProvider.getApplicationContext<android.app.Application>()
@@ -232,36 +227,36 @@ class UpdateIntegrityVmTest {
         val launched = AtomicInteger(0)
         val vm = vmFor(info(5L, sha(good)), FakeDl(file), launched)
         vm.manualCheck()
-        await { vm.ui.value.fileReady }
+        await()
         vm.install()
         vm.install()
-        await { launched.get() == 1 || vm.ui.value.error != null }
-        // Give the second tap a chance to misfire, then assert single fire.
-        Thread.sleep(200)
-        main.dispatcher.scheduler.advanceUntilIdle()
+        await()
+        // The sync Main gate already made the second tap a no-op; add a settle
+        // pass to prove nothing fires late.
+        await()
         assertEquals("launched=${launched.get()} error=${vm.ui.value.error}", 1, launched.get())
         assertNull(vm.ui.value.error)
         assertFalse(vm.ui.value.installing)
         file.delete()
     }
 
-    @Test fun `install gate failure clears installing and maps via Errors`() = runTest {
+    @Test fun `install gate failure clears installing and maps via Errors`() = runTest(main.dispatcher) {
         val app = ApplicationProvider.getApplicationContext<android.app.Application>()
         val file = File(app.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)!!, "uukanshu-integ.apk")
             .also { it.writeBytes(good) }
         val launched = AtomicInteger(0)
         val vm = vmFor(info(5L, sha(good)), FakeDl(file), launched)
         vm.manualCheck()
-        await { vm.ui.value.fileReady }
+        await()
         file.writeBytes(bad)
         vm.install()
-        await { vm.ui.value.error != null }
+        await()
         assertEquals(0, launched.get())
         assertFalse(vm.ui.value.installing)
         assertEquals(Errors.friendly(UpdateDownloader.ApkFailure.CHECKSUM_MISMATCH), vm.ui.value.error)
     }
 
-    @Test fun `dm success with wrong size errors as incomplete not checksum`() = runTest {
+    @Test fun `dm success with wrong size errors as incomplete not checksum`() = runTest(main.dispatcher) {
         // DM SUCCESS is not proof of a complete artifact: if the landed length
         // disagrees with the release size, the gate failed on size — the honest
         // message is "incomplete, re-download", not the checksum one.
@@ -270,7 +265,7 @@ class UpdateIntegrityVmTest {
         val file = File.createTempFile("uukanshu-integ", ".apk").also { it.delete() }
         val dl = FakeDl(file, onSuccess = { file.writeBytes(ByteArray(9)) })
         val vm = fetchThenStart(info(5L, sha(good)), dl)
-        await { vm.ui.value.error != null }
+        await()
         val ui = vm.ui.value
         assertFalse(ui.fileReady)
         assertFalse(ui.downloadSucceeded)
@@ -279,7 +274,7 @@ class UpdateIntegrityVmTest {
         file.delete()
     }
 
-    @Test fun `missing file at install gate stays incomplete`() = runTest {
+    @Test fun `missing file at install gate stays incomplete`() = runTest(main.dispatcher) {
         // Disk loss after fileReady: the gate sees Missing, not a digest
         // mismatch — the message must stay "incomplete" (pins the classifier's
         // else-branch; passes before and after the typed-error fix).
@@ -289,16 +284,16 @@ class UpdateIntegrityVmTest {
         val launched = AtomicInteger(0)
         val vm = vmFor(info(5L, sha(good)), FakeDl(file), launched)
         vm.manualCheck()
-        await { vm.ui.value.fileReady }
+        await()
         file.delete()
         vm.install()
-        await { vm.ui.value.error != null }
+        await()
         assertEquals(0, launched.get())
         assertFalse(vm.ui.value.installing)
         assertEquals(Errors.friendly(UpdateDownloader.ApkFailure.INCOMPLETE), vm.ui.value.error)
     }
 
-    @Test fun `dm mismatch error maps via Errors`() = runTest {
+    @Test fun `dm mismatch error maps via Errors`() = runTest(main.dispatcher) {
         // Typed mapping, not substring sniffing: Traditional source for display().
         assertEquals(
             "APK 校驗失敗，請重新下載",
@@ -313,7 +308,7 @@ class UpdateIntegrityVmTest {
         override fun fetchLatest(): UpdateInfo = if (fetched.incrementAndGet() == 1) a else b
     }
 
-    @Test fun `mid-flight recheck then success never mints or errors for the wrong version`() = runTest {
+    @Test fun `mid-flight recheck then success never mints or errors for the wrong version`() = runTest(main.dispatcher) {
         // DM-Success must pin the release the download was enqueued for: a
         // re-check swapping the dialog's info mid-flight must not verify
         // against (or report errors for) a version whose file was never
@@ -329,17 +324,18 @@ class UpdateIntegrityVmTest {
             swapFetcher(info(5L, sha(good)), info(999_999L, "b".repeat(64), version = "9.9.10")),
             dl,
             ActivityLauncher { },
+            ioDispatcher = main.dispatcher,
         )
         vm.manualCheck()
-        await { vm.ui.value.info?.version == "9.9.9" }
+        await()
         vm.startDownload()
-        await { vm.ui.value.downloading && vm.ui.value.downloadId == 42L }
+        await()
         // Mid-flight: dialog swaps to the newer release.
         vm.manualCheck()
-        await { vm.ui.value.info?.version == "9.9.10" }
+        await()
         file.writeBytes(good) // DM lands v9.9.9's bytes, which match release A's digest
         gate.complete(Unit)
-        await { !vm.ui.value.downloading }
+        await()
         val ui = vm.ui.value
         assertNull("error=${ui.error}", ui.error)
         assertTrue("artifact must survive a version swap", file.exists())
@@ -354,7 +350,7 @@ class UpdateIntegrityVmTest {
         file.delete()
     }
 
-    @Test fun `skip during flight then success mints nothing while hidden`() = runTest {
+    @Test fun `skip during flight then success mints nothing while hidden`() = runTest(main.dispatcher) {
         // Receipts attach only to a dialog that still describes the enqueued
         // release: skip nulls info, so the Success must not mint fileReady or
         // downloadSucceeded — reopening must show the offer, not an install
@@ -366,19 +362,19 @@ class UpdateIntegrityVmTest {
         val dl = FakeDl(file, gate = gate, onSuccess = { file.writeBytes(good) })
         val vm = vmFor(info(5L, sha(good)), dl)
         vm.manualCheck()
-        await { vm.ui.value.info != null }
+        await()
         vm.startDownload()
-        await { vm.ui.value.downloading && vm.ui.value.downloadId == 42L }
+        await()
         vm.skipVersion()
-        await { vm.ui.value.info == null && !vm.ui.value.visible }
+        await()
         gate.complete(Unit)
-        await { !vm.ui.value.downloading }
+        await()
         val ui = vm.ui.value
         assertFalse("receipt minted with no update info", ui.fileReady)
         assertFalse(ui.downloadSucceeded)
         assertFalse(ui.visible)
         vm.reopen()
-        await { vm.ui.value.visible }
+        await()
         assertFalse(
             "reopened dialog must not offer install for a skipped version",
             vm.ui.value.fileReady,
@@ -386,7 +382,7 @@ class UpdateIntegrityVmTest {
         file.delete()
     }
 
-    @Test fun `same version different digest swap never mints`() = runTest {
+    @Test fun `same version different digest swap never mints`() = runTest(main.dispatcher) {
         // Full-info pin (not version-string): same version, different digest
         // mid-flight must still clear terminal state without mint or error.
         val app = ApplicationProvider.getApplicationContext<android.app.Application>()
@@ -400,15 +396,16 @@ class UpdateIntegrityVmTest {
             swapFetcher(info(5L, sha(good)), info(5L, "b".repeat(64))),
             dl,
             ActivityLauncher { },
+            ioDispatcher = main.dispatcher,
         )
         vm.manualCheck()
-        await { vm.ui.value.info?.sha256 == sha(good) }
+        await()
         vm.startDownload()
-        await { vm.ui.value.downloading && vm.ui.value.downloadId == 42L }
+        await()
         vm.manualCheck()
-        await { vm.ui.value.info?.sha256 == "b".repeat(64) }
+        await()
         gate.complete(Unit)
-        await { !vm.ui.value.downloading }
+        await()
         val ui = vm.ui.value
         assertNull("error=${ui.error}", ui.error)
         assertFalse(ui.fileReady)

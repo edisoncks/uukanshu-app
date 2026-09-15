@@ -14,6 +14,7 @@ import cc.uukanshu.data.update.UpdateDownloader
 import cc.uukanshu.data.update.UpdateInfo
 import cc.uukanshu.data.update.VersionCompare
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +38,8 @@ class UpdateViewModel(
     private val api: ReleaseFetcher,
     private val downloader: ApkDownloader,
     private val launcher: ActivityLauncher = ActivityLauncher { app.startActivity(it) },
+    // Injected so tests run on the test scheduler instead of real threads.
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
     data class Ui(
         /** Whether any update dialog is on screen. */
@@ -66,38 +69,6 @@ class UpdateViewModel(
         val error: String? = null,
     )
 
-    companion object {
-        /** Auto-check at most once per launch-window of this long. */
-        const val AUTO_CHECK_INTERVAL_MS = 24L * 60 * 60 * 1000
-
-        /**
-         * Pure throttle decision (JVM-testable): auto-check only when the
-         * last check is older than [AUTO_CHECK_INTERVAL_MS]. Extracted so
-         * the timing rule has a unit test instead of living inline in a
-         * coroutine that needs Android + DataStore.
-         */
-        fun shouldAutoCheck(lastCheckMs: Long, nowMs: Long): Boolean =
-            nowMs - lastCheckMs >= AUTO_CHECK_INTERVAL_MS
-
-        /**
-         * Pure offer decision (JVM-testable): newer-than-current and not
-         * skipped (manual checks ignore skip). Returns false for
-         * up-to-date / skipped-auto so callers stay a thin `when`.
-         */
-        fun shouldOfferUpdate(
-            remoteVersion: String,
-            currentVersion: String,
-            skippedVersion: String?,
-            manual: Boolean,
-        ): Boolean {
-            if (!VersionCompare.isNewer(remoteVersion, currentVersion)) return false
-            if (!manual && remoteVersion == skippedVersion) return false
-            return true
-        }
-
-
-    }
-
     private val _ui = MutableStateFlow(Ui())
     val ui: StateFlow<Ui> = _ui
     private var pollJob: Job? = null
@@ -106,7 +77,7 @@ class UpdateViewModel(
     fun autoCheck() {
         viewModelScope.launch {
             val last = prefs.lastUpdateCheck.first()
-            if (!shouldAutoCheck(last, System.currentTimeMillis())) return@launch
+            if (!UpdatePolicy.shouldAutoCheck(last, System.currentTimeMillis())) return@launch
             if (!markChecking(manual = false)) return@launch
             checkBody(manual = false)
         }
@@ -115,7 +86,7 @@ class UpdateViewModel(
     /** User-tapped check: always hits the network, reports "latest" too. */
     fun manualCheck() {
         // Synchronous test-and-set on Main: two rapid taps must not launch
-        // two network checks (the old guard read async, so both passed).
+        // two network checks.
         if (!markChecking(manual = true)) return
         viewModelScope.launch { checkBody(manual = true) }
     }
@@ -123,21 +94,24 @@ class UpdateViewModel(
     /** Atomic false->true flip of `checking`; false when already in flight. */
     private fun markChecking(manual: Boolean): Boolean {
         val prev = _ui.getAndUpdate { cur ->
-            if (cur.checking) cur
-            else cur.copy(checking = true, manual = manual, error = null, upToDate = false)
+            if (canStartCheck(cur.checking)) {
+                cur.copy(checking = true, manual = manual, error = null, upToDate = false)
+            } else {
+                cur
+            }
         }
-        return !prev.checking
+        return canStartCheck(prev.checking)
     }
 
     private suspend fun checkBody(manual: Boolean) {
         try {
-            val info = withContext(Dispatchers.IO) { api.fetchLatest() }
+            val info = withContext(ioDispatcher) { api.fetchLatest() }
             prefs.setLastUpdateCheck(System.currentTimeMillis())
-            val current = withContext(Dispatchers.IO) {
+            val current = withContext(ioDispatcher) {
                 UpdateDownloader.currentVersion(app)
             }
             val skipped = prefs.skippedVersion.first()
-            if (!shouldOfferUpdate(info.version, current, skipped, manual)) {
+            if (!UpdatePolicy.shouldOfferUpdate(info.version, current, skipped, manual)) {
                 // Distinguish up-to-date (manual shows a note) from
                 // skipped-auto (silent) without duplicating the version
                 // comparison at the call site.
@@ -157,7 +131,7 @@ class UpdateViewModel(
             // Same-version APK already downloaded (e.g. process died mid-flow):
             // skip straight to the install prompt. Byte-exact size match only;
             // a partial file must re-download, never install.
-            val alreadyHave = withContext(Dispatchers.IO) {
+            val alreadyHave = withContext(ioDispatcher) {
                 UpdateDownloader.isCompleteIO(downloader.apkFile(info), info.size, info.sha256)
             }
             _ui.update {
@@ -209,7 +183,7 @@ class UpdateViewModel(
             it.copy(downloading = true, progress = null, error = null,
                 needsUnknownSources = false)
         }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             // Already-have check first: a complete APK on disk skips
             // straight to install even when the unknown-sources permission
             // was revoked since (install() needs no gate of its own).
@@ -255,7 +229,7 @@ class UpdateViewModel(
             withContext(Dispatchers.Main) {
                 if (!_ui.value.downloading) {
                     // Cancelled while enqueueing: drop the just-created download.
-                    viewModelScope.launch(Dispatchers.IO) { downloader.cancel(id) }
+                    viewModelScope.launch(ioDispatcher) { downloader.cancel(id) }
                     return@withContext
                 }
                 _ui.update { it.copy(downloadId = id) }
@@ -272,59 +246,30 @@ class UpdateViewModel(
                                 }
                                 is DownloadStatus.Success -> {
                                     // The bytes on disk belong to the release this
-                                    // download was enqueued for — not to whatever
-                                    // _ui.value.info holds at completion time (a
-                                    // mid-flight re-check or skip may have swapped
-                                    // or nulled it). Verify against the enqueued
-                                    // release and mint the receipt only while the
-                                    // dialog still describes that version; otherwise
-                                    // the download outlived its dialog — clear the
-                                    // terminal state silently (a bare return would
-                                    // wedge "downloading" forever; stale-file
-                                    // cleanup happens on the next enqueue). Within
-                                    // the matching version: verify the release digest
-                                    // before minting fileReady/receipt (a same-size
-                                    // corrupt APK never reaches the installer; on
-                                    // mismatch the file is deleted so a retry
-                                    // re-downloads), and payloads without a digest
-                                    // keep the size-only path.
-                                    if (_ui.value.info != info) {
-                                        _ui.update {
-                                            it.copy(downloading = false, downloadId = null)
-                                        }
-                                        return@collect
+                                    // download was enqueued for, not whatever
+                                    // _ui.value.info holds once the hash finishes.
+                                    // Pin the receipt to the enqueued release via
+                                    // the single pure verdict (stale / no-digest /
+                                    // digest); a stale completion mints nothing and
+                                    // its file is cleaned on the next enqueue. The
+                                    // probe skips hashing when the release ships no
+                                    // digest.
+                                    val snapshotInfo = _ui.value.info
+                                    val (file, state, length) = withContext(ioDispatcher) {
+                                        val f = downloader.apkFile(info)
+                                        Triple(
+                                            f,
+                                            UpdateDownloader.apkStateIO(
+                                                f, info.size, info.sha256, dmSuccess = true,
+                                            ),
+                                            if (f.exists()) f.length() else 0L,
+                                        )
                                     }
-                                    if (info.sha256 == null) {
-                                        _ui.update {
-                                            it.copy(downloading = false, fileReady = true,
-                                                downloadId = null, downloadSucceeded = true)
-                                        }
-                                    } else {
-                                        val outcome = withContext(Dispatchers.IO) {
-                                            val file = downloader.apkFile(info)
-                                            val state = UpdateDownloader.apkStateIO(
-                                                file, info.size, info.sha256,
-                                                dmSuccess = true,
-                                            )
-                                            Triple(file, state, if (file.exists()) file.length() else 0L)
-                                        }
-                                        if (outcome.second == UpdateDownloader.ApkState.Ready) {
-                                            _ui.update {
-                                                it.copy(downloading = false, fileReady = true,
-                                                    downloadId = null, downloadSucceeded = true)
-                                            }
-                                        } else {
-                                            val file = outcome.first
-                                            withContext(Dispatchers.IO) { runCatching { file.delete() } }
-                                            val failure = UpdateDownloader.apkGateFailure(
-                                                outcome.second, info.sha256, info.size, outcome.third)
-                                            _ui.update {
-                                                it.copy(downloading = false, fileReady = false,
-                                                    downloadId = null, downloadSucceeded = false,
-                                                    error = Errors.friendly(failure))
-                                            }
-                                        }
+                                    val outcome = classifyDownloadSuccess(snapshotInfo, info, state, length)
+                                    if (outcome is DownloadSuccess.ChecksumFailed) {
+                                        withContext(ioDispatcher) { runCatching { file.delete() } }
                                     }
+                                    _ui.update { applyDownloadSuccess(it, outcome) }
                                 }
                                 is DownloadStatus.Failed -> _ui.update {
                                     it.copy(downloading = false, error = Errors.friendlyText(s.reason),
@@ -353,7 +298,7 @@ class UpdateViewModel(
         pollJob = null
         val id = _ui.value.downloadId
         if (id != null) {
-            viewModelScope.launch(Dispatchers.IO) { downloader.cancel(id) }
+            viewModelScope.launch(ioDispatcher) { downloader.cancel(id) }
         }
         _ui.update { it.copy(downloading = false, progress = null, downloadId = null) }
     }
@@ -362,23 +307,21 @@ class UpdateViewModel(
     fun install() {
         val info = _ui.value.info ?: return
         // Synchronous Main test-and-set like markChecking: rapid taps must not
-        // launch duplicate verifications/installer intents (the old async gate
-        // fired launcher.start twice on double-tap).
+        // launch duplicate verifications or installer intents.
         val prev = _ui.getAndUpdate { cur ->
-            if (cur.installing) cur
-            else cur.copy(installing = true, error = null)
+            if (canStartInstall(cur.installing)) cur.copy(installing = true, error = null) else cur
         }
-        if (prev.installing) return
+        if (!canStartInstall(prev.installing)) return
         viewModelScope.launch {
             // Last integrity gate before the installer: size + DM receipt as
             // before, plus the release sha256 when shipped. Hashing reads the
-            // whole APK — Dispatchers.IO, never Main; `downloadSucceeded` is
+            // whole APK — ioDispatcher, never Main; `downloadSucceeded` is
             // snapshotted on Main so the gate sees one consistent state.
             // `apkFile()` runs on IO (getExternalFilesDir does disk I/O).
             // Pre-fire re-stat narrows the snapshot→install race window;
             // it does not close it (installer fd race remains).
             val receipt = _ui.value.downloadSucceeded
-            val gate = withContext(Dispatchers.IO) {
+            val gate = withContext(ioDispatcher) {
                 val file = downloader.apkFile(info)
                 val state = UpdateDownloader.apkStateIO(file, info.size, info.sha256, receipt)
                 Triple(file, state, if (file.exists()) file.length() else 0L)
@@ -394,7 +337,7 @@ class UpdateViewModel(
                 }
                 return@launch
             }
-            val nowLen = withContext(Dispatchers.IO) {
+            val nowLen = withContext(ioDispatcher) {
                 val f = gate.first
                 if (f.exists()) f.length() else 0L
             }
