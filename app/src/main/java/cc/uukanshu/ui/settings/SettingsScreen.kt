@@ -153,7 +153,7 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
             }
         }
 
-        // 追更 card: background daily TOC check, same rhythm as other cards.
+        // 追更 card: automatic update-check switch, same rhythm as other cards.
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionHeader(display("追更"))
             Card(Modifier.fillMaxWidth()) {
@@ -163,7 +163,7 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(display("背景自動檢查"), style = MaterialTheme.typography.bodyLarge)
+                        Text(display("自動檢查更新"), style = MaterialTheme.typography.bodyLarge)
                         Switch(
                             checked = autoBookEnabled,
                             onCheckedChange = { on ->
@@ -186,8 +186,8 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
                         )
                     }
                     Text(
-                        if (autoBookEnabled) display("每天自動檢查一次，有更新時通知。")
-                        else display("已關閉背景檢查，可在書架手動檢查。"),
+                        if (autoBookEnabled) display("自動檢查更新，有更新時通知。")
+                        else display("已關閉自動檢查，可在書架手動檢查。"),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

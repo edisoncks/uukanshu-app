@@ -13,7 +13,8 @@ import java.util.concurrent.TimeUnit
  * Daily 追更 schedule: one unique periodic work, network-only constraint.
  * TOC fetches are ~10KB/book so metered is allowed; battery/storage gates
  * are deliberately absent (see plan Rev.3). Foreground library-open check
- * (6h throttle) covers Doze-deferred runs.
+ * (6h throttle) covers Doze-deferred runs and is gated by the same
+ * `autoBookCheckEnabled` flag as the Worker.
  */
 object BookUpdateScheduler {
     const val UNIQUE = "book-update-check"

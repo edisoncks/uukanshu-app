@@ -5,6 +5,7 @@ import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.di.RepoApi
 import android.util.Log
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
 
 private const val TAG = "UpdateChecker"
 
@@ -49,6 +50,25 @@ object UpdateChecker {
             Log.w(TAG, "setLastBookCheck failed, badges already in Room", e)
         }
         return Result(r.checked, r.newBooks, r.newChapters, failed = false)
+    }
+
+    /**
+     * Single gate for every *automatic* 追更 path: the daily Worker and the
+     * library-open foreground fallback. Manual 檢查更新 deliberately bypasses
+     * this (see LibraryViewModel.checkUpdates) because the switch's copy
+     * promises manual checks always work.
+     *
+     * Fails closed and logs: a read failure must not put the app on the
+     * network against a switch the user turned off, and a silent skip would
+     * leave the decision path invisible.
+     */
+    suspend fun isAutoBookCheckEnabled(prefs: PrefsApi): Boolean = try {
+        prefs.autoBookCheckEnabled.first()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "autoBookCheckEnabled read failed; skipping automatic check", e)
+        false
     }
 
     /** Foreground throttle: library-open auto-check at most once per interval. */

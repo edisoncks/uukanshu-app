@@ -6,6 +6,8 @@ import cc.uukanshu.data.repo.ShelfOrder
 import cc.uukanshu.data.updatecheck.Notifier
 import cc.uukanshu.data.updatecheck.UpdateChecker
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -169,5 +171,20 @@ class BookUpdateCheckTest {
             thrown = true
         }
         assertTrue(thrown)
+    }
+
+    @Test fun autoCheckGateFollowsFlag() = runBlocking {
+        assertTrue(UpdateChecker.isAutoBookCheckEnabled(MutableFakePrefs(autoBookEnabled = true)))
+        assertFalse(UpdateChecker.isAutoBookCheckEnabled(MutableFakePrefs(autoBookEnabled = false)))
+    }
+
+    @Test fun autoCheckGateFailsClosedOnReadError() = runBlocking {
+        // A broken read must skip, never put the app on the network against an
+        // explicit "off". Locks the fail-closed default.
+        val throwing = object : cc.uukanshu.di.PrefsApi by MutableFakePrefs() {
+            override val autoBookCheckEnabled: Flow<Boolean> =
+                flow<Boolean> { throw java.io.IOException("datastore corrupt") }
+        }
+        assertFalse(UpdateChecker.isAutoBookCheckEnabled(throwing))
     }
 }

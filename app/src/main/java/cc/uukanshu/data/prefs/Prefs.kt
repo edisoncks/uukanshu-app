@@ -86,7 +86,8 @@ class Prefs(private val context: Context) : cc.uukanshu.di.PrefsApi {
     override val skippedVersion: Flow<String?> =
         context.store.data.map { it[PrefsKeys.SKIPPED_VERSION] }
 
-    /** Automatic 追更 checks enabled (default true). */
+    /** Automatic 追更 checks enabled (default true). Gates every automatic
+     *  path (Worker + shelf fallback); manual check unaffected. */
     override val autoBookCheckEnabled: Flow<Boolean> =
         context.store.data.map { it[PrefsKeys.AUTO_BOOK_CHECK_ENABLED] ?: true }
 
