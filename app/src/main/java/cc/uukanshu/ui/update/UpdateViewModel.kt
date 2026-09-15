@@ -14,6 +14,7 @@ import cc.uukanshu.data.update.UpdateDownloader
 import cc.uukanshu.data.update.UpdateInfo
 import cc.uukanshu.data.update.VersionCompare
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +38,8 @@ class UpdateViewModel(
     private val api: ReleaseFetcher,
     private val downloader: ApkDownloader,
     private val launcher: ActivityLauncher = ActivityLauncher { app.startActivity(it) },
+    // Injected so tests run on the test scheduler instead of real threads.
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
     data class Ui(
         /** Whether any update dialog is on screen. */
@@ -131,9 +134,9 @@ class UpdateViewModel(
 
     private suspend fun checkBody(manual: Boolean) {
         try {
-            val info = withContext(Dispatchers.IO) { api.fetchLatest() }
+            val info = withContext(ioDispatcher) { api.fetchLatest() }
             prefs.setLastUpdateCheck(System.currentTimeMillis())
-            val current = withContext(Dispatchers.IO) {
+            val current = withContext(ioDispatcher) {
                 UpdateDownloader.currentVersion(app)
             }
             val skipped = prefs.skippedVersion.first()
@@ -157,7 +160,7 @@ class UpdateViewModel(
             // Same-version APK already downloaded (e.g. process died mid-flow):
             // skip straight to the install prompt. Byte-exact size match only;
             // a partial file must re-download, never install.
-            val alreadyHave = withContext(Dispatchers.IO) {
+            val alreadyHave = withContext(ioDispatcher) {
                 UpdateDownloader.isCompleteIO(downloader.apkFile(info), info.size, info.sha256)
             }
             _ui.update {
@@ -209,7 +212,7 @@ class UpdateViewModel(
             it.copy(downloading = true, progress = null, error = null,
                 needsUnknownSources = false)
         }
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(ioDispatcher) {
             // Already-have check first: a complete APK on disk skips
             // straight to install even when the unknown-sources permission
             // was revoked since (install() needs no gate of its own).
@@ -255,7 +258,7 @@ class UpdateViewModel(
             withContext(Dispatchers.Main) {
                 if (!_ui.value.downloading) {
                     // Cancelled while enqueueing: drop the just-created download.
-                    viewModelScope.launch(Dispatchers.IO) { downloader.cancel(id) }
+                    viewModelScope.launch(ioDispatcher) { downloader.cancel(id) }
                     return@withContext
                 }
                 _ui.update { it.copy(downloadId = id) }
@@ -300,7 +303,7 @@ class UpdateViewModel(
                                                 downloadId = null, downloadSucceeded = true)
                                         }
                                     } else {
-                                        val outcome = withContext(Dispatchers.IO) {
+                                        val outcome = withContext(ioDispatcher) {
                                             val file = downloader.apkFile(info)
                                             val state = UpdateDownloader.apkStateIO(
                                                 file, info.size, info.sha256,
@@ -315,7 +318,7 @@ class UpdateViewModel(
                                             }
                                         } else {
                                             val file = outcome.first
-                                            withContext(Dispatchers.IO) { runCatching { file.delete() } }
+                                            withContext(ioDispatcher) { runCatching { file.delete() } }
                                             val failure = UpdateDownloader.apkGateFailure(
                                                 outcome.second, info.sha256, info.size, outcome.third)
                                             _ui.update {
@@ -353,7 +356,7 @@ class UpdateViewModel(
         pollJob = null
         val id = _ui.value.downloadId
         if (id != null) {
-            viewModelScope.launch(Dispatchers.IO) { downloader.cancel(id) }
+            viewModelScope.launch(ioDispatcher) { downloader.cancel(id) }
         }
         _ui.update { it.copy(downloading = false, progress = null, downloadId = null) }
     }
@@ -372,13 +375,13 @@ class UpdateViewModel(
         viewModelScope.launch {
             // Last integrity gate before the installer: size + DM receipt as
             // before, plus the release sha256 when shipped. Hashing reads the
-            // whole APK — Dispatchers.IO, never Main; `downloadSucceeded` is
+            // whole APK — ioDispatcher, never Main; `downloadSucceeded` is
             // snapshotted on Main so the gate sees one consistent state.
             // `apkFile()` runs on IO (getExternalFilesDir does disk I/O).
             // Pre-fire re-stat narrows the snapshot→install race window;
             // it does not close it (installer fd race remains).
             val receipt = _ui.value.downloadSucceeded
-            val gate = withContext(Dispatchers.IO) {
+            val gate = withContext(ioDispatcher) {
                 val file = downloader.apkFile(info)
                 val state = UpdateDownloader.apkStateIO(file, info.size, info.sha256, receipt)
                 Triple(file, state, if (file.exists()) file.length() else 0L)
@@ -394,7 +397,7 @@ class UpdateViewModel(
                 }
                 return@launch
             }
-            val nowLen = withContext(Dispatchers.IO) {
+            val nowLen = withContext(ioDispatcher) {
                 val f = gate.first
                 if (f.exists()) f.length() else 0L
             }

@@ -7,7 +7,6 @@ import cc.uukanshu.data.update.DownloadStatus
 import cc.uukanshu.data.update.ReleaseFetcher
 import cc.uukanshu.data.update.UpdateInfo
 import cc.uukanshu.ui.update.UpdateViewModel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -22,20 +21,6 @@ import java.util.concurrent.atomic.AtomicInteger
 @Config(sdk = [31])
 class UpdateViewModelTest {
     @get:Rule val main = MainDispatcherRule()
-
-    private fun idle() {
-        main.dispatcher.scheduler.advanceUntilIdle()
-    }
-
-    /** Poll until [cond] or deadline: code under test hops to real Dispatchers.IO. */
-    private fun awaitUi(cond: () -> Boolean) {
-        var tries = 0
-        while (!cond() && tries < 100) {
-            Thread.sleep(50)
-            main.dispatcher.scheduler.advanceUntilIdle()
-            tries++
-        }
-    }
 
     private class CountingFetcher(val calls: AtomicInteger, val info: UpdateInfo) : ReleaseFetcher {
         override fun fetchLatest(): UpdateInfo {
@@ -54,7 +39,7 @@ class UpdateViewModelTest {
         size = null,
     )
 
-    @Test fun rapidDoubleManualCheckLaunchesSingleFetch() = runTest {
+    @Test fun rapidDoubleManualCheckLaunchesSingleFetch() = runTest(main.dispatcher) {
         val calls = AtomicInteger(0)
         val app = ApplicationProvider.getApplicationContext<android.app.Application>()
         val vm = UpdateViewModel(
@@ -62,21 +47,18 @@ class UpdateViewModelTest {
             MutableFakePrefs(),
             CountingFetcher(calls, info()),
             FakeApkDownloader(),
+            ioDispatcher = main.dispatcher,
         )
+        // Synchronous Main test-and-set: the second tap is a no-op before it
+        // can launch a second fetch.
         vm.manualCheck()
         vm.manualCheck()
-        // checkBody hops to Dispatchers.IO (real thread): wait for completion.
-        var tries = 0
-        while (vm.ui.value.checking && tries < 100) {
-            Thread.sleep(50)
-            main.dispatcher.scheduler.advanceUntilIdle()
-            tries++
-        }
+        main.dispatcher.scheduler.advanceUntilIdle()
         assertEquals(1, calls.get())
         assertFalse(vm.ui.value.checking)
     }
 
-    @Test fun installerFailureSurfacesAsDialogError() = runTest {
+    @Test fun installerFailureSurfacesAsDialogError() = runTest(main.dispatcher) {
         // Firing the installer can throw (no handler, FileProvider
         // misconfiguration): the dialog must show an error, never crash.
         // Byte-exact file so the install gate (strict, no receipt needed)
@@ -97,22 +79,17 @@ class UpdateViewModelTest {
             CountingFetcher(AtomicInteger(0), sizedInfo),
             downloader,
             ActivityLauncher { throw android.content.ActivityNotFoundException("no handler") },
+            ioDispatcher = main.dispatcher,
         )
         vm.manualCheck()
-        var tries = 0
-        while (vm.ui.value.info == null && tries < 100) {
-            Thread.sleep(50)
-            main.dispatcher.scheduler.advanceUntilIdle()
-            tries++
-        }
+        main.dispatcher.scheduler.advanceUntilIdle()
         assertEquals("9.9.9", vm.ui.value.info?.version)
         vm.install()
-        // install() verifies the gate on Dispatchers.IO: wait for the verdict.
-        awaitUi { vm.ui.value.error != null }
+        main.dispatcher.scheduler.advanceUntilIdle()
         assertEquals(true, vm.ui.value.error?.isNotEmpty())
     }
 
-    @Test fun sizelessPartialWithoutReceiptRefusesInstall() = runTest {
+    @Test fun sizelessPartialWithoutReceiptRefusesInstall() = runTest(main.dispatcher) {
         // Unknown size + non-empty file + no fresh DM Success: a
         // killed-process partial must re-download, never reach the installer.
         val app = ApplicationProvider.getApplicationContext<android.app.Application>()
@@ -131,23 +108,18 @@ class UpdateViewModelTest {
             CountingFetcher(AtomicInteger(0), info()),
             downloader,
             ActivityLauncher { launched++ },
+            ioDispatcher = main.dispatcher,
         )
         vm.manualCheck()
-        var tries = 0
-        while (vm.ui.value.info == null && tries < 100) {
-            Thread.sleep(50)
-            main.dispatcher.scheduler.advanceUntilIdle()
-            tries++
-        }
+        main.dispatcher.scheduler.advanceUntilIdle()
         vm.install()
-        // install() verifies the gate on Dispatchers.IO: wait for the verdict.
-        awaitUi { vm.ui.value.error != null }
+        main.dispatcher.scheduler.advanceUntilIdle()
         assertEquals(0, launched)
         assertEquals(true, vm.ui.value.error?.isNotEmpty())
         assertFalse(vm.ui.value.fileReady)
     }
 
-    @Test fun unknownSourcesFailureSurfacesAsDialogError() = runTest {
+    @Test fun unknownSourcesFailureSurfacesAsDialogError() = runTest(main.dispatcher) {
         val app = ApplicationProvider.getApplicationContext<android.app.Application>()
         val vm = UpdateViewModel(
             app,
@@ -155,13 +127,15 @@ class UpdateViewModelTest {
             CountingFetcher(AtomicInteger(0), info()),
             FakeApkDownloader(),
             ActivityLauncher { throw RuntimeException("no settings") },
+            ioDispatcher = main.dispatcher,
         )
+        // No coroutine hop: the launcher throw is mapped synchronously.
         vm.openUnknownSources()
         assertFalse(vm.ui.value.needsUnknownSources)
         assertEquals(true, vm.ui.value.error?.isNotEmpty())
     }
 
-    @Test fun browserFallbackFailureSurfacesAsDialogError() = runTest {
+    @Test fun browserFallbackFailureSurfacesAsDialogError() = runTest(main.dispatcher) {
         val app = ApplicationProvider.getApplicationContext<android.app.Application>()
         val vm = UpdateViewModel(
             app,
@@ -169,12 +143,13 @@ class UpdateViewModelTest {
             CountingFetcher(AtomicInteger(0), info()),
             FakeApkDownloader(),
             ActivityLauncher { throw RuntimeException("no browser") },
+            ioDispatcher = main.dispatcher,
         )
         vm.openInBrowser()
         assertEquals(true, vm.ui.value.error?.isNotEmpty())
     }
 
-    @Test fun failedAutoCheckStillThrottles() = runTest {
+    @Test fun failedAutoCheckStillThrottles() = runTest(main.dispatcher) {
         // A failed attempt stamps lastUpdateCheck too: silence for 24h
         // instead of retrying on every launch.
         val prefs = MutableFakePrefs()
@@ -182,21 +157,15 @@ class UpdateViewModelTest {
         val failing = object : ReleaseFetcher {
             override fun fetchLatest(): UpdateInfo = throw java.io.IOException("offline")
         }
-        val vm = UpdateViewModel(app, prefs, failing, FakeApkDownloader())
+        val vm = UpdateViewModel(app, prefs, failing, FakeApkDownloader(), ioDispatcher = main.dispatcher)
         vm.autoCheck()
-        var tries = 0
-        // checkBody hops to Dispatchers.IO (real thread): wait for completion.
-        while ((vm.ui.value.checking || prefs.lastCheckSet == null) && tries < 100) {
-            Thread.sleep(50)
-            main.dispatcher.scheduler.advanceUntilIdle()
-            tries++
-        }
+        main.dispatcher.scheduler.advanceUntilIdle()
         assertFalse(vm.ui.value.checking)
         assertFalse(vm.ui.value.visible)
         assertEquals(true, (prefs.lastCheckSet ?: 0L) > 0L)
     }
 
-    @Test fun autoCheckThrottledWhenRecent() = runTest {
+    @Test fun autoCheckThrottledWhenRecent() = runTest(main.dispatcher) {
         val calls = AtomicInteger(0)
         val app = ApplicationProvider.getApplicationContext<android.app.Application>()
         val vm = UpdateViewModel(
@@ -204,9 +173,10 @@ class UpdateViewModelTest {
             MutableFakePrefs(lastCheck = System.currentTimeMillis()),
             CountingFetcher(calls, info()),
             FakeApkDownloader(),
+            ioDispatcher = main.dispatcher,
         )
         vm.autoCheck()
-        idle()
+        main.dispatcher.scheduler.advanceUntilIdle()
         assertEquals(0, calls.get())
     }
 }
