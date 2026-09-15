@@ -7,7 +7,6 @@ import androidx.work.workDataOf
 import cc.uukanshu.App
 import android.util.Log
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.flow.first
 
 private const val TAG = "BookUpdateWorker"
 
@@ -24,15 +23,8 @@ class BookUpdateWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
             return Result.failure()
         }
         try {
-            val enabled = try {
-                app.prefs.bgCheckEnabled.first()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(TAG, "bgCheckEnabled read failed, defaulting to true", e)
-                true
-            }
-            if (!enabled) return Result.success()
+            // Fail-closed + logged inside the shared gate (see UpdateChecker).
+            if (!UpdateChecker.isAutoBookCheckEnabled(app.prefs)) return Result.success()
             val r = UpdateChecker.checkAll(app.repo, app.prefs)
             // Whole-run init failure (DB down): transient → retry with backoff.
             // Checker never throws except cancel, so this is the only retry path.

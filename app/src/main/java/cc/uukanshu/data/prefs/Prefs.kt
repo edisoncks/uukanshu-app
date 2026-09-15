@@ -18,7 +18,9 @@ object PrefsKeys {
     val THEME = stringPreferencesKey("theme")
     val LAST_UPDATE_CHECK = longPreferencesKey("last_update_check")
     val SKIPPED_VERSION = stringPreferencesKey("skipped_version")
-    val BG_CHECK_ENABLED = booleanPreferencesKey("bg_check_enabled")
+    // Persisted string stays "bg_check_enabled": renaming it would silently
+    // reset every existing install (no migration). Pinned by PrefsStoreTest.
+    val AUTO_BOOK_CHECK_ENABLED = booleanPreferencesKey("bg_check_enabled")
     val LAST_BOOK_CHECK = longPreferencesKey("last_book_check")
 }
 
@@ -84,12 +86,13 @@ class Prefs(private val context: Context) : cc.uukanshu.di.PrefsApi {
     override val skippedVersion: Flow<String?> =
         context.store.data.map { it[PrefsKeys.SKIPPED_VERSION] }
 
-    /** Background 追更 check enabled (default true). Badges work even when off via manual check. */
-    override val bgCheckEnabled: Flow<Boolean> =
-        context.store.data.map { it[PrefsKeys.BG_CHECK_ENABLED] ?: true }
+    /** Automatic 追更 checks enabled (default true). Gates every automatic
+     *  path (Worker + shelf fallback); manual check unaffected. */
+    override val autoBookCheckEnabled: Flow<Boolean> =
+        context.store.data.map { it[PrefsKeys.AUTO_BOOK_CHECK_ENABLED] ?: true }
 
-    override suspend fun setBgCheckEnabled(v: Boolean) {
-        context.store.edit { it[PrefsKeys.BG_CHECK_ENABLED] = v }
+    override suspend fun setAutoBookCheckEnabled(v: Boolean) {
+        context.store.edit { it[PrefsKeys.AUTO_BOOK_CHECK_ENABLED] = v }
     }
 
     /** Last 追更 check (foreground or background, epoch millis, 0 = never). */

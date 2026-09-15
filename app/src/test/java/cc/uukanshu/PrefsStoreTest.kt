@@ -2,6 +2,7 @@ package cc.uukanshu
 
 import androidx.test.core.app.ApplicationProvider
 import cc.uukanshu.data.prefs.Prefs
+import cc.uukanshu.data.prefs.PrefsKeys
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -22,6 +23,7 @@ class PrefsStoreTest {
         p.setSimplified(false)
         p.setFontScale(Prefs.FONT_DEFAULT)
         p.setTheme(Prefs.SYSTEM)
+        p.setAutoBookCheckEnabled(true)
     }
 
     @Test fun defaultsAreTraditionalSystem() = runTest {
@@ -57,5 +59,18 @@ class PrefsStoreTest {
         val p = prefs()
         p.setTheme("dark-mode")
         assertEquals(Prefs.SYSTEM, p.theme.first())
+    }
+
+    @Test fun autoBookCheckKeyStaysLegacy() {
+        // Changing the persisted string would silently reset every install (no migration).
+        assertEquals("bg_check_enabled", PrefsKeys.AUTO_BOOK_CHECK_ENABLED.name)
+    }
+
+    @Test fun autoBookCheckRoundtrip() = runTest {
+        val p = prefs()
+        p.setAutoBookCheckEnabled(false)
+        assertEquals(false, p.autoBookCheckEnabled.first())
+        p.setAutoBookCheckEnabled(true)
+        assertEquals(true, p.autoBookCheckEnabled.first())
     }
 }

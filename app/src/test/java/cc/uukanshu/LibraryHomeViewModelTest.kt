@@ -146,6 +146,38 @@ class LibraryViewModelTest {
         assertEquals(1, repo.checkAllCalls)
         assertEquals(false, vm.ui.value.checking)
     }
+
+    @Test fun onOpenAutoDisabledSkipsCheck() = runTest {
+        // Automatic 追更 off: shelf open still refreshes locally but never
+        // hits the network automatically (manual check remains available).
+        val repo = MutableFakeRepo(
+            libraryRows = listOf(book("a")),
+            libraryFlowRows = listOf(book("a")),
+        )
+        val prefs = MutableFakePrefs(bookCheck = 0L, autoBookEnabled = false)
+        val vm = LibraryViewModel(repo, prefs, T2S(), BookDownloadManager({ _, _ -> }, this))
+        idle()
+        vm.onOpen()
+        idle()
+        assertEquals(0, repo.checkAllCalls)
+        assertEquals(1, repo.libraryCalls)
+    }
+
+    @Test fun manualCheckRunsWhenAutoDisabled() = runTest {
+        // The 追更 switch promises manual 檢查更新 always works even when
+        // automatic checking is off. Pin that promise.
+        val repo = MutableFakeRepo(
+            libraryRows = listOf(book("a")),
+            libraryFlowRows = listOf(book("a")),
+        )
+        val prefs = MutableFakePrefs(bookCheck = 0L, autoBookEnabled = false)
+        val vm = LibraryViewModel(repo, prefs, T2S(), BookDownloadManager({ _, _ -> }, this))
+        idle()
+        vm.checkUpdates(auto = false)
+        idle()
+        assertEquals(1, repo.checkAllCalls)
+        assertTrue((prefs.lastBookCheckSet ?: 0L) > 0L)
+    }
 }
 
 class HomeViewModelTest {

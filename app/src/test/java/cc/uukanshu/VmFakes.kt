@@ -108,6 +108,7 @@ class MutableFakePrefs(
     simplified: Boolean = false,
     lastCheck: Long = 0L,
     bookCheck: Long = 0L,
+    autoBookEnabled: Boolean = true,
     val started: MutableList<String> = mutableListOf(),
     val skipped: MutableList<String?> = mutableListOf(),
 ) : PrefsApi {
@@ -125,11 +126,16 @@ class MutableFakePrefs(
     override val fontScale: Flow<Float> = _fontScale
     override val lastUpdateCheck: Flow<Long> = flowOf(lastCheck)
     override val skippedVersion: Flow<String?> = flowOf(null)
-    override val bgCheckEnabled: Flow<Boolean> = flowOf(true)
-    override val lastBookCheck: Flow<Long> = flowOf(bookCheck)
-    override suspend fun setBgCheckEnabled(v: Boolean) = Unit
+    private val _autoBookEnabled = MutableStateFlow(autoBookEnabled)
+    override val autoBookCheckEnabled: Flow<Boolean> = _autoBookEnabled
+    private val _lastBookCheck = MutableStateFlow(bookCheck)
+    override val lastBookCheck: Flow<Long> = _lastBookCheck
+    override suspend fun setAutoBookCheckEnabled(v: Boolean) {
+        _autoBookEnabled.value = v
+    }
     override suspend fun setLastBookCheck(now: Long) {
         lastBookCheckSet = now
+        _lastBookCheck.value = now
     }
     override suspend fun setSimplified(v: Boolean) {
         started += "simplified=$v"

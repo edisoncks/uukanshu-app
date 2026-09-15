@@ -8,6 +8,7 @@ import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.di.RepoApi
+import cc.uukanshu.data.updatecheck.UpdateChecker
 import cc.uukanshu.core.Errors
 import android.util.Log
 import kotlinx.coroutines.CancellationException
@@ -162,6 +163,8 @@ class LibraryViewModel(
      * thin bar shows progress, footer shows retry.
      * [auto] suppresses footer noise for silent foreground runs.
      * Single write path via UpdateChecker (owns lastBookCheck stamp on success only).
+     * Never gated on autoBookCheckEnabled: the 追更 switch governs automatic
+     * checks only; manual 檢查更新 is the escape hatch and must always run.
      */
     fun checkUpdates(auto: Boolean = false) {
         // Synchronous Main guard so rapid taps run once. Called from
@@ -209,16 +212,24 @@ class LibraryViewModel(
         }
     }
 
-    /** Silent foreground check on library open (6h throttle, failures ignored). */
+    /**
+     * Silent foreground check on library open (6h throttle, failures ignored).
+     * This is the Doze fallback for the daily Worker, so it shares the same
+     * automatic-check gate: with 追更 auto off, opening the shelf must not hit
+     * the network (the manual 檢查更新 button still works).
+     */
     fun autoCheckUpdates() {
         viewModelScope.launch {
+            if (!UpdateChecker.isAutoBookCheckEnabled(prefs)) return@launch
             val last = try {
                 prefs.lastBookCheck.first()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                if (e is CancellationException) throw e
+                Log.w(TAG, "lastBookCheck read failed; skipping automatic check", e)
                 return@launch
             }
-            if (!cc.uukanshu.data.updatecheck.UpdateChecker.shouldForegroundCheck(last)) return@launch
+            if (!UpdateChecker.shouldForegroundCheck(last)) return@launch
             checkUpdates(auto = true)
         }
     }

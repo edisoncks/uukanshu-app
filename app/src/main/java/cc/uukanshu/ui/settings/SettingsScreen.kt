@@ -71,7 +71,7 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
     fun display(raw: String): String = Display.text(t2s, raw, simplified)
     val updateUi by updateVm.ui.collectAsState()
     val currentVersion = remember(ctx) { UpdateDownloader.currentVersion(ctx) }
-    val bgEnabled by prefs.bgCheckEnabled.collectAsState(initial = true)
+    val autoBookEnabled by prefs.autoBookCheckEnabled.collectAsState(initial = true)
     val lastBookCheck by prefs.lastBookCheck.collectAsState(initial = 0L)
     var notifGrantedState by remember { mutableStateOf<Boolean?>(null) }
     LaunchedEffect(ctx) {
@@ -153,7 +153,7 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
             }
         }
 
-        // 追更 card: background daily TOC check, same rhythm as other cards.
+        // 追更 card: automatic update-check switch, same rhythm as other cards.
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionHeader(display("追更"))
             Card(Modifier.fillMaxWidth()) {
@@ -163,12 +163,12 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(display("背景自動檢查"), style = MaterialTheme.typography.bodyLarge)
+                        Text(display("自動檢查更新"), style = MaterialTheme.typography.bodyLarge)
                         Switch(
-                            checked = bgEnabled,
+                            checked = autoBookEnabled,
                             onCheckedChange = { on ->
                                 scope.launch {
-                                    prefs.setBgCheckEnabled(on)
+                                    prefs.setAutoBookCheckEnabled(on)
                                     if (on) {
                                         BookUpdateScheduler.scheduleUpdate(ctx)
                                         if (!notifGranted() && Build.VERSION.SDK_INT >= 33) {
@@ -186,8 +186,8 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
                         )
                     }
                     Text(
-                        if (bgEnabled) display("每天自動檢查一次，有更新時通知。")
-                        else display("已關閉背景檢查，可在書架手動檢查。"),
+                        if (autoBookEnabled) display("自動檢查更新，有更新時通知。")
+                        else display("已關閉自動檢查，可在書架手動檢查。"),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -196,7 +196,7 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    if (bgEnabled && notifGrantedState == false) {
+                    if (autoBookEnabled && notifGrantedState == false) {
                         Text(
                             display("通知已關閉，仍會在書架顯示徽章。"),
                             style = MaterialTheme.typography.bodySmall,
