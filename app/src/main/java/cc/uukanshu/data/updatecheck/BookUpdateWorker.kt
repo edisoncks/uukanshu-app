@@ -25,11 +25,11 @@ class BookUpdateWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
         }
         try {
             val enabled = try {
-                app.prefs.bgCheckEnabled.first()
+                app.prefs.autoBookCheckEnabled.first()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.w(TAG, "bgCheckEnabled read failed, defaulting to true", e)
+                Log.w(TAG, "autoBookCheckEnabled read failed, defaulting to true", e)
                 true
             }
             if (!enabled) return Result.success()

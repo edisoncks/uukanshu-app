@@ -125,9 +125,9 @@ class MutableFakePrefs(
     override val fontScale: Flow<Float> = _fontScale
     override val lastUpdateCheck: Flow<Long> = flowOf(lastCheck)
     override val skippedVersion: Flow<String?> = flowOf(null)
-    override val bgCheckEnabled: Flow<Boolean> = flowOf(true)
+    override val autoBookCheckEnabled: Flow<Boolean> = flowOf(true)
     override val lastBookCheck: Flow<Long> = flowOf(bookCheck)
-    override suspend fun setBgCheckEnabled(v: Boolean) = Unit
+    override suspend fun setAutoBookCheckEnabled(v: Boolean) = Unit
     override suspend fun setLastBookCheck(now: Long) {
         lastBookCheckSet = now
     }

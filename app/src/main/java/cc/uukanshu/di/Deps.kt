@@ -46,14 +46,14 @@ interface PrefsApi {
     val theme: Flow<String>
     val lastUpdateCheck: Flow<Long>
     val skippedVersion: Flow<String?>
-    val bgCheckEnabled: Flow<Boolean>
+    val autoBookCheckEnabled: Flow<Boolean>
     val lastBookCheck: Flow<Long>
     suspend fun setSimplified(v: Boolean)
     suspend fun setFontScale(v: Float)
     suspend fun setTheme(v: String)
     suspend fun setLastUpdateCheck(now: Long)
     suspend fun setSkippedVersion(v: String?)
-    suspend fun setBgCheckEnabled(v: Boolean)
+    suspend fun setAutoBookCheckEnabled(v: Boolean)
     suspend fun setLastBookCheck(now: Long)
 }
 

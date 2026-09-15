@@ -60,14 +60,14 @@ class FakePrefs : PrefsApi {
     override val theme: Flow<String> = flowOf("system")
     override val lastUpdateCheck: Flow<Long> = flowOf(0L)
     override val skippedVersion: Flow<String?> = flowOf(null)
-    override val bgCheckEnabled: Flow<Boolean> = flowOf(true)
+    override val autoBookCheckEnabled: Flow<Boolean> = flowOf(true)
     override val lastBookCheck: Flow<Long> = flowOf(0L)
     override suspend fun setSimplified(v: Boolean) = Unit
     override suspend fun setFontScale(v: Float) = Unit
     override suspend fun setTheme(v: String) = Unit
     override suspend fun setLastUpdateCheck(now: Long) = Unit
     override suspend fun setSkippedVersion(v: String?) = Unit
-    override suspend fun setBgCheckEnabled(v: Boolean) = Unit
+    override suspend fun setAutoBookCheckEnabled(v: Boolean) = Unit
     override suspend fun setLastBookCheck(now: Long) = Unit
 }
 
