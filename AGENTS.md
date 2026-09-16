@@ -2,8 +2,7 @@
 
 ## Git
 
-- Atomic commits
-- Conventional commits specifications
+- Atomic conventional commits
 
 ## Docs
 
