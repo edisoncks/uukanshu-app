@@ -114,4 +114,21 @@ class DetailViewModelTest {
         idle()
         assertEquals(false, downloads.isDownloading("1"))
     }
+
+    @Test fun badgeAndBookmarkFlowFailuresDoNotKillDetail() = runTest {
+        // Room flow throw must be caught+logged per-collector, never crash the
+        // VM or freeze Ready content. Why: two collectors used to lack try/catch.
+        val base = MutableFakeRepo(fresh = testDetail(101L, 102L))
+        val repo = object : RepoApi by base {
+            override fun cachedPositionsFlow(bookId: String): Flow<Set<Long>> =
+                kotlinx.coroutines.flow.flow { throw IOException("db down") }
+            override fun bookmarkFlow(bookId: String): Flow<BookRepo.Bookmark?> =
+                kotlinx.coroutines.flow.flow { throw IOException("db down") }
+        }
+        val vm = vm(repo, manager(this))
+        idle()
+        val load = vm.ui.value.load
+        assertTrue("Ready content must survive flow failures, got $load", load is DetailViewModel.Load.Ready)
+        assertEquals(2, (load as DetailViewModel.Load.Ready).chapters.size)
+    }
 }

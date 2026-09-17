@@ -77,17 +77,31 @@ class DetailViewModel(
             }
         }
         // Live badges/bookmark/download re-attach (survive nav).
+        // Each collector guards its own flow: a Room throw must log, never kill
+        // the child and freeze badges/bookmark with no UI signal (see bookInfoFlow).
         viewModelScope.launch {
-            repo.cachedPositionsFlow(bookId).collect { positions ->
-                _ui.value = _ui.value.copy(cached = positions)
+            try {
+                repo.cachedPositionsFlow(bookId).collect { positions ->
+                    _ui.value = _ui.value.copy(cached = positions)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "cachedPositionsFlow failed for $bookId", e)
             }
         }
         // Live bookmark by stable pageId: reader auto-saves on every
         // successful open, so the continue button stays correct across
         // TOC shifts (position alone would misdirect after inserts).
         viewModelScope.launch {
-            repo.bookmarkFlow(bookId).collect { bm ->
-                _ui.value = _ui.value.copy(bookmark = bm)
+            try {
+                repo.bookmarkFlow(bookId).collect { bm ->
+                    _ui.value = _ui.value.copy(bookmark = bm)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "bookmarkFlow failed for $bookId", e)
             }
         }
         // Re-attach to app-scoped download. On successful finish
