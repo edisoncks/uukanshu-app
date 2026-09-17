@@ -107,14 +107,17 @@ class DetailViewModel(
                     downloadError = st.error,
                 )
                 if (was && !st.downloading && st.error == null && st.total > 0 && st.done >= st.total) {
-                    if (_ui.value.load is Load.Ready) {
-                        try {
-                            repo.markSeen(bookId)
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            Log.w(TAG, "markSeen after download failed for $bookId", e)
-                        }
+                    val ready = _ui.value.load as? Load.Ready ?: return@collect
+                    // TOC may have grown mid-download (see BookRepo.downloadAll delta).
+                    // Manager total from the start snapshot must cover the live TOC,
+                    // else success would clear badges for never-downloaded rows.
+                    if (st.total < ready.chapters.size) return@collect
+                    try {
+                        repo.markSeen(bookId)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w(TAG, "markSeen after download failed for $bookId", e)
                     }
                 }
             }
