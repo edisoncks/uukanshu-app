@@ -333,8 +333,8 @@ class BookRepo(
                 .getOrDefault(mutableSetOf())
         }
         val missingIds = missing(chapters, cachedIds).mapTo(mutableSetOf()) { it.pageId }
+        var fetchedAny = false
         try {
-            var fetchedAny = false
             chapters.forEachIndexed { idx, ref ->
                 // Abort if the book was deleted mid-download (writes are no-ops on missing rows).
                 // Cheap EXISTS probe: the old full-entity load was N point queries per book.
@@ -350,6 +350,29 @@ class BookRepo(
                     fetchedAny = true
                 }
                 onProgress(idx + 1, chapters.size)
+            }
+            // TOC may have grown while downloading (concurrent revalidate merged new
+            // pageIds). Claiming 800/800 success then would lie, and Detail's
+            // markSeen-after-download would clear badges for never-downloaded rows.
+            // Re-read the cached TOC (DB state, no extra network) and fetch the delta.
+            val endChapters = withContext(ioDispatcher) { cachedDetail(bookId)?.chapters }
+                ?.takeIf { it.isNotEmpty() } ?: chapters
+            if (endChapters.size > chapters.size) {
+                val endCachedIds = withContext(ioDispatcher) {
+                    Errors.runCatchingExceptCancel { db.chapters().cachedPageIds(bookId).toSet() }
+                        .getOrDefault(emptySet())
+                }
+                val delta = missing(endChapters, endCachedIds)
+                delta.forEachIndexed { di, ref ->
+                    if (!withContext(ioDispatcher) { db.books().exists(bookId) }) {
+                        throw BookDeletedDuringDownloadException()
+                    }
+                    if (fetchedAny) crawlDelay()
+                    val text = withContext(ioDispatcher + BulkFetch) { chapter(ref.url).text }
+                    saveChapterContent(bookId, ref.pageId, text)
+                    fetchedAny = true
+                    onProgress(endChapters.size - delta.size + di + 1, endChapters.size)
+                }
             }
         } finally {
             runCatching {

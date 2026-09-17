@@ -140,7 +140,7 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
                     retryLabel = vm.display("重試"),
                     backLabel = vm.display("回到目錄"),
                     isDeleted = s.kind == ReaderErrorKind.Deleted,
-                    onRetry = { vm.load(s.position) },
+                    onRetry = { vm.load(s.position, s.pageId) },
                     onBack = onBack,
                 )
                 is ReaderViewModel.Ui.Content -> ReaderContent(

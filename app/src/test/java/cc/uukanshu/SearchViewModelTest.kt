@@ -83,6 +83,42 @@ class SearchViewModelTest {
         assertTrue(vm.ui.value is SearchViewModel.Ui.Error)
     }
 
+    @Test fun errorRetainsRowsAndNextLoadingKeepsThem() = runTest {
+        // Success → Error → new query: Error carries last books, Loading picks
+        // them up instead of flashing empty spinner.
+        // Why: old Error had no books, Error→Loading dropped stale rows.
+        val books = listOf(Parser.BookItem(id = "1", title = "A"))
+        val base = MutableFakeRepo(searchResult = Parser.SearchResult(1, books))
+        var calls = 0
+        val secondGate = CompletableDeferred<Unit>()
+        val repo = object : RepoApi by base {
+            override suspend fun search(keyword: String): Parser.SearchResult {
+                if (++calls == 2) throw IOException("offline")
+                if (calls == 3) secondGate.await()
+                return base.search(keyword)
+            }
+        }
+        val vm = SearchViewModel(repo, MutableFakePrefs(), T2S())
+        main.dispatcher.scheduler.advanceUntilIdle()
+        vm.query("first")
+        advanceSearch()
+        assertTrue(vm.ui.value is SearchViewModel.Ui.Success)
+        vm.query("second")
+        advanceSearch()
+        val err = vm.ui.value
+        assertTrue("expected Error, got $err", err is SearchViewModel.Ui.Error)
+        assertEquals(listOf("1"), (err as SearchViewModel.Ui.Error).books.map { it.id })
+        vm.query("third")
+        main.dispatcher.scheduler.advanceTimeBy(500)
+        main.dispatcher.scheduler.runCurrent()
+        val loading = vm.ui.value
+        assertTrue("expected Loading, got $loading", loading is SearchViewModel.Ui.Loading)
+        assertEquals(listOf("1"), (loading as SearchViewModel.Ui.Loading).books.map { it.id })
+        secondGate.complete(Unit)
+        advanceSearch()
+        assertTrue(vm.ui.value is SearchViewModel.Ui.Success)
+    }
+
     @Test fun loadingKeepsStaleResults() = runTest {
         // New query with results on screen: Loading carries the old books
         // (screen keeps them under a bar) instead of blanking the list.

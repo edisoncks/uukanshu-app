@@ -54,6 +54,8 @@ class SearchViewModel(
             val message: String,
             override val totalOrNull: Int? = null,
             override val simplified: Boolean,
+            /** Last results, kept so the next query can stay stale-while-revalidate. */
+            val books: List<Parser.BookItem> = emptyList(),
         ) : Ui
     }
 
@@ -90,13 +92,17 @@ class SearchViewModel(
                 } else {
                     flow<Ui> {
                         val s = _ui.value
+                        // Keep stale rows across Error → new query (Error carries
+                        // last books, same as Loading/Success) instead of flashing empty.
+                        val stale = (s as? Ui.Success)?.books
+                            ?: (s as? Ui.Loading)?.books
+                            ?: (s as? Ui.Error)?.books
+                            ?: emptyList()
                         emit(
                             Ui.Loading(
                                 simplified = s.simplified,
                                 totalOrNull = s.totalOrNull,
-                                books = (s as? Ui.Success)?.books
-                                    ?: (s as? Ui.Loading)?.books
-                                    ?: emptyList(),
+                                books = stale,
                             ),
                         )
                         try {
@@ -114,11 +120,19 @@ class SearchViewModel(
                             )
                         } catch (e: Exception) {
                             if (e is CancellationException) throw e
+                            // Preserve rows on Error so the next query stays
+                            // stale-while-revalidate instead of empty spinner.
+                            val prev = _ui.value
+                            val prevBooks = (prev as? Ui.Success)?.books
+                                ?: (prev as? Ui.Loading)?.books
+                                ?: (prev as? Ui.Error)?.books
+                                ?: emptyList()
                             emit(
                                 Ui.Error(
                                     message = Errors.friendly(e),
                                     totalOrNull = _ui.value.totalOrNull,
                                     simplified = _ui.value.simplified,
+                                    books = prevBooks,
                                 ),
                             )
                         }

@@ -249,6 +249,50 @@ class BookDownloadLoopTest {
         assertEquals(3 to 3, lastProgress)
     }
 
+    @Test fun tocGrowthMidDownloadFetchesDeltaInsteadOfFalseComplete() = runBlocking {
+        // Concurrent revalidate inserts pageId 103 while 102 is fetching.
+        // Claiming 2/2 success would lie and let markSeen clear badges for
+        // a never-downloaded row. downloadAll must fetch the delta and report 3/3.
+        db.books().upsert(BookEntity("1", "T", "A", "", "", ""))
+        db.chapters().upsertAll(
+            listOf(
+                ChapterEntity("1", 1, 101L, "c1", chapterUrl(101L), content = "saved-1"),
+                ChapterEntity("1", 2, 102L, "c2", chapterUrl(102L), content = ""),
+            ),
+        )
+        val fetchGate = CompletableDeferred<Unit>()
+        var inserted = false
+        val site = object : SiteGateway {
+            override suspend fun get(url: String): String {
+                if (url.endsWith("/book/1/")) return tocHtml
+                if (url == chapterUrl(102L) && !inserted) {
+                    inserted = true
+                    db.chapters().upsertAll(
+                        listOf(ChapterEntity("1", 3, 103L, "c3", chapterUrl(103L), content = "")),
+                    )
+                    fetchGate.await()
+                }
+                val id = Regex("/(\\d+)\\.html").find(url)?.groupValues?.get(1) ?: "x"
+                return chapterHtml("fresh-$id")
+            }
+            override suspend fun search(keyword: String) = ""
+        }
+        val repo = BookRepo(site, db)
+        var lastProgress = 0 to 0
+        val job = launch {
+            repo.downloadAll("1") { done, total -> lastProgress = done to total }
+        }
+        withTimeout(10000) {
+            while (!inserted) delay(10)
+        }
+        fetchGate.complete(Unit)
+        withTimeout(10000) { job.join() }
+        assertEquals("delta must extend total", 3, lastProgress.second)
+        assertEquals(3 to 3, lastProgress)
+        assertEquals("fresh-102", db.chapters().chapterContent("1", 102L))
+        assertEquals("fresh-103", db.chapters().chapterContent("1", 103L))
+    }
+
     @Test fun deleteMidDownloadAbortsLoudly() = runBlocking {
         val chapterCalls = AtomicInteger(0)
         val fetchGate = CompletableDeferred<Unit>()
