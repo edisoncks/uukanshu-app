@@ -51,7 +51,7 @@ Common scopes in this repo: `home`, `search`, `detail`, `reader`, `library`,
 - JVM includes Robolectric (Room in-memory DAO, DataStore prefs) — first run
   downloads the SDK sandbox (~200MB).
 - What's covered: `Parser` fixtures, `T2S`, merge/dedup by stable id, reader
-  title + TOC-shift guard, `TocRevalidator`, VM orchestration
+  title + TOC-shift guard, `TocSource`/`TocState` + `TocRevalidator.shouldAcceptFresh`, VM orchestration
   (Detail/Reader/Search/Library/Home/Update via shared fakes +
   `MainDispatcherRule`), Room DAO merge/wipe, Prefs defaults/clamps,
   `Routes`/render contract, updater, `SiteApi` retry.

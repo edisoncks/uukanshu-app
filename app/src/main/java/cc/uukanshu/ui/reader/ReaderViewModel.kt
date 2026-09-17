@@ -8,10 +8,10 @@ import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.di.RepoApi
-import cc.uukanshu.core.EmptyChapterListException
 import cc.uukanshu.core.Errors
 import cc.uukanshu.data.net.BulkFetch
-import cc.uukanshu.data.repo.TocRevalidator
+import cc.uukanshu.data.repo.TocSource
+import cc.uukanshu.data.repo.TocState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -92,6 +92,8 @@ class ReaderViewModel(
         _bookTitle.value = raw
     }
 
+    /** Totals follow the latest accepted Fresh generation — total only:
+     *  never position or content, which are owned by the in-flight load. */
     private fun setTotal(total: Int) {
         _ui.update {
             when (it) {
@@ -101,15 +103,25 @@ class ReaderViewModel(
             }
         }
     }
-    private var chapters: List<Parser.ChapterRef> = emptyList()
+
+    // -- TOC: one producer, one collector (see TocSource) -------------------
+
+    private val tocSource = TocSource(repo)
+    private val _toc = MutableStateFlow<TocState>(TocState.Loading)
+    private var tocJob: Job? = null
+    // Generation guard (Main-confined): revalidateToc invalidates late emits
+    // from the cancelled run structurally; cancel() alone stops the fetch
+    // but a queued Fresh could still emit after the Loading reset.
+    private var tocGen: Long = 0
+    // Terminal = Fresh/Stale/Failed; Syncing/Loading still have a fetch in flight.
+    private fun isTerminal(st: TocState): Boolean =
+        st is TocState.Failed || (st is TocState.Ready && st.phase != TocState.Phase.Syncing)
     // First load resolves by stable pageId (position may name a neighbor after a TOC shift).
     private var pendingPageId: Long = startPageId
     private var bookTitleRaw: String = ""
     // Serialized loads: rapid prev/next taps, last-tapped wins.
     private var loadJob: Job? = null
     private var prefetchJob: Job? = null
-    private var revalidateJob: Job? = null
-    private val toc = TocRevalidator(repo)
     // Last raw chapter for no-network language re-render.
     private var currentRaw: Parser.ChapterContent? = null
 
@@ -118,6 +130,10 @@ class ReaderViewModel(
             _simplified.value = prefs.simplified.first()
             _fontScale.value = prefs.fontScale.first()
             _theme.value = prefs.theme.first()
+            // Single collector + tocGen invalidation: a late emit from the
+            // cancelled run is dropped by generation check, so it can only
+            // touch totals/book title via the current run, never stale content.
+            revalidateToc()
             load(startPosition)
         }
     }
@@ -147,103 +163,129 @@ class ReaderViewModel(
         if (simplified) Triple(t2s.convert(raw.book), t2s.convert(raw.title), t2s.convert(raw.text))
         else Triple(raw.book, raw.title, raw.text)
 
+    /**
+     * Cancel + relaunch the one producer. The reset to Loading makes
+     * awaiters re-suspend; the fresh attempt is bounded by SiteApi's own
+     * deadline (no external timeout). Late emits from the cancelled run are
+     * dropped by the tocGen check (cancel stops the fetch, gen drops the race).
+     * This is today's "blocking fetch doubles as the revalidation" retry,
+     * expressed as one bounded restart.
+     */
+    private fun revalidateToc() {
+        tocJob?.cancel()
+        tocGen++
+        val myGen = tocGen
+        _toc.value = TocState.Loading
+        tocJob = viewModelScope.launch {
+            tocSource.toc(bookId).collect { st ->
+                if (myGen != tocGen) return@collect
+                _toc.value = st
+                if (st is TocState.Ready) {
+                    if (st.meta.title.isNotEmpty()) setBookTitle(st.meta.title)
+                    if (st.phase == TocState.Phase.Fresh) setTotal(st.chapters.size)
+                }
+            }
+        }
+    }
+
+    /**
+     * One consistent TOC generation for this load: returns the painted cache
+     * (Syncing) immediately for fast open; when the producer has terminally
+     * failed with no cache, gives it exactly one restart (today's fetch retry).
+     * Combined with awaitFreshAttempt's miss-restart, one load() does at most
+     * 2 fetches, never a loop. Returns Ready, or null after painting Ui.Error
+     * (retry re-enters with the Error pageId, never a loop).
+     */
+    private suspend fun awaitGeneration(position: Int, resolveId: Long): TocState.Ready? {
+        var st = _toc.value
+        if (st is TocState.Loading) st = _toc.first { it !is TocState.Loading }
+        if (st is TocState.Failed) {
+            revalidateToc()
+            st = _toc.first { it !is TocState.Loading }
+        }
+        return (st as? TocState.Ready) ?: run {
+            val failed = st as TocState.Failed
+            _ui.value = Ui.Error(
+                position = position,
+                total = _ui.value.total,
+                message = failed.message,
+                kind = ReaderErrorKind.Network,
+                pageId = resolveId,
+            )
+            null
+        }
+    }
+
+    /**
+     * Bounded fresh attempt(s) when the target misses the current generation
+     * (TOC shift between Detail tap and Reader open). Syncing: the attempt is
+     * already in flight — wait for its terminal (isTerminal, not just
+     * non-Syncing — Loading from a concurrent restart must not short-circuit).
+     * Stale: it landed failed — restart once and wait for the new terminal
+     * (not the Syncing paint). Fresh: the pageId is genuinely gone, no fetch
+     * changes that. Combined with awaitGeneration's no-cache restart, one load()
+     * does at most 2 fetches, never a loop.
+     */
+    private suspend fun awaitFreshAttempt(gen: TocState.Ready): TocState.Ready? = when (gen.phase) {
+        TocState.Phase.Syncing ->
+            _toc.first { isTerminal(it) } as? TocState.Ready
+        TocState.Phase.Stale -> {
+            revalidateToc()
+            _toc.first { isTerminal(it) } as? TocState.Ready
+        }
+        TocState.Phase.Fresh -> null
+    }
+
+    private fun paintBoundsError(position: Int, total: Int, pageId: Long) {
+        val kind = ReaderErrors.boundsKind(position)
+        _ui.value = Ui.Error(
+            position = position,
+            total = total,
+            message = if (kind == ReaderErrorKind.Deleted) ReaderErrors.deletedMessage() else "章節超出範圍",
+            kind = kind,
+            pageId = pageId,
+        )
+    }
+
     fun load(position: Int, pageId: Long = 0L) {
         loadJob?.cancel()
         prefetchJob?.cancel()
-        revalidateJob?.cancel()
-        // Retry carries the failed chapter's pageId explicitly; the initial open
-        // uses one-shot pendingPageId. Either resolves by stable id, never neighbor.
-        val resolveId = if (pageId != 0L) pageId else pendingPageId
-        if (pageId != 0L) pendingPageId = 0L
+        // pendingPageId consumed synchronously on entry (Main): retry carries
+        // the failed chapter's pageId explicitly and failure paints Error.pageId,
+        // so pending must not survive for retry — otherwise a rapid second load
+        // steals the first load's id and resolves to the wrong chapter.
+        val resolveId = if (pageId != 0L) { pendingPageId = 0L; pageId } else { val r = pendingPageId; pendingPageId = 0L; r }
         var errorPageId = resolveId
         var errorPos = position
         loadJob = viewModelScope.launch {
-            val cur = _ui.value
-            _ui.value = Ui.Loading(
-                position = position,
-                total = cur.total,
-            )
+            _ui.value = Ui.Loading(position = position, total = _ui.value.total)
             try {
-                if (chapters.isEmpty()) {
-                    // Stale-while-revalidate for TOC (see TocRevalidator):
-                    // paint cached TOC instantly, then refresh silently.
-                    val cachedToc = toc.cached(bookId)
-                    if (cachedToc != null) {
-                        chapters = cachedToc.chapters
-                        if (cachedToc.meta.title.isNotEmpty()) setBookTitle(cachedToc.meta.title)
+                val gen = awaitGeneration(position, resolveId) ?: return@launch
+                // The generation is owned by this load until done: every read
+                // below goes through this snapshot, never a shared mutable field.
+                var snapshot = gen.chapters
+                var effective = resolveEffectivePosition(snapshot, position, resolveId)
+                if (effective < 1 || effective > snapshot.size) {
+                    // Target misses this generation (shift between Detail tap and
+                    // open): one bounded fresh attempt, then re-resolve — the same
+                    // rescue the blocking fetch used to provide, deterministic.
+                    val fresh = awaitFreshAttempt(gen)
+                    if (fresh == null) {
+                        paintBoundsError(effective, snapshot.size, resolveId)
+                        return@launch
                     }
-                    if (chapters.isEmpty() || position < 1 || position > chapters.size) {
-                        // Blocking fetch doubles as the revalidation — no extra
-                        // background request. Empty fresh TOC is rejected
-                        // (see TocRevalidator): keep stale, fail loudly on nothing.
-                        try {
-                            val fresh = repo.detail(bookId)
-                            if (TocRevalidator.shouldAcceptFresh(fresh.chapters, chapters.size)) {
-                                chapters = fresh.chapters
-                                if (fresh.meta.title.isNotEmpty()) setBookTitle(fresh.meta.title)
-                                setTotal(chapters.size)
-                            } else if (chapters.isEmpty()) {
-                                throw EmptyChapterListException()
-                            }
-                        } catch (e: Exception) {
-                            if (e is kotlinx.coroutines.CancellationException) throw e
-                            // Offline with cache: keep stale TOC if we have it.
-                            if (chapters.isEmpty()) throw e
-                        }
-                    } else if (cachedToc != null) {
-                        // Serving from stale TOC: revalidate silently.
-                        // Stale size guards against truncated parses.
-                        // Child of the load (not a viewModelScope sibling):
-                        // cancelling the load cancels its revalidate, so a
-                        // superseded revalidate can never commit stale totals
-                        // after a newer load resolved. See SCRAPING.md.
-                        val staleCount = chapters.size
-                        revalidateJob = launch {
-                            when (val res = toc.revalidate(bookId, staleCount)) {
-                                is TocRevalidator.Revalidate.Accepted -> {
-                                    chapters = res.detail.chapters
-                                    if (res.detail.meta.title.isNotEmpty()) setBookTitle(res.detail.meta.title)
-                                    setTotal(chapters.size)
-                                }
-                                else -> Unit // Empty/shrunken/failed: keep stale, reading never breaks.
-                            }
-                        }
+                    snapshot = fresh.chapters
+                    effective = resolveEffectivePosition(snapshot, position, resolveId)
+                    if (effective < 1 || effective > snapshot.size) {
+                        paintBoundsError(effective, snapshot.size, resolveId)
+                        return@launch
                     }
-                }
-                // Stable-id resolution for initial open and retry: a TOC shift
-                // between Detail tap and Reader load must not alias to a
-                // neighbor. Subsequent prev/next loads pass position only
-                // (no id → positional). Consumes one-shot pendingPageId.
-                val effective = if (resolveId != 0L) {
-                    val r = resolveEffectivePosition(chapters, position, resolveId)
-                    pendingPageId = 0L
-                    errorPos = r
-                    errorPageId = resolveId
-                    r
-                } else {
-                    errorPos = position
-                    errorPageId = 0L
-                    position
-                }
-                val total = chapters.size
-                if (effective < 1 || effective > total) {
-                    // -1 = stable pageId missed (deleted chapter): offer back-to-detail,
-                    // never silently alias to a neighbor or loop retry on the same -1.
-                    val kind = ReaderErrors.boundsKind(effective)
-                    _ui.value = Ui.Error(
-                        position = effective,
-                        total = total,
-                        message = if (kind == ReaderErrorKind.Deleted) ReaderErrors.deletedMessage() else "章節超出範圍",
-                        kind = kind,
-                        pageId = resolveId,
-                    )
-                    return@launch
                 }
                 // From here the target chapter is fixed: track it for catch/retry
                 // so a fetch failure re-opens the same pageId, not the stale arg.
                 errorPos = effective
-                errorPageId = chapters[effective - 1].pageId
-                val ref = chapters[effective - 1]
+                errorPageId = snapshot[effective - 1].pageId
+                val ref = snapshot[effective - 1]
                 // Room cache first (by stable pageId), else network (then save raw).
                 val cached = repo.cachedChapterContent(bookId, ref.pageId)
                 val raw = if (cached != null) {
@@ -252,9 +294,9 @@ class ReaderViewModel(
                     Parser.ChapterContent(
                         book = ReaderTitle.resolve(bookTitleRaw, "", (_ui.value as? Ui.Content)?.book.orEmpty()),
                         title = ref.title, text = cached,
-                        prevUrl = chapters.getOrNull(effective - 2)?.url,
+                        prevUrl = snapshot.getOrNull(effective - 2)?.url,
                         tocUrl = null,
-                        nextUrl = chapters.getOrNull(effective)?.url,
+                        nextUrl = snapshot.getOrNull(effective)?.url,
                     )
                 } else {
                     val fetched = repo.chapter(ref.url)
@@ -266,17 +308,24 @@ class ReaderViewModel(
                     val withBook = if (fetched.book.isEmpty() && bookTitleRaw.isNotEmpty()) {
                         fetched.copy(book = bookTitleRaw)
                     } else fetched
-                    // PageId-keyed write: correct even if a background
-                    // revalidate shifted positions mid-fetch.
+                    // PageId-keyed write: correct even if a TOC refresh lands mid-fetch.
                     withBook.also {
                         repo.saveChapterContent(bookId, ref.pageId, it.text)
                     }
                 }
                 currentRaw = raw
                 val (book, title, text) = render(raw, _simplified.value)
+                // Total follows the latest accepted Fresh generation — read HERE,
+                // after the fetch, not before it: a Fresh that landed mid-fetch
+                // already bumped the Loading total via setTotal, and painting a
+                // pre-fetch snapshot.size would clobber it back (and false-AtEnd
+                // next()). Shrink is rejected by the guard, so Fresh is only ever
+                // >= snapshot.size. No suspend sits between this read and the paint.
+                val freshTotal = (_toc.value as? TocState.Ready)
+                    ?.takeIf { it.phase == TocState.Phase.Fresh }?.chapters?.size ?: 0
                 _ui.value = Ui.Content(
                     position = effective,
-                    total = total,
+                    total = maxOf(snapshot.size, freshTotal),
                     book = book, title = title, text = text,
                 )
                 // Silent auto-bookmark by stable pageId (position shifts on
@@ -288,13 +337,13 @@ class ReaderViewModel(
                     throw e
                 } catch (_: Exception) {
                 }
-                prefetchNext5(effective)
+                prefetchNext5(effective, snapshot)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
+                // Retry the resolved chapter, not the stale tap arg: after a
+                // TOC shift the arg names a neighbor (see errorPos/errorPageId).
                 val cur = _ui.value
                 _ui.value = Ui.Error(
-                    // Retry the resolved chapter, not the stale tap arg: after a
-                    // TOC shift the arg names a neighbor (see errorPos/errorPageId).
                     position = errorPos,
                     total = cur.total,
                     message = Errors.friendly(e),
@@ -305,10 +354,11 @@ class ReaderViewModel(
     }
 
     /** Auto-cache the next 5 chapters, sequential with crawl delay, silent-fail. */
-    private fun prefetchNext5(from: Int) {
+    private fun prefetchNext5(from: Int, snapshot: List<Parser.ChapterRef>) {
         prefetchJob?.cancel()
-        // Snapshot: a background TOC revalidate may swap [chapters] mid-loop.
-        val snapshot = chapters.toList()
+        // Snapshot passed in by the load: the prefetch scans exactly the
+        // generation the user is reading from; a background TOC refresh can
+        // only touch totals, never this list.
         prefetchJob = viewModelScope.launch {
             var fetchedAny = false
             for (pos in (from + 1)..minOf(from + 5, snapshot.size)) {

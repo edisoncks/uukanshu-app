@@ -9,8 +9,8 @@ import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.di.RepoApi
 import cc.uukanshu.di.PrefsApi
-import cc.uukanshu.core.Errors
-import cc.uukanshu.data.repo.TocRevalidator
+import cc.uukanshu.data.repo.TocSource
+import cc.uukanshu.data.repo.TocState
 import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -56,8 +56,10 @@ class DetailViewModel(
     private val _ui = MutableStateFlow(Ui())
     val ui: StateFlow<Ui> = _ui
     // Serialized refresh (last-tapped wins); independent of download jobs.
+    // TocSource owns the stale-while-revalidate policy (single cold producer,
+    // one terminal emission per run — see TocState); this VM only maps states.
     private var refreshJob: kotlinx.coroutines.Job? = null
-    private val toc = TocRevalidator(repo)
+    private val tocSource = TocSource(repo)
 
     init {
         viewModelScope.launch {
@@ -138,78 +140,38 @@ class DetailViewModel(
         }
     }
 
-    companion object {
-        /** Single empty-TOC guard — see [TocRevalidator]. */
-        fun shouldAcceptFresh(
-            freshChapters: List<Parser.ChapterRef>,
-            cachedCount: Int = 0,
-        ): Boolean =
-            TocRevalidator.shouldAcceptFresh(freshChapters, cachedCount)
-    }
-
+    /**
+     * Refresh = one producer run (last-tapped wins via refreshJob cancel).
+     * Maps TocState emissions to Load — offline/refreshing are derived, never
+     * tracked — and clears the 追更 badge exactly on accepted Fresh:
+     * failed loads keep the badge signal, as before.
+     */
     fun refresh() {
         // Refresh never cancels downloads (independent jobs).
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
-            // Paint cache instantly, refresh silently (see TocRevalidator).
-            val cached = toc.cached(bookId)
-            if (cached != null) {
+            tocSource.toc(bookId).collect { st ->
                 _ui.update {
-                    it.copy(
-                        load = Load.Ready(
-                            meta = cached.meta, chapters = cached.chapters,
-                            offline = false, refreshing = true,
-                        ),
-                    )
-                }
-            } else {
-                _ui.update { it.copy(load = Load.Loading) }
-            }
-            // Stale count guards against truncated parses (see TocRevalidator):
-            // a shrunken TOC never wipes painted cache.
-            val staleCount = (cached?.chapters?.size) ?: 0
-            when (val res = toc.revalidate(bookId, staleCount)) {
-                is TocRevalidator.Revalidate.Accepted -> {
-                    val fresh = res.detail
-                    _ui.update {
-                        it.copy(
+                    when (st) {
+                        is TocState.Loading -> it.copy(load = Load.Loading)
+                        is TocState.Ready -> it.copy(
                             load = Load.Ready(
-                                meta = fresh.meta, chapters = fresh.chapters,
-                                offline = false, refreshing = false,
+                                meta = st.meta,
+                                chapters = st.chapters,
+                                offline = st.phase == TocState.Phase.Stale,
+                                refreshing = st.phase == TocState.Phase.Syncing,
                             ),
                         )
+                        is TocState.Failed -> it.copy(load = Load.Failed(st.message))
                     }
-                    // Badge clears only after full TOC paints (failed load keeps signal).
+                }
+                if (st is TocState.Ready && st.phase == TocState.Phase.Fresh) {
                     try {
                         repo.markSeen(bookId)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
                         Log.w(TAG, "markSeen after paint failed for $bookId", e)
-                    }
-                }
-                is TocRevalidator.Revalidate.RejectedEmpty,
-                is TocRevalidator.Revalidate.RejectedShrink -> {
-                    // Empty/shrunken TOC never wipes painted cache.
-                    _ui.update { cur ->
-                        when (val l = cur.load) {
-                            is Load.Ready -> cur.copy(
-                                load = l.copy(refreshing = false, offline = true),
-                            )
-                            else -> cur.copy(
-                                load = Load.Failed("章節列表為空，請稍後再試"),
-                            )
-                        }
-                    }
-                }
-                is TocRevalidator.Revalidate.Failed -> {
-                    val e = res.error
-                    _ui.update { cur ->
-                        when (val l = cur.load) {
-                            // Keep stale content visible, flag offline.
-                            is Load.Ready -> cur.copy(load = l.copy(refreshing = false, offline = true))
-                            else -> cur.copy(load = Load.Failed(Errors.friendly(e)))
-                        }
                     }
                 }
             }
