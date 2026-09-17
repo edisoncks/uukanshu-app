@@ -91,6 +91,54 @@ class ReaderViewModelTest {
         assertEquals(2, (ui as ReaderViewModel.Ui.Content).position)
     }
 
+    @Test fun chapterFailureRetryKeepsPageIdNotNeighbor() = runTest {
+        // TOC shift: pageId 102 moved from position 1 to 2. First chapter fetch
+        // fails; Error must carry effective position + pageId so retry re-opens
+        // the same chapter instead of aliasing to the neighbor at the stale arg.
+        // Why: old catch emitted Loading.position (tap arg), retry lost the id.
+        val shifted = testDetail(101L, 102L)
+        val base = MutableFakeRepo(
+            fresh = shifted,
+            chaptersText = mutableMapOf(101L to "t1"),
+        )
+        var chapterCalls = 0
+        val repo = object : RepoApi by base {
+            override suspend fun cachedChapterContent(bookId: String, pageId: Long): String? =
+                base.chaptersText[pageId]
+            override suspend fun chapter(url: String): cc.uukanshu.data.parse.Parser.ChapterContent {
+                chapterCalls++
+                if (chapterCalls == 1) throw IOException("network down")
+                return base.chapter(url)
+            }
+            override suspend fun cachedDetail(bookId: String): BookRepo.Detail? = null
+            override suspend fun detail(bookId: String): BookRepo.Detail = shifted
+            override suspend fun saveChapterContent(bookId: String, pageId: Long, content: String) {
+                base.chaptersText[pageId] = content
+            }
+        }
+        // Ensure target text exists for retry (second call succeeds).
+        base.chaptersText[102L] = "t2-retry"
+        // Remove it for the first attempt to force network path, then restore via chapter().
+        base.chaptersText.remove(102L)
+        val vm = ReaderViewModel(repo, T2S(), MutableFakePrefs(), "1", 1, 102L)
+        idle()
+        val err = vm.ui.value
+        assertTrue("expected Error after fetch failure, got $err", err is ReaderViewModel.Ui.Error)
+        err as ReaderViewModel.Ui.Error
+        assertEquals("Error must carry resolved position", 2, err.position)
+        assertEquals("Error must carry pageId for retry", 102L, err.pageId)
+        vm.load(err.position, err.pageId)
+        idle()
+        val ui = vm.ui.value
+        assertTrue("retry must render Content, got $ui", ui is ReaderViewModel.Ui.Content)
+        ui as ReaderViewModel.Ui.Content
+        assertEquals(2, ui.position)
+        // Bookmark must target the resolved chapter, never the stale neighbor.
+        assertEquals(1, base.savedProgress.size)
+        assertEquals(2, base.savedProgress[0].second)
+        assertEquals(102L, base.savedProgress[0].third)
+    }
+
     @Test fun toggleSimplifiedRerendersWithoutRefetch() = runTest {
         val trad = "生命不息，奮鬥不止"
         val simp = "生命不息，奋斗不止"

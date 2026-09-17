@@ -64,6 +64,9 @@ class ReaderViewModel(
             override val total: Int = 0,
             val message: String,
             val kind: ReaderErrorKind = ReaderErrorKind.Network,
+            // Stable chapter id for retry: position alone aliases to a neighbor
+            // after a TOC shift, so retry must re-resolve by pageId (see load).
+            val pageId: Long = 0L,
         ) : Ui {
             override val isLoading: Boolean = false
         }
@@ -144,10 +147,16 @@ class ReaderViewModel(
         if (simplified) Triple(t2s.convert(raw.book), t2s.convert(raw.title), t2s.convert(raw.text))
         else Triple(raw.book, raw.title, raw.text)
 
-    fun load(position: Int) {
+    fun load(position: Int, pageId: Long = 0L) {
         loadJob?.cancel()
         prefetchJob?.cancel()
         revalidateJob?.cancel()
+        // Retry carries the failed chapter's pageId explicitly; the initial open
+        // uses one-shot pendingPageId. Either resolves by stable id, never neighbor.
+        val resolveId = if (pageId != 0L) pageId else pendingPageId
+        if (pageId != 0L) pendingPageId = 0L
+        var errorPageId = resolveId
+        var errorPos = position
         loadJob = viewModelScope.launch {
             val cur = _ui.value
             _ui.value = Ui.Loading(
@@ -201,15 +210,21 @@ class ReaderViewModel(
                         }
                     }
                 }
-                // One-shot pageId resolution for the initial open: a TOC shift
+                // Stable-id resolution for initial open and retry: a TOC shift
                 // between Detail tap and Reader load must not alias to a
                 // neighbor. Subsequent prev/next loads pass position only
-                // (pendingPageId already consumed → 0).
-                val effective = if (pendingPageId != 0L) {
-                    val r = resolveEffectivePosition(chapters, position, pendingPageId)
+                // (no id → positional). Consumes one-shot pendingPageId.
+                val effective = if (resolveId != 0L) {
+                    val r = resolveEffectivePosition(chapters, position, resolveId)
                     pendingPageId = 0L
+                    errorPos = r
+                    errorPageId = resolveId
                     r
-                } else position
+                } else {
+                    errorPos = position
+                    errorPageId = 0L
+                    position
+                }
                 val total = chapters.size
                 if (effective < 1 || effective > total) {
                     // -1 = stable pageId missed (deleted chapter): offer back-to-detail,
@@ -220,9 +235,14 @@ class ReaderViewModel(
                         total = total,
                         message = if (kind == ReaderErrorKind.Deleted) ReaderErrors.deletedMessage() else "章節超出範圍",
                         kind = kind,
+                        pageId = resolveId,
                     )
                     return@launch
                 }
+                // From here the target chapter is fixed: track it for catch/retry
+                // so a fetch failure re-opens the same pageId, not the stale arg.
+                errorPos = effective
+                errorPageId = chapters[effective - 1].pageId
                 val ref = chapters[effective - 1]
                 // Room cache first (by stable pageId), else network (then save raw).
                 val cached = repo.cachedChapterContent(bookId, ref.pageId)
@@ -273,9 +293,12 @@ class ReaderViewModel(
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 val cur = _ui.value
                 _ui.value = Ui.Error(
-                    position = cur.position,
+                    // Retry the resolved chapter, not the stale tap arg: after a
+                    // TOC shift the arg names a neighbor (see errorPos/errorPageId).
+                    position = errorPos,
                     total = cur.total,
                     message = Errors.friendly(e),
+                    pageId = errorPageId,
                 )
             }
         }
