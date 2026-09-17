@@ -48,22 +48,23 @@ class LibraryViewModelTest {
         assertNull(downloads.states.value["a"])
     }
 
-    @Test fun refreshFailureWithRowsIsFooterError() = runTest {
+    @Test fun refreshClearsFooterErrorWithoutQuery() = runTest {
+        // Single owner: rows come from libraryFlow only. refresh() clears a
+        // stale footer error and never queries repo.library() (the old one-shot
+        // query raced the flow and clobbered newer emissions with stale results).
         val repo = MutableFakeRepo(
             libraryFlowRows = listOf(book("a")),
-            libraryRows = listOf(book("a")),
-            libraryFailure = IOException("db down"),
+            libraryRows = listOf(book("stale")),
         )
         val vm = LibraryViewModel(repo, MutableFakePrefs(), T2S(), BookDownloadManager({ _, _ -> }, this))
         idle()
-        // Shelf painted from the flow; one-shot refresh fails → footer error, rows kept.
+        val libBefore = repo.libraryCalls
         vm.refresh()
         idle()
+        assertEquals("refresh must not query", libBefore, repo.libraryCalls)
         val load = vm.ui.value.load
         assertTrue(load is LibraryViewModel.Load.Shelf)
-        load as LibraryViewModel.Load.Shelf
-        assertEquals(listOf("a"), load.books.map { it.id })
-        assertTrue(load.error != null)
+        assertEquals(listOf("a"), (load as LibraryViewModel.Load.Shelf).books.map { it.id })
     }
 
     @Test fun checkUpdatesFailedShowsRealCause() = runTest {
@@ -117,7 +118,7 @@ class LibraryViewModelTest {
     }
 
     @Test fun onOpenThrottledSkipsCheck() = runTest {
-        // Recent check → refresh only (local), no network.
+        // Recent check → no query (rows come from flow), no network.
         val repo = MutableFakeRepo(
             libraryRows = listOf(book("a")),
             libraryFlowRows = listOf(book("a")),
@@ -128,7 +129,7 @@ class LibraryViewModelTest {
         val libBefore = repo.libraryCalls
         vm.onOpen()
         idle()
-        assertEquals(libBefore + 1, repo.libraryCalls)
+        assertEquals("rows come from flow, no one-shot query", libBefore, repo.libraryCalls)
         assertEquals(0, repo.checkAllCalls)
     }
 
@@ -148,8 +149,8 @@ class LibraryViewModelTest {
     }
 
     @Test fun onOpenAutoDisabledSkipsCheck() = runTest {
-        // Automatic 追更 off: shelf open still refreshes locally but never
-        // hits the network automatically (manual check remains available).
+        // Automatic 追更 off: shelf open never hits the network automatically
+        // (manual check remains available). Rows come from the flow.
         val repo = MutableFakeRepo(
             libraryRows = listOf(book("a")),
             libraryFlowRows = listOf(book("a")),
@@ -160,7 +161,7 @@ class LibraryViewModelTest {
         vm.onOpen()
         idle()
         assertEquals(0, repo.checkAllCalls)
-        assertEquals(1, repo.libraryCalls)
+        assertEquals(0, repo.libraryCalls)
     }
 
     @Test fun manualCheckRunsWhenAutoDisabled() = runTest {

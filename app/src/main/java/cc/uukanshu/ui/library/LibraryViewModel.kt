@@ -126,29 +126,17 @@ class LibraryViewModel(
         }
     }
 
+    /**
+     * Manual retry clears a stale footer error; rows always come from
+     * `libraryFlow` (single owner). The old one-shot `repo.library()` query
+     * raced the flow and clobbered newer emissions with stale results.
+     */
     fun refresh() {
-        viewModelScope.launch {
-            // Clear a stale footer error at refresh start; the shelf stays
-            // visible (stale-while-revalidate), a fresh load shows Loading.
-            _ui.update { cur ->
-                when (val l = cur.load) {
-                    is Load.Shelf -> cur.copy(load = l.copy(error = null))
-                    else -> cur.copy(load = Load.Loading)
-                }
-            }
-            try {
-                val books = repo.library()
-                _ui.update { it.copy(load = Load.Shelf(books)) }
-            } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                _ui.update { cur ->
-                    // DB failure is a failure, not an empty shelf: footer
-                    // when rows are on screen, full-screen when empty.
-                    when (val l = cur.load) {
-                        is Load.Shelf -> cur.copy(load = l.copy(error = Errors.friendly(e)))
-                        else -> cur.copy(load = Load.Failed(Errors.friendly(e)))
-                    }
-                }
+        _ui.update { cur ->
+            when (val l = cur.load) {
+                is Load.Shelf -> cur.copy(load = l.copy(error = null))
+                is Load.Failed -> cur.copy(load = Load.Loading)
+                else -> cur
             }
         }
     }
@@ -235,10 +223,9 @@ class LibraryViewModel(
     }
 
     /**
-     * Single entry for Library open: one-shot refresh for rows, then
-     * throttled silent check. Keeps composition to one call so the
-     * two paths don't race from competing launches; refresh (local)
-     * and auto-check (network, throttled) are both needed on cold open.
+     * Single entry for Library open: clear stale error, then throttled
+     * silent check. Rows come from `libraryFlow`; no one-shot query so the
+     * two paths cannot race.
      */
     fun onOpen() {
         refresh()
@@ -255,9 +242,9 @@ class LibraryViewModel(
             repo.deleteBook(id)
             // Evict retained manager state so a re-opened detail can't
             // replay stale done/total for zero cached bytes.
+            // Rows update via libraryFlow; no manual refresh (would race it).
             downloads.forget(id)
             _ui.update { cur -> cur.copy(pendingTitles = cur.pendingTitles - id) }
-            refresh()
         }
     }
 
@@ -266,7 +253,6 @@ class LibraryViewModel(
             repo.clearAll()
             downloads.forgetAll()
             _ui.update { cur -> cur.copy(pendingTitles = emptyMap()) }
-            refresh()
         }
     }
 
