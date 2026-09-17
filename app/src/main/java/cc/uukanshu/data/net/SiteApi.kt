@@ -6,6 +6,7 @@ import cc.uukanshu.core.HttpStatusException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runInterruptible
@@ -100,7 +101,11 @@ class SiteApi(
      * sleeps and body sniffing run outside so a retrying request never
      * blocks the single-flight lane while doing no network I/O. A total
      * deadline bounds the whole policy so no single call can wedge the lane
-     * (interactive 90s, bulk 60s — see companion).
+     * (interactive 90s, bulk 60s — see companion). The deadline surfaces as
+     * an [java.io.IOException] timeout (never [TimeoutCancellationException])
+     * so callers render Error/retry instead of treating it as coroutine cancel
+     * and wedging in Loading; genuine cancel still propagates as
+     * [CancellationException].
      */
     @Throws(IOException::class, CancellationException::class)
     private suspend fun send(
@@ -113,38 +118,44 @@ class SiteApi(
         val http = if (bulk) bulkClient else client
         val deadline = if (bulk) bulkDeadlineMs else interactiveDeadlineMs
         var last: IOException? = null
-        return withTimeout(deadline) {
-            repeat(3) { attempt ->
-                coroutineContext.ensureActive()
-                try {
-                    val body: String = gate.withPermit {
-                        withContext(ioDispatcher) {
-                            runInterruptible {
-                                http.newCall(call).execute().use { res ->
-                                    val code = res.code
-                                    if (code == 408 || code == 429 || code >= 500) {
-                                        throw HttpStatusException(code, label)
+        try {
+            return withTimeout(deadline) {
+                repeat(3) { attempt ->
+                    coroutineContext.ensureActive()
+                    try {
+                        val body: String = gate.withPermit {
+                            withContext(ioDispatcher) {
+                                runInterruptible {
+                                    http.newCall(call).execute().use { res ->
+                                        val code = res.code
+                                        if (code == 408 || code == 429 || code >= 500) {
+                                            throw HttpStatusException(code, label)
+                                        }
+                                        // Deterministic client errors never heal on retry: fail
+                                        // fast instead of burning backoff delays.
+                                        if (!res.isSuccessful) throw NonRetryable(HttpStatusException(code, label))
+                                        res.body?.string() ?: throw IOException(emptyBodyMessage)
                                     }
-                                    // Deterministic client errors never heal on retry: fail
-                                    // fast instead of burning backoff delays.
-                                    if (!res.isSuccessful) throw NonRetryable(HttpStatusException(code, label))
-                                    res.body?.string() ?: throw IOException(emptyBodyMessage)
                                 }
                             }
                         }
+                        throwIfBlocked(body)
+                        return@withTimeout body
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: NonRetryable) {
+                        throw e.failure
+                    } catch (e: IOException) {
+                        last = e
+                        if (attempt < 2) delay(1500L * (attempt + 1))
                     }
-                    throwIfBlocked(body)
-                    return@withTimeout body
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: NonRetryable) {
-                    throw e.failure
-                } catch (e: IOException) {
-                    last = e
-                    if (attempt < 2) delay(1500L * (attempt + 1))
                 }
+                throw IOException("$failurePrefix: $last")
             }
-            throw IOException("$failurePrefix: $last")
+        } catch (e: TimeoutCancellationException) {
+            // Deadline hit: network failure, not coroutine cancel. Map to IOException
+            // so ViewModels render Error/retry instead of dying cancelled in Loading.
+            throw java.net.SocketTimeoutException("timed out after ${deadline}ms for $label")
         }
     }
 
@@ -180,8 +191,10 @@ class SiteApi(
          * Total deadline around the whole 3-attempt policy. Without this a
          * dead network costs ~3min per call (30s+30s per attempt + backoff),
          * and a reader open (detail + chapter, sequential) ~6min of spinner.
-         * Surfaces as TimeoutCancellationException ("timed out"), which
-         * [cc.uukanshu.core.Errors.friendly] already maps to the network message.
+         * Surfaces as SocketTimeoutException (an IOException) so ViewModels
+         * render Error/retry; genuine coroutine cancel still propagates as
+         * CancellationException (see send). Both map to the network message
+         * in [cc.uukanshu.core.Errors.friendly].
          */
         const val INTERACTIVE_DEADLINE_MS = 90_000L
         const val BULK_DEADLINE_MS = 60_000L

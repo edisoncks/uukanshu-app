@@ -89,7 +89,8 @@ UI (ViewModels)
   loops release it during `crawlDelay()` so interactive taps interleave.
   Bulk chapters run under `BulkFetch` (shorter timeouts only — no preemption).
   Timeouts are profiled: interactive 30s/30s + 90s total deadline, bulk 15s/15s +
-  60s (a dead network fails instead of wedging the gate for minutes).
+  60s (a dead network fails as IOException Error/retry instead of wedging the gate
+  for minutes; genuine coroutine cancel still propagates as CancellationException).
 - `data/parse/Parser.kt` (facade) + `BookIds`/`CardsParser`/`TocParser`/
   `MetaParser`/`ChapterParser`: pure, unit-tested sub-parsers with
   precompiled patterns (no per-row `Regex(...)` allocation). `Parser` keeps

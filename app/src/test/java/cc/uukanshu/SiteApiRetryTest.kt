@@ -4,6 +4,8 @@ import cc.uukanshu.data.net.BulkFetch
 import cc.uukanshu.data.net.SiteApi
 import cc.uukanshu.data.net.UukanshuGate
 import java.io.IOException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
@@ -107,8 +109,10 @@ class SiteApiRetryTest {
     }
 
     @Test fun totalDeadlineBoundsHangingRequestAndReleasesGate() = runBlocking {
-        // A dead network must time out instead of wedging the lane;
-        // the gate must be free for the next call afterwards.
+        // A dead network must time out as IOException (not cancel) instead of
+        // wedging the lane in Loading; the gate must be free afterwards.
+        // Why: withTimeout used to surface TimeoutCancellationException, which
+        // ViewModels rethrew as cancel and stuck in Loading with no retry.
         val gate = UukanshuGate()
         val hanging = OkHttpClient.Builder()
             .addInterceptor(Interceptor {
@@ -120,15 +124,45 @@ class SiteApiRetryTest {
         try {
             stuck.get("https://uukanshu.cc/book/1/")
             fail("expected timeout")
-        } catch (e: Exception) {
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            fail("deadline must not surface as cancel, got $e")
+        } catch (e: IOException) {
             assertTrue(
-                "expected TimeoutCancellationException, got $e",
-                e is kotlinx.coroutines.TimeoutCancellationException,
+                "timeout must map to network message, got '${cc.uukanshu.core.Errors.friendly(e)}'",
+                cc.uukanshu.core.Errors.friendly(e).contains("網路"),
             )
         }
         var fastCalls = 0
         val fast = SiteApi(clientFor(200, "ok") { fastCalls++ }, clientFor(200, "ok") {}, gate)
         fast.get("https://uukanshu.cc/book/1/")
         assertEquals(1, fastCalls)
+    }
+
+    @Test fun genuineCancelStillPropagatesAsCancel() = runBlocking {
+        // cancelling the outer job must stay CancellationException (silent cancel,
+        // no Error). Only the deadline maps to IOException.
+        val gate = UukanshuGate()
+        val hanging = OkHttpClient.Builder()
+            .addInterceptor(Interceptor {
+                java.util.concurrent.CountDownLatch(1).await()
+                throw IOException("unreachable")
+            })
+            .build()
+        val api = SiteApi(hanging, hanging, gate, interactiveDeadlineMs = 10_000L)
+        var sawCancel = false
+        val job = launch {
+            try {
+                api.get("https://uukanshu.cc/book/1/")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // TimeoutCancellationException is a CancellationException subclass;
+                // genuine cancel must still arrive here, never as IOException.
+                if (e !is kotlinx.coroutines.TimeoutCancellationException) sawCancel = true
+                throw e
+            }
+        }
+        delay(100)
+        job.cancel()
+        job.join()
+        assertTrue("genuine cancel must propagate as cancel", sawCancel && job.isCancelled)
     }
 }
