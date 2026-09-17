@@ -5,6 +5,7 @@ import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.data.repo.BookRepo
 import cc.uukanshu.di.RepoApi
 import cc.uukanshu.ui.detail.DetailViewModel
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -52,6 +53,71 @@ class DetailViewModelTest {
         load as DetailViewModel.Load.Ready
         assertEquals(1, load.chapters.size)
         assertEquals(true, load.offline)
+    }
+
+    @Test fun syncingShowsRefreshingThinBar() = runTest {
+        // Cache paints instantly with the thin bar while the fetch is in flight;
+        // the terminal Fresh clears it and grows the rows.
+        val gate = CompletableDeferred<Unit>()
+        val base = MutableFakeRepo(cached = testDetail(101L, 102L))
+        val repo = object : RepoApi by base {
+            override suspend fun detail(bookId: String): BookRepo.Detail {
+                gate.await()
+                return testDetail(101L, 102L, 103L)
+            }
+        }
+        val vm = vm(repo, manager(this))
+        idle() // producer suspended at the gate: Syncing must be painted
+        val syncing = vm.ui.value.load
+        assertTrue("expected Ready thin-bar mid-flight, got $syncing", syncing is DetailViewModel.Load.Ready)
+        syncing as DetailViewModel.Load.Ready
+        assertEquals(2, syncing.chapters.size)
+        assertEquals(true, syncing.refreshing)
+        assertEquals(false, syncing.offline)
+        gate.complete(Unit)
+        idle()
+        val fresh = vm.ui.value.load
+        assertTrue(fresh is DetailViewModel.Load.Ready)
+        fresh as DetailViewModel.Load.Ready
+        assertEquals(3, fresh.chapters.size)
+        assertEquals(false, fresh.refreshing)
+        assertEquals(false, fresh.offline)
+    }
+
+    @Test fun networkFailureWithCacheKeepsStaleOffline() = runTest {
+        // Failed refresh never wipes painted cache: rows stay, 離線模式 flags it.
+        val repo = MutableFakeRepo(cached = testDetail(101L, 102L), failure = IOException("network down"))
+        val vm = vm(repo, manager(this))
+        idle()
+        val load = vm.ui.value.load
+        assertTrue(load is DetailViewModel.Load.Ready)
+        load as DetailViewModel.Load.Ready
+        assertEquals(2, load.chapters.size)
+        assertEquals(true, load.offline)
+        assertEquals(false, load.refreshing)
+    }
+
+    @Test fun markSeenClearsExactlyOnFresh() = runTest {
+        // The 追更 badge clears once per accepted Fresh run (manual retry included).
+        val repo = MutableFakeRepo(fresh = testDetail(101L, 102L))
+        val vm = vm(repo, manager(this))
+        idle()
+        assertEquals(listOf("1"), repo.markSeenCalls)
+        vm.refresh()
+        idle()
+        assertEquals(listOf("1", "1"), repo.markSeenCalls)
+    }
+
+    @Test fun markSeenKeptOnFailedLoads() = runTest {
+        // Empty/shrunken/failed refresh keeps the badge signal: no markSeen.
+        val failed = MutableFakeRepo(cached = testDetail(101L), failure = IOException("network down"))
+        vm(failed, manager(this))
+        idle()
+        assertTrue(failed.markSeenCalls.isEmpty())
+        val empty = MutableFakeRepo(cached = testDetail(101L), fresh = testDetail())
+        vm(empty, manager(this))
+        idle()
+        assertTrue(empty.markSeenCalls.isEmpty())
     }
 
     @Test fun failureWithoutCacheShowsFailed() = runTest {

@@ -23,8 +23,8 @@ class EmptyChapterListException :
 
 /**
  * Fresh TOC shrank vs cache: truncated parse, not a real deletion.
- * Thrown by `BookRepo.detail` before touching the DB; mapped to
- * `TocRevalidator.Revalidate.RejectedShrink` without message sniffing.
+ * Thrown by `BookRepo.detail` before touching the DB; keyed by type in
+ * `Errors.friendly` (never message-sniffed) and kept stale by `TocSource`.
  */
 class TocShrunkException(val cached: Int, val fresh: Int) :
     java.io.IOException("chapter list shrank ($fresh < $cached) — refusing to wipe cache")

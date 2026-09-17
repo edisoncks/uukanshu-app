@@ -165,8 +165,8 @@ class BookRepo(
             // without touching the DB so offline content survives.
             if (chapters.isEmpty()) return@withContext Detail(meta, chapters)
             // Preserve downloads + shelf order via AppDb.replaceToc (single transaction).
-            // DB failures propagate to the caller (stale + offline via
-            // TocRevalidator.Failed) — never silent success with a stale DB.
+            // DB failures propagate to the caller (Stale + offline via TocState)
+            // — never silent success with a stale DB.
             // Cancellation propagates out of the Mutex/Room calls untouched.
             // Guard read + replace are atomic under dbWrite (see its KDoc).
             dbWrite.withLock {
