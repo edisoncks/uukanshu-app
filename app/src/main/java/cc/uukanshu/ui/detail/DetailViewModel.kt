@@ -63,7 +63,7 @@ class DetailViewModel(
 
     init {
         viewModelScope.launch {
-            _ui.value = _ui.value.copy(simplified = prefs.simplified.first())
+            _ui.update { it.copy(simplified = prefs.simplified.first()) }
             refresh()
         }
         // Live 追更 badge: Room source of truth, clears via markSeen below.
@@ -84,7 +84,7 @@ class DetailViewModel(
         viewModelScope.launch {
             try {
                 repo.cachedPositionsFlow(bookId).collect { positions ->
-                    _ui.value = _ui.value.copy(cached = positions)
+                    _ui.update { it.copy(cached = positions) }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -98,7 +98,7 @@ class DetailViewModel(
         viewModelScope.launch {
             try {
                 repo.bookmarkFlow(bookId).collect { bm ->
-                    _ui.value = _ui.value.copy(bookmark = bm)
+                    _ui.update { it.copy(bookmark = bm) }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -116,12 +116,14 @@ class DetailViewModel(
                 if (st == null) return@collect
                 val was = prevDownloading
                 prevDownloading = st.downloading
-                _ui.value = _ui.value.copy(
-                    downloading = st.downloading,
-                    done = st.done,
-                    downloadTotal = st.total,
-                    downloadError = st.error,
-                )
+                _ui.update {
+                    it.copy(
+                        downloading = st.downloading,
+                        done = st.done,
+                        downloadTotal = st.total,
+                        downloadError = st.error,
+                    )
+                }
                 if (was && !st.downloading && st.error == null && st.total > 0 && st.done >= st.total) {
                     val ready = _ui.value.load as? Load.Ready ?: return@collect
                     // TOC may have grown mid-download (see BookRepo.downloadAll delta).
@@ -184,19 +186,21 @@ class DetailViewModel(
         // Seed from retained manager progress: a failed done/total stays
         // visible until fresh callbacks arrive instead of flashing 0/0.
         val retained = downloads.states.value[bookId]
-        _ui.value = _ui.value.copy(
-            downloading = true,
-            done = retained?.done ?: 0,
-            downloadTotal = retained?.total ?: 0,
-            downloadError = null,
-        )
+        _ui.update {
+            it.copy(
+                downloading = true,
+                done = retained?.done ?: 0,
+                downloadTotal = retained?.total ?: 0,
+                downloadError = null,
+            )
+        }
         downloads.start(bookId)
     }
 
     fun cancelDownload() {
         downloads.cancel(bookId)
         // Manager publishes downloading=false; reflect instantly for snappy UI.
-        _ui.value = _ui.value.copy(downloading = false)
+        _ui.update { it.copy(downloading = false) }
     }
 
     fun displayTitle(raw: String): String =
