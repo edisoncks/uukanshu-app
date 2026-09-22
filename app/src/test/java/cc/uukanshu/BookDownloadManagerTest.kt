@@ -2,7 +2,9 @@ package cc.uukanshu
 
 import cc.uukanshu.data.download.BookDownloadManager
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -107,6 +109,34 @@ class BookDownloadManagerTest {
         }
         assertEquals("untracked live download leaked", entered.get(), exited.get())
         assertEquals(0, manager.states.value.size)
+    }
+
+    // Registration-before-run regression. Dispatchers.Unconfined runs the
+    // download body synchronously inside start(), so "body reaches its terminal
+    // publish before start() returns" is deterministic here, not a timing hope.
+
+    @Test fun immediateCompletionNeverWedgesState() {
+        var runs = 0
+        val manager = BookDownloadManager(
+            downloadFn = { _, _ -> runs++ },
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+        )
+        manager.start("b")
+        assertEquals("download must run exactly once", 1, runs)
+        // A completed download must publish its terminal state: never a
+        // permanent "downloading" row the user can only clear by tapping.
+        assertEquals(false, manager.states.value["b"]?.downloading)
+        assertFalse(manager.isDownloading("b"))
+    }
+
+    @Test fun immediateFailureNeverLosesErrorOrWedgesState() {
+        val manager = BookDownloadManager(
+            downloadFn = { _, _ -> throw java.io.IOException("boom") },
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+        )
+        manager.start("b")
+        assertEquals(false, manager.states.value["b"]?.downloading)
+        assertEquals("boom", manager.states.value["b"]?.error)
     }
 
     @Test fun restartPreservesLastKnownProgress() = runBlocking {

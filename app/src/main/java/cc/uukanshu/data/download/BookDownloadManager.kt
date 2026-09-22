@@ -4,6 +4,7 @@ import cc.uukanshu.core.Errors
 import cc.uukanshu.data.repo.BookRepo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -46,11 +47,11 @@ class BookDownloadManager(
     val states: StateFlow<Map<String, State>> = _states
 
     /**
-     * Dedup registry: at most one live job per book. Check-then-act goes
-     * through [ConcurrentHashMap] atomics ([putIfAbsent]/[replace]/remove-by-value)
-     * so concurrent `start(id)` runs the download exactly once with no separate
-     * lock. The only remaining lock is [slot] (the suspend FIFO queue — a
-     * different job from dedup). [_states] is publish-only, never a lock.
+     * Dedup registry: at most one live job per book. A job is registered
+     * ([putIfAbsent]) before it can run (see [start]) and removed by value at
+     * the end of its life, so presence is exactly "this book has a live job"
+     * and only its owner ever publishes state. [_states] is publish-only,
+     * never a lock.
      */
     private val jobs = ConcurrentHashMap<String, Job>()
 
@@ -60,86 +61,88 @@ class BookDownloadManager(
     fun observe(bookId: String): Flow<State?> =
         _states.map { it[bookId] }.distinctUntilChanged()
 
-    fun isDownloading(bookId: String): Boolean =
-        jobs[bookId]?.isActive == true
+    /** True while a registered job exists (queued, running, or finishing). */
+    fun isDownloading(bookId: String): Boolean = jobs.containsKey(bookId)
 
     /** Idempotent start (second tap no-op). */
     fun start(bookId: String) {
-        if (jobs[bookId]?.isActive == true) return
-        // Seed from retained progress: a failed done/total stays visible
-        // until fresh callbacks arrive instead of flashing 0/0 while the
-        // job queues behind the slot or fetches its TOC. Idempotent: a racy
-        // second seeder must not regress live progress published in between.
-        _states.update { cur ->
-            val prev = cur[bookId]
-            if (prev?.downloading == true) cur
-            else cur + (bookId to State(downloading = true, done = prev?.done ?: 0, total = prev?.total ?: 0, error = null))
-        }
-        val job = scope.launch {
+        if (jobs.containsKey(bookId)) return
+        // LAZY: the body cannot run before `putIfAbsent` registers it below, so
+        // `jobs[bookId] === self` holds from its first instruction and every
+        // publish can be identity-checked (see publish). A body that ran before
+        // registration would publish into the void and wedge the state on
+        // "downloading" with no live job left to clear it.
+        val job = scope.launch(start = CoroutineStart.LAZY) {
             val self = coroutineContext[Job]!!
             try {
                 slot.withLock {
                     downloadFn(bookId) { done, total ->
-                        // Drop publishes once the job is gone (cancel can't lose to in-flight callback).
-                        if (jobs[bookId]?.isActive == true) {
-                            _states.update { cur ->
-                                cur + (bookId to State(downloading = true, done = done, total = total, error = null))
-                            }
+                        publish(self, bookId) {
+                            State(downloading = true, done = done, total = total, error = null)
                         }
                     }
                 }
-                // forget() wins over late terminal publishes (never resurrect stale progress).
-                if (!self.isActive || jobs[bookId] !== self) return@launch
-                _states.update { cur ->
-                    val prev = cur[bookId]
-                    cur + (bookId to State(
+                publish(self, bookId) { prev ->
+                    State(
                         downloading = false,
                         done = prev?.done ?: 0,
                         total = prev?.total ?: 0,
                         error = null,
-                    ))
+                    )
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                // forget-wins guard as above.
-                val self = coroutineContext[Job]
-                if (self != null && jobs[bookId] !== self) return@launch
-                _states.update { cur ->
-                    val prev = cur[bookId]
-                    cur + (bookId to State(
+                publish(self, bookId) { prev ->
+                    State(
                         downloading = false,
                         done = prev?.done ?: 0,
                         total = prev?.total ?: 0,
                         error = Errors.friendly(e),
-                    ))
+                    )
                 }
             } finally {
-                // Remove only our own entry (old job must never evict a new job).
-                val self = coroutineContext[Job]
-                if (self != null) jobs.remove(bookId, self) else jobs.remove(bookId)
+                // Remove-by-value: a stale job must never evict its replacement.
+                jobs.remove(bookId, self)
             }
         }
-        // Atomic install: the loser cancels before doing real work (its body
-        // blocks on [slot] first, and terminal publishes are identity-guarded).
-        val prev = jobs.putIfAbsent(bookId, job)
-        if (prev == null) return
-        if (prev.isActive) {
+        if (jobs.putIfAbsent(bookId, job) != null) {
+            // Lost the registration race: cancel silently. Only the registered
+            // owner ever writes state.
             job.cancel()
             return
         }
-        // Stale completed entry whose `finally` hasn't removed it yet: take over.
-        if (jobs.replace(bookId, prev, job)) return
-        // Another newcomer won the same window; back off (next tap retries).
-        job.cancel()
+        // Seed from retained progress: a failed done/total stays visible
+        // until fresh callbacks arrive instead of flashing 0/0 while the
+        // job queues behind the slot or fetches its TOC. Through publish like
+        // every job-side write: if cancel/forget already unregistered us, the
+        // seed is dropped AND the job is cancelled — never state with no job.
+        publish(job, bookId) { prev ->
+            State(downloading = true, done = prev?.done ?: 0, total = prev?.total ?: 0, error = null)
+        }
+        job.start()
+    }
+
+    /**
+     * Single publish path: applies [next] only while [self] is still the
+     * registered owner of [bookId]. The identity check runs inside the state
+     * CAS, so a job that `forget`/`cancel` unregistered can never resurrect
+     * state — forget wins over any late publish, cancellable or not — and a
+     * dead job's callbacks can't clobber a replacement's live progress.
+     */
+    private fun publish(self: Job, bookId: String, next: (State?) -> State) {
+        _states.update { cur ->
+            if (jobs[bookId] === self) cur + (bookId to next(cur[bookId])) else cur
+        }
     }
 
     fun cancel(bookId: String) {
         jobs.remove(bookId)?.cancel()
         _states.update { cur ->
             val prev = cur[bookId] ?: return@update cur
-            if (!prev.downloading) return@update cur
-            cur + (bookId to prev.copy(downloading = false))
+            // A replacement job registered concurrently owns the state now.
+            if (!prev.downloading || jobs.containsKey(bookId)) cur
+            else cur + (bookId to prev.copy(downloading = false))
         }
     }
 
@@ -154,11 +157,11 @@ class BookDownloadManager(
         // Remove-by-value sweeps until the map is empty — never a blanket
         // clear(). A clear() would untrack a start() that landed mid-wipe
         // WITHOUT cancelling it: a live job whose publishes are dropped
-        // (`jobs[bookId] !== self` guards) and which keeps crawling into the
-        // cache the wipe just deleted. Sweeping by value, a racing start()
-        // is either removed + cancelled by a later pass, or lands after the
-        // loop exits (tracked, publishes flow — coherent). remove-by-value
-        // never evicts a newer job that replaced an old entry.
+        // (`publish` identity check) and which keeps crawling into the cache
+        // the wipe just deleted. Sweeping by value, a racing start() is either
+        // removed + cancelled by a later pass, or lands after the loop exits
+        // (tracked, publishes flow — coherent). remove-by-value never evicts a
+        // newer job for the same book.
         while (true) {
             // Weakly-consistent snapshot is safe on CHM; each entry is
             // cancelled exactly once via remove-by-value.

@@ -140,8 +140,17 @@ UI (ViewModels)
   metadata updates + prune) without ever reading or rewriting the content
   column; the repo `dbWrite` Mutex
   serializes them against single-row content writes. `BookDownloadManager`
-  `start`/`cancel`/`forget` synchronize check-then-act on `startLock` so
-  concurrent `start(id)` runs once (tested in `DownloadRobustnessTest`).
+  keeps at most one live job per book by registering before running: `start`
+  creates a `CoroutineStart.LAZY` job, installs it in the job map via
+  `putIfAbsent`, and only then starts it — a body can never run unregistered,
+  so a job that finishes immediately can never publish into the void and wedge
+  the state on `downloading`. Every state publish goes through one
+  identity-checked path (`publish`: applied only while its job is still the
+  registered owner, checked inside the state CAS so `forget`/`cancel` win over
+  any late publish), and `finally` removes its entry by value so a stale job
+  never evicts its replacement (`BookDownloadGuardTest` /
+  `BookDownloadManagerTest`, incl. the registration-order regression;
+  `DownloadRobustnessTest` covers concurrent `start(id)`).
 - `core/Errors.kt`: single error-formatting policy. All dialog/snackbar/error-state
   text goes through `friendly` (Traditional Chinese mapping for HTTP
   404/408/429/5xx, Cloudflare, timeouts, download reasons; URLs stripped,

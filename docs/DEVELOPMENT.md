@@ -121,7 +121,7 @@ app/src/main/java/cc/uukanshu/
     prefs/Prefs.kt       # DataStore: theme, simplified, fontScale, update check state
     convert/T2S.kt       # Traditional → Simplified (opencc4j) + LRU
     update/              # UpdateApi(ReleaseFetcher), UpdateDownloader(ApkDownloader), VersionCompare, JsonMini
-    download/BookDownloadManager.kt  # app-scoped, startLock-atomic, slot-queued
+    download/BookDownloadManager.kt  # app-scoped, registered-before-run jobs, slot-queued
   ui/
     AppTheme.kt (pure isDark) + AppNavHost.kt (tabs/nav/update overlay)
     home/ detail/ search/ reader/ library/ settings/ update/
