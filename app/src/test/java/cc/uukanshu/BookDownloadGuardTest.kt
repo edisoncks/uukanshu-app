@@ -109,6 +109,10 @@ class BookDownloadGuardTest {
             "stale job cleanup must not evict the replacement",
             m.isDownloading("b5"),
         )
+        assertTrue(
+            "replacement must remain visibly downloading",
+            m.states.value["b5"]?.downloading == true,
+        )
         release2.complete(Unit)
         withTimeout(5000) {
             var guard = 0

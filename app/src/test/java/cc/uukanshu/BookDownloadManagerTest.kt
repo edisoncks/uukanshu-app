@@ -6,6 +6,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -137,6 +138,35 @@ class BookDownloadManagerTest {
         manager.start("b")
         assertEquals(false, manager.states.value["b"]?.downloading)
         assertEquals("boom", manager.states.value["b"]?.error)
+    }
+
+    @Test fun alreadyCancelledScopeDoesNotLeaveARegisteredJob() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        scope.cancel()
+        val manager = BookDownloadManager(
+            downloadFn = { _, _ -> error("cancelled scope must not run the download") },
+            scope = scope,
+        )
+        manager.start("b")
+        assertFalse(manager.isDownloading("b"))
+        assertFalse(manager.states.value["b"]?.downloading == true)
+    }
+
+    @Test fun externalScopeCancellationClearsDownloadingState() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val entered = CompletableDeferred<Unit>()
+        val manager = BookDownloadManager(
+            downloadFn = { _, _ ->
+                entered.complete(Unit)
+                awaitCancellation()
+            },
+            scope = scope,
+        )
+        manager.start("b")
+        withTimeout(5000) { entered.await() }
+        scope.cancel()
+        assertFalse(manager.isDownloading("b"))
+        assertFalse(manager.states.value["b"]?.downloading == true)
     }
 
     @Test fun restartPreservesLastKnownProgress() = runBlocking {
