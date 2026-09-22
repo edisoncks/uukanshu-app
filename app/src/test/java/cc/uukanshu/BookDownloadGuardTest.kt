@@ -1,12 +1,16 @@
 package cc.uukanshu
 
 import cc.uukanshu.data.download.BookDownloadManager
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -49,6 +53,72 @@ class BookDownloadGuardTest {
         assertEquals(false, m.states.value["b2"]?.downloading)
         assertEquals(3, m.states.value["b2"]?.done)
         assertEquals(10, m.states.value["b2"]?.total)
+    }
+
+    @Test fun terminalPublishAfterForgetNeverResurrectsState() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val m = BookDownloadManager(
+            // Non-cancellable tail: forget() cannot stop the eventual publish,
+            // only the publish's identity check can drop it.
+            downloadFn = { _, _ ->
+                entered.complete(Unit)
+                withContext(NonCancellable) { release.await() }
+            },
+            scope = this,
+        )
+        m.start("b4")
+        withTimeout(5000) { entered.await() }
+        m.forget("b4")
+        assertNull(m.states.value["b4"])
+        release.complete(Unit)
+        delay(200)
+        assertNull("terminal publish after forget must stay dropped", m.states.value["b4"])
+    }
+
+    @Test fun staleJobFinallyNeverEvictsReplacement() = runBlocking {
+        val release1 = CompletableDeferred<Unit>()
+        val release2 = CompletableDeferred<Unit>()
+        val entered1 = CompletableDeferred<Unit>()
+        var run = 0
+        val m = BookDownloadManager(
+            downloadFn = { _, _ ->
+                run++
+                if (run == 1) {
+                    entered1.complete(Unit)
+                    // Park past cancellation so the stale job reaches its
+                    // cleanup late (it holds the queue slot until released).
+                    withContext(NonCancellable) { release1.await() }
+                } else {
+                    release2.await()
+                }
+            },
+            scope = this,
+        )
+        m.start("b5")
+        withTimeout(5000) { entered1.await() }
+        // Cancel the first job mid-park, then register its replacement (the
+        // replacement queues behind the stale job's slot and stays registered).
+        m.forget("b5")
+        m.start("b5")
+        assertTrue(m.isDownloading("b5"))
+        // Let the stale job run its cleanup.
+        release1.complete(Unit)
+        delay(200)
+        assertTrue(
+            "stale job cleanup must not evict the replacement",
+            m.isDownloading("b5"),
+        )
+        assertTrue(
+            "replacement must remain visibly downloading",
+            m.states.value["b5"]?.downloading == true,
+        )
+        release2.complete(Unit)
+        withTimeout(5000) {
+            var guard = 0
+            while (m.states.value["b5"]?.downloading != false && guard++ < 500) delay(10)
+        }
+        assertFalse(m.isDownloading("b5"))
     }
 
     @Test fun restartAfterForgetStartsFresh() = runBlocking {
