@@ -49,14 +49,14 @@ import cc.uukanshu.ui.update.UpdateViewModel
 import kotlinx.coroutines.launch
 
 /**
- * Settings tab: theme, Traditional/Simplified, update check + version.
- * The three controls used to live in the Home top bar; they now live here
- * so the Home bar stays a plain title and the update flow is testable from
- * one place. Theme/simplified write to [Prefs] so Home/Search/Library/Reader
- * follow live; the update section drives the shared [UpdateViewModel].
+ * Settings tab: appearance, Traditional/Simplified, 追更 auto-check, app update.
+ * Living here instead of the Home top bar keeps that bar a plain title and
+ * keeps the update flow testable in one place. Controls write to [Prefs] so
+ * Home/Search/Library/Reader follow live; the update card drives the injected
+ * shared [UpdateViewModel] (this screen owns no ViewModel of its own).
  *
- * Layout: three cards (appearance / language / update) with identical row
- * density — 48dp rows, 16dp horizontal padding — so sections share one rhythm
+ * Layout: four cards (appearance / language / 追更 / update), each a
+ * fillMaxWidth Card under a SectionHeader, so sections share one rhythm
  * instead of floating loose in a flat column.
  */
 @Composable
