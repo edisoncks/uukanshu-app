@@ -41,7 +41,10 @@ default with a global Simplified toggle (see below).
 ## Screen-by-screen (MVVM)
 
 Each screen has a `*Screen.kt` composable + `*ViewModel` exposing a `Ui`
-`StateFlow`. Rapid taps are guarded synchronously on the Main thread
+`StateFlow` — two exceptions: Settings is a plain composable reading/writing
+`Prefs` directly (its update card drives the shared `UpdateViewModel`; a
+dedicated VM would have nothing to own), and the updater is an `UpdateDialog`,
+not a screen. Rapid taps are guarded synchronously on the Main thread
 (set flags before `launch{}`); stale async results are dropped when
 tab/category/position changed mid-fetch.
 

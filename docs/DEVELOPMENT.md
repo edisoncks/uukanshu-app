@@ -121,11 +121,16 @@ app/src/main/java/cc/uukanshu/
     prefs/Prefs.kt       # DataStore: theme, simplified, fontScale, update check state
     convert/T2S.kt       # Traditional → Simplified (opencc4j) + LRU
     update/              # UpdateApi(ReleaseFetcher), UpdateDownloader(ApkDownloader), VersionCompare, JsonMini
+    updatecheck/         # 追更: UpdateChecker (6h foreground gate), BookUpdateScheduler/Worker (24h), Notifier, AppInit
+    paging/BookPagingSource.kt       # Home Paging 3 source, per-list seen-id dedup
     download/BookDownloadManager.kt  # app-scoped, monitor-serialized ownership/state, slot-queued
   ui/
     AppTheme.kt (pure isDark) + AppNavHost.kt (tabs/nav/update overlay)
-    home/ detail/ search/ reader/ library/ settings/ update/
+    home/ detail/ search/ reader/ library/
       # each: *Screen.kt (composable) + *ViewModel.kt (StateFlow UI state)
+    settings/            # SettingsScreen.kt only — plain composable on Prefs (no VM of its
+                         # own: everything here is pref writes other screens already collect)
+    update/              # UpdateDialog + pure UpdateDecisions + UpdateViewModel (no Screen)
 app/src/main/res/        # launcher icons, theme, FileProvider paths
 app/schemas/             # Room schema exports
 app/src/test/            # unit tests (see above)
