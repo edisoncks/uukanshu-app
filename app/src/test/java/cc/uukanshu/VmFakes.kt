@@ -3,6 +3,7 @@ package cc.uukanshu
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.repo.BookRepo
 import cc.uukanshu.data.prefs.Prefs
+import cc.uukanshu.data.update.UpdateDownloadRecord
 import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.di.RepoApi
 import kotlinx.coroutines.flow.Flow
@@ -126,6 +127,8 @@ class MutableFakePrefs(
     override val fontScale: Flow<Float> = _fontScale
     override val lastUpdateCheck: Flow<Long> = flowOf(lastCheck)
     override val skippedVersion: Flow<String?> = flowOf(null)
+    private val _updateDownloadRecord = MutableStateFlow<UpdateDownloadRecord?>(null)
+    override val updateDownloadRecord: Flow<UpdateDownloadRecord?> = _updateDownloadRecord
     private val _autoBookEnabled = MutableStateFlow(autoBookEnabled)
     override val autoBookCheckEnabled: Flow<Boolean> = _autoBookEnabled
     private val _lastBookCheck = MutableStateFlow(bookCheck)
@@ -154,6 +157,9 @@ class MutableFakePrefs(
     }
     override suspend fun setSkippedVersion(v: String?) {
         skipped += v
+    }
+    override suspend fun setUpdateDownloadRecord(record: UpdateDownloadRecord?) {
+        _updateDownloadRecord.value = record
     }
 }
 

@@ -6,10 +6,15 @@ import cc.uukanshu.data.update.ApkDownloader
 import cc.uukanshu.data.update.DownloadStatus
 import cc.uukanshu.data.update.ReleaseFetcher
 import cc.uukanshu.data.update.UpdateInfo
+import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.ui.update.UpdateViewModel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -69,6 +74,7 @@ class UpdateViewModelTest {
             .also { it.writeBytes(byteArrayOf(1, 2, 3)) }
         val downloader = object : ApkDownloader {
             override fun apkFile(info: UpdateInfo): java.io.File = apk
+            override fun findDownload(info: UpdateInfo): Long? = null
             override fun enqueue(info: UpdateInfo): Long = -1L
             override fun cancel(downloadId: Long) = Unit
             override fun observe(downloadId: Long) = kotlinx.coroutines.flow.flowOf(DownloadStatus.Success)
@@ -98,6 +104,7 @@ class UpdateViewModelTest {
         var launched = 0
         val downloader = object : ApkDownloader {
             override fun apkFile(info: UpdateInfo): java.io.File = apk
+            override fun findDownload(info: UpdateInfo): Long? = null
             override fun enqueue(info: UpdateInfo): Long = -1L
             override fun cancel(downloadId: Long) = Unit
             override fun observe(downloadId: Long) = kotlinx.coroutines.flow.flowOf(DownloadStatus.Success)
@@ -147,6 +154,70 @@ class UpdateViewModelTest {
         )
         vm.openInBrowser()
         assertEquals(true, vm.ui.value.error?.isNotEmpty())
+    }
+
+    @Test fun timestampWriteFailureDoesNotMaskSuccessOrWedgeRetry() = runTest(main.dispatcher) {
+        val calls = AtomicInteger(0)
+        val delegate = MutableFakePrefs()
+        val prefs = object : PrefsApi by delegate {
+            override suspend fun setLastUpdateCheck(now: Long) {
+                throw java.io.IOException("disk full")
+            }
+        }
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val vm = UpdateViewModel(
+            app,
+            prefs,
+            CountingFetcher(calls, info()),
+            FakeApkDownloader(),
+            ioDispatcher = main.dispatcher,
+        )
+        vm.manualCheck()
+        main.dispatcher.scheduler.advanceUntilIdle()
+        assertFalse(vm.ui.value.checking)
+        assertEquals("9.9.9", vm.ui.value.info?.version)
+        assertNull(vm.ui.value.error)
+
+        vm.manualCheck()
+        main.dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(2, calls.get())
+        assertFalse(vm.ui.value.checking)
+    }
+
+    @Test fun timestampWriteFailureDoesNotMaskFetchFailure() = runTest(main.dispatcher) {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val prefs = object : PrefsApi by MutableFakePrefs() {
+            override suspend fun setLastUpdateCheck(now: Long) {
+                throw java.io.IOException("disk full")
+            }
+        }
+        val failing = object : ReleaseFetcher {
+            override fun fetchLatest(): UpdateInfo = throw java.io.IOException("offline")
+        }
+        val vm = UpdateViewModel(app, prefs, failing, FakeApkDownloader(), ioDispatcher = main.dispatcher)
+        vm.manualCheck()
+        main.dispatcher.scheduler.advanceUntilIdle()
+        assertFalse(vm.ui.value.checking)
+        assertTrue(vm.ui.value.error?.isNotEmpty() == true)
+    }
+
+    @Test fun autoCheckTimestampReadFailureIsHandled() = runTest(main.dispatcher) {
+        val calls = AtomicInteger(0)
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val prefs = object : PrefsApi by MutableFakePrefs() {
+            override val lastUpdateCheck: Flow<Long> = flow { throw java.io.IOException("corrupt prefs") }
+        }
+        val vm = UpdateViewModel(
+            app,
+            prefs,
+            CountingFetcher(calls, info()),
+            FakeApkDownloader(),
+            ioDispatcher = main.dispatcher,
+        )
+        vm.autoCheck()
+        main.dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(0, calls.get())
+        assertFalse(vm.ui.value.checking)
     }
 
     @Test fun failedAutoCheckStillThrottles() = runTest(main.dispatcher) {

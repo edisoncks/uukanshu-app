@@ -23,6 +23,12 @@ sealed interface DownloadStatus {
     data object Success : DownloadStatus
     /** [reason] is already human-readable for the dialog. */
     data class Failed(val reason: String) : DownloadStatus
+    /**
+     * The request id is gone from DownloadManager (purged or cancelled outside
+     * the app). Not a user-facing failure: recovery drops the stale record
+     * silently instead of surfacing a "not found" error.
+     */
+    data object Missing : DownloadStatus
 }
 
 /**
@@ -41,17 +47,50 @@ class UpdateDownloader(private val context: Context) : ApkDownloader {
         File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), info.apkName)
 
     /**
-     * Enqueue the download. Returns the [DownloadManager] id, or -1 when a
-     * complete file for this version is already on disk (caller can install).
-     * Completeness means byte-exact size match — and sha256 digest match when
-     * the release ships one; anything else (missing, empty, partial, wrong
-     * digest, or unknown size) is deleted and re-downloaded. Length > 0 alone
-     * proves nothing after a kill.
+     * Reattach to a request for this exact asset after process recreation. A
+     * successful row is reusable only while its output still passes the same
+     * size/digest gate used for installation.
+     */
+    @WorkerThread
+    override fun findDownload(info: UpdateInfo): Long? {
+        val rows = mutableListOf<DownloadRequestRow>()
+        dm.query(DownloadManager.Query()).use { cursor ->
+            val idColumn = cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_ID)
+            val uriColumn = cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_URI)
+            val descriptionColumn = cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_DESCRIPTION)
+            val statusColumn = cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)
+            val localUriColumn = cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI)
+            while (cursor.moveToNext()) {
+                rows += DownloadRequestRow(
+                    id = cursor.getLong(idColumn),
+                    source = cursor.getString(uriColumn),
+                    description = cursor.getString(descriptionColumn),
+                    localUri = if (localUriColumn >= 0) cursor.getString(localUriColumn) else null,
+                    status = cursor.getInt(statusColumn),
+                )
+            }
+        }
+        val file = apkFile(info)
+        for (row in DownloadRequestMatcher.matching(rows, info)) {
+            if (DownloadRequestMatcher.isActiveStatus(row.status)) return row.id
+            if (apkStateIO(file, info.size, info.sha256, dmSuccess = true) == ApkState.Ready) {
+                return row.id
+            }
+        }
+        return null
+    }
+
+    /**
+     * Enqueue or reuse a matching download. Returns its [DownloadManager] id,
+     * or -1 when a complete on-disk file passes the size/digest gate. If no
+     * matching request exists, incomplete output is deleted and re-downloaded;
+     * length > 0 alone never proves completeness after a kill.
      *
      * Blocking file IO (digest) — call on Dispatchers.IO (callers already are).
      */
     @WorkerThread
     override fun enqueue(info: UpdateInfo): Long {
+        findDownload(info)?.let { return it }
         deleteStaleApks(keepName = info.apkName)
         val file = apkFile(info)
         if (isCompleteIO(file, info.size, info.sha256)) return -1L
@@ -94,7 +133,7 @@ class UpdateDownloader(private val context: Context) : ApkDownloader {
 
     fun query(downloadId: Long): DownloadStatus {
         dm.query(DownloadManager.Query().setFilterById(downloadId)).use { c ->
-            if (!c.moveToFirst()) return DownloadStatus.Failed("download not found")
+            if (!c.moveToFirst()) return DownloadStatus.Missing
             val status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
             val done = c.getLong(
                 c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR),

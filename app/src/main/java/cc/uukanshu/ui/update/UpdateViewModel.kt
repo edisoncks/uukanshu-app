@@ -2,6 +2,7 @@ package cc.uukanshu.ui.update
 
 import cc.uukanshu.core.Errors
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cc.uukanshu.di.PrefsApi
@@ -11,9 +12,11 @@ import cc.uukanshu.data.update.DownloadStatus
 import cc.uukanshu.data.update.ReleaseFetcher
 import cc.uukanshu.data.update.UpdateApi
 import cc.uukanshu.data.update.UpdateDownloader
+import cc.uukanshu.data.update.UpdateDownloadRecord
 import cc.uukanshu.data.update.UpdateInfo
 import cc.uukanshu.data.update.VersionCompare
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -24,6 +27,8 @@ import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private const val TAG = "UpdateVM"
 
 /**
  * In-app update state machine (Tier B: DownloadManager + installer intent).
@@ -56,11 +61,10 @@ class UpdateViewModel(
         val downloadId: Long? = null,
         val fileReady: Boolean = false,
         /**
-         * Fresh DownloadManager SUCCESS receipt for the current [info].
-         * Gates the sizeless install path (see `apkState`): set only on
-         * `DownloadStatus.Success`, cleared whenever [info] changes, so a
-         * killed-process partial with unknown size can never ride an old
-         * receipt (or a user tap alone) into the installer.
+         * DownloadManager SUCCESS receipt for the current [info]. It is minted
+         * only after observing that request's terminal success, and the pinned
+         * request identity is persisted so a recreated VM can re-observe it.
+         * A partial file or user tap alone never grants the sizeless install path.
          */
         val downloadSucceeded: Boolean = false,
         val needsUnknownSources: Boolean = false,
@@ -72,14 +76,115 @@ class UpdateViewModel(
     private val _ui = MutableStateFlow(Ui())
     val ui: StateFlow<Ui> = _ui
     private var pollJob: Job? = null
+    private var observedDownloadId: Long? = null
+    private var observedDownloadInfo: UpdateInfo? = null
+    private val recoveryComplete = CompletableDeferred<Unit>()
+
+    init {
+        viewModelScope.launch {
+            try {
+                recoverDownload()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Download recovery failed", e)
+            } finally {
+                recoveryComplete.complete(Unit)
+            }
+        }
+    }
+
+    private suspend fun recoverDownload() {
+        val record = prefs.updateDownloadRecord.first() ?: return
+        val id = record.downloadId ?: withContext(ioDispatcher) {
+            downloader.findDownload(record.info)
+        }
+        val recovered = record.copy(downloadId = id)
+        if (!VersionCompare.isNewer(record.info.version, withContext(ioDispatcher) {
+                UpdateDownloader.currentVersion(app)
+            })
+        ) {
+            if (id != null) withContext(ioDispatcher) { downloader.cancel(id) }
+            clearDownloadRecord(record)
+            return
+        }
+        if (id == null) {
+            clearDownloadRecord(record)
+            return
+        }
+        if (record.downloadId == null) {
+            try {
+                prefs.setUpdateDownloadRecord(recovered)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // The pending (id-less) record still lets the next launch rediscover the request.
+                Log.w(TAG, "Could not persist recovered download id", e)
+            }
+        }
+        _ui.update {
+            it.copy(
+                // Recovery restores state but does not force the dialog back:
+                // a dismissed prompt stays dismissed (the Settings banner
+                // offers reopen), matching the dismiss contract below.
+                visible = false,
+                info = recovered.info,
+                downloading = true,
+                progress = null,
+                downloadId = id,
+                fileReady = false,
+                downloadSucceeded = false,
+                error = null,
+            )
+        }
+        observeDownload(id, recovered.info)
+    }
+
+    private suspend fun clearDownloadRecord(expected: UpdateDownloadRecord) {
+        try {
+            if (prefs.updateDownloadRecord.first() == expected) {
+                prefs.setUpdateDownloadRecord(null)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not clear updater download record", e)
+        }
+    }
+
+    private suspend fun stampUpdateCheckSafely() {
+        try {
+            prefs.setLastUpdateCheck(System.currentTimeMillis())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Throttle persistence must never turn a successful check into an uncaught failure.
+            Log.w(TAG, "Could not persist update-check timestamp", e)
+        }
+    }
 
     /** Foreground launch check: throttled to once per [AUTO_CHECK_INTERVAL_MS]. */
     fun autoCheck() {
         viewModelScope.launch {
-            val last = prefs.lastUpdateCheck.first()
-            if (!UpdatePolicy.shouldAutoCheck(last, System.currentTimeMillis())) return@launch
-            if (!markChecking(manual = false)) return@launch
-            checkBody(manual = false)
+            try {
+                recoveryComplete.await()
+                if (_ui.value.downloading) return@launch
+                val last = try {
+                    prefs.lastUpdateCheck.first()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not read update-check timestamp; skipping auto-check", e)
+                    return@launch
+                }
+                if (!UpdatePolicy.shouldAutoCheck(last, System.currentTimeMillis())) return@launch
+                if (!markChecking(manual = false)) return@launch
+                checkBody(manual = false)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Automatic update check failed", e)
+            }
         }
     }
 
@@ -105,8 +210,9 @@ class UpdateViewModel(
 
     private suspend fun checkBody(manual: Boolean) {
         try {
+            recoveryComplete.await()
             val info = withContext(ioDispatcher) { api.fetchLatest() }
-            prefs.setLastUpdateCheck(System.currentTimeMillis())
+            stampUpdateCheckSafely()
             val current = withContext(ioDispatcher) {
                 UpdateDownloader.currentVersion(app)
             }
@@ -128,9 +234,34 @@ class UpdateViewModel(
                 }
                 return
             }
-            // Same-version APK already downloaded (e.g. process died mid-flow):
-            // skip straight to the install prompt. Byte-exact size match only;
-            // a partial file must re-download, never install.
+            val existingId = withContext(ioDispatcher) { downloader.findDownload(info) }
+            if (existingId != null) {
+                val record = UpdateDownloadRecord(info, existingId)
+                try {
+                    prefs.setUpdateDownloadRecord(record)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not persist recovered download id", e)
+                }
+                _ui.update {
+                    it.copy(
+                        checking = false,
+                        visible = true,
+                        info = info,
+                        downloading = true,
+                        progress = null,
+                        downloadId = existingId,
+                        fileReady = false,
+                        downloadSucceeded = false,
+                        installing = false,
+                    )
+                }
+                observeDownload(existingId, info)
+                return
+            }
+            // A complete file is safe without a live DownloadManager receipt
+            // only when its known size/digest passes the shared integrity gate.
             val alreadyHave = withContext(ioDispatcher) {
                 UpdateDownloader.isCompleteIO(downloader.apkFile(info), info.size, info.sha256)
             }
@@ -143,7 +274,7 @@ class UpdateViewModel(
             // Throttle attempts, not just successes: a failed auto-check
             // stays silent for 24h instead of retrying on every launch.
             // Manual checks always hit the network (markChecking gate).
-            prefs.setLastUpdateCheck(System.currentTimeMillis())
+            stampUpdateCheckSafely()
             if (manual) {
                 _ui.update {
                     it.copy(checking = false, visible = true,
@@ -153,12 +284,13 @@ class UpdateViewModel(
                 // Auto-check is best-effort: stay silent offline / rate-limited.
                 _ui.update { it.copy(checking = false) }
             }
+        } finally {
+            _ui.update { it.copy(checking = false) }
         }
     }
 
     fun dismiss() {
-        // Keep an in-flight DownloadManager job running: the system download
-        // survives the dialog, and reopen() picks it up via fileReady/progress.
+        // Keep the durable DownloadManager request registered so a new VM can reattach.
         _ui.update { it.copy(visible = false, upToDate = false, error = null) }
     }
 
@@ -168,12 +300,102 @@ class UpdateViewModel(
     }
 
     fun skipVersion() {
-        val v = _ui.value.info?.version ?: return
-        viewModelScope.launch { prefs.setSkippedVersion(v) }
+        val info = _ui.value.info ?: return
+        val v = info.version
+        viewModelScope.launch {
+            prefs.setSkippedVersion(v)
+            prefs.updateDownloadRecord.first()?.takeIf { it.info == info }?.let { clearDownloadRecord(it) }
+        }
         // Skipping means go away: clear the pending update so the Settings
         // banner and dialog don't come straight back. Next manual check
         // re-fetches (manual ignores skipped); auto stays suppressed.
         _ui.update { it.copy(visible = false, upToDate = false, error = null, info = null, downloadSucceeded = false, installing = false) }
+    }
+
+    private fun observeDownload(id: Long, info: UpdateInfo) {
+        pollJob?.cancel()
+        observedDownloadId = id
+        observedDownloadInfo = info
+        pollJob = viewModelScope.launch {
+            try {
+                downloader.observe(id).collect { status ->
+                    when (status) {
+                        is DownloadStatus.Running -> _ui.update {
+                            it.copy(downloading = true, downloadId = id, progress = status.progress)
+                        }
+                        is DownloadStatus.Success -> {
+                            val currentInfo = _ui.value.info
+                            val (file, state, length) = withContext(ioDispatcher) {
+                                val output = downloader.apkFile(info)
+                                Triple(
+                                    output,
+                                    UpdateDownloader.apkStateIO(
+                                        output, info.size, info.sha256, dmSuccess = true,
+                                    ),
+                                    if (output.exists()) output.length() else 0L,
+                                )
+                            }
+                            val outcome = classifyDownloadSuccess(currentInfo, info, state, length)
+                            if (outcome is DownloadSuccess.ChecksumFailed) {
+                                withContext(ioDispatcher) { runCatching { file.delete() } }
+                            }
+                            _ui.update { applyDownloadSuccess(it, outcome) }
+                            if (outcome !is DownloadSuccess.Ready) {
+                                clearDownloadRecord(UpdateDownloadRecord(info, id))
+                            }
+                            if (observedDownloadId == id) {
+                                observedDownloadId = null
+                                observedDownloadInfo = null
+                            }
+                        }
+                        is DownloadStatus.Failed -> {
+                            _ui.update {
+                                it.copy(
+                                    downloading = false,
+                                    error = Errors.friendlyText(status.reason),
+                                    downloadId = null,
+                                    downloadSucceeded = false,
+                                )
+                            }
+                            clearDownloadRecord(UpdateDownloadRecord(info, id))
+                            if (observedDownloadId == id) {
+                                observedDownloadId = null
+                                observedDownloadInfo = null
+                            }
+                        }
+                        is DownloadStatus.Missing -> {
+                            // The request vanished from DownloadManager: drop the
+                            // stale record silently and leave the update offer
+                            // up (Settings banner) so the user can retry.
+                            _ui.update {
+                                it.copy(
+                                    downloading = false,
+                                    downloadId = null,
+                                    downloadSucceeded = false,
+                                    error = null,
+                                    visible = false,
+                                )
+                            }
+                            clearDownloadRecord(UpdateDownloadRecord(info, id))
+                            if (observedDownloadId == id) {
+                                observedDownloadId = null
+                                observedDownloadInfo = null
+                            }
+                        }
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _ui.update {
+                    it.copy(downloading = false, error = Errors.friendly(e), downloadId = null)
+                }
+                if (observedDownloadId == id) {
+                    observedDownloadId = null
+                    observedDownloadInfo = null
+                }
+            }
+        }
     }
 
     fun startDownload() {
@@ -190,7 +412,7 @@ class UpdateViewModel(
             val apkFile = downloader.apkFile(info)
             if (UpdateDownloader.isCompleteIO(apkFile, info.size, info.sha256)) {
                 withContext(Dispatchers.Main) {
-                    _ui.update { it.copy(downloading = false, fileReady = true) }
+                    _ui.update { it.copy(downloading = false, fileReady = true, downloadSucceeded = false) }
                 }
                 return@launch
             }
@@ -200,95 +422,57 @@ class UpdateViewModel(
                 }
                 return@launch
             }
+            val pending = UpdateDownloadRecord(info)
+            try {
+                // Write before enqueue so a process death in the enqueue/ID window
+                // can rediscover the matching DownloadManager request.
+                prefs.setUpdateDownloadRecord(pending)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    _ui.update { it.copy(downloading = false, error = Errors.friendly(e)) }
+                }
+                return@launch
+            }
             val id = try {
                 downloader.enqueue(info)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    // Never leave the dialog wedged in "downloading" with no job.
                     _ui.update {
-                        it.copy(
-                            downloading = false,
-                            error = Errors.friendly(e),
-                            downloadId = null,
-                        )
+                        it.copy(downloading = false, error = Errors.friendly(e), downloadId = null)
                     }
                 }
                 return@launch
             }
             if (id == -1L) {
+                clearDownloadRecord(pending)
                 withContext(Dispatchers.Main) {
-                    _ui.update { it.copy(downloading = false, fileReady = true) }
+                    _ui.update { it.copy(downloading = false, fileReady = true, downloadSucceeded = false) }
                 }
                 return@launch
             }
-            // Publish from Main: cancelDownload() reads/writes the same state
-            // on Main. Publishing from IO let a fast cancel slip between
-            // enqueue and publication, leaking a DM download the UI forgot.
+            val record = pending.copy(downloadId = id)
+            try {
+                prefs.setUpdateDownloadRecord(record)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // The pending record is still sufficient to rediscover this request.
+                Log.w(TAG, "Could not persist enqueued download id", e)
+            }
             withContext(Dispatchers.Main) {
                 if (!_ui.value.downloading) {
-                    // Cancelled while enqueueing: drop the just-created download.
-                    viewModelScope.launch(ioDispatcher) { downloader.cancel(id) }
+                    viewModelScope.launch(ioDispatcher) {
+                        downloader.cancel(id)
+                        clearDownloadRecord(record)
+                    }
                     return@withContext
                 }
                 _ui.update { it.copy(downloadId = id) }
-                pollJob?.cancel()
-                // Progress comes from UpdateDownloader.observe (completes on
-                // terminal states); the VM only maps states to dialog state.
-                // Query failures (not download failures) surface as errors.
-                pollJob = viewModelScope.launch {
-                    try {
-                        downloader.observe(id).collect { s ->
-                            when (s) {
-                                is DownloadStatus.Running -> _ui.update {
-                                    it.copy(progress = s.progress)
-                                }
-                                is DownloadStatus.Success -> {
-                                    // The bytes on disk belong to the release this
-                                    // download was enqueued for, not whatever
-                                    // _ui.value.info holds once the hash finishes.
-                                    // Pin the receipt to the enqueued release via
-                                    // the single pure verdict (stale / no-digest /
-                                    // digest); a stale completion mints nothing and
-                                    // its file is cleaned on the next enqueue. The
-                                    // probe skips hashing when the release ships no
-                                    // digest.
-                                    val snapshotInfo = _ui.value.info
-                                    val (file, state, length) = withContext(ioDispatcher) {
-                                        val f = downloader.apkFile(info)
-                                        Triple(
-                                            f,
-                                            UpdateDownloader.apkStateIO(
-                                                f, info.size, info.sha256, dmSuccess = true,
-                                            ),
-                                            if (f.exists()) f.length() else 0L,
-                                        )
-                                    }
-                                    val outcome = classifyDownloadSuccess(snapshotInfo, info, state, length)
-                                    if (outcome is DownloadSuccess.ChecksumFailed) {
-                                        withContext(ioDispatcher) { runCatching { file.delete() } }
-                                    }
-                                    _ui.update { applyDownloadSuccess(it, outcome) }
-                                }
-                                is DownloadStatus.Failed -> _ui.update {
-                                    it.copy(downloading = false, error = Errors.friendlyText(s.reason),
-                                        downloadId = null, downloadSucceeded = false)
-                                }
-                            }
-                        }
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        _ui.update {
-                            it.copy(
-                                downloading = false,
-                                error = Errors.friendly(e),
-                                downloadId = null,
-                            )
-                        }
-                    }
-                }
+                observeDownload(id, info)
             }
         }
     }
@@ -296,9 +480,15 @@ class UpdateViewModel(
     fun cancelDownload() {
         pollJob?.cancel()
         pollJob = null
-        val id = _ui.value.downloadId
-        if (id != null) {
-            viewModelScope.launch(ioDispatcher) { downloader.cancel(id) }
+        val current = _ui.value
+        val id = current.downloadId ?: observedDownloadId
+        val pinnedInfo = if (observedDownloadId == id) observedDownloadInfo else null
+        val expected = (pinnedInfo ?: current.info)?.let { UpdateDownloadRecord(it, id) }
+        observedDownloadId = null
+        observedDownloadInfo = null
+        viewModelScope.launch(ioDispatcher) {
+            if (id != null) downloader.cancel(id)
+            if (expected != null) clearDownloadRecord(expected)
         }
         _ui.update { it.copy(downloading = false, progress = null, downloadId = null) }
     }

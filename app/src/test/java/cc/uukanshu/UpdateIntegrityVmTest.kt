@@ -6,11 +6,13 @@ import cc.uukanshu.data.update.ApkDownloader
 import cc.uukanshu.data.update.DownloadStatus
 import cc.uukanshu.data.update.ReleaseFetcher
 import cc.uukanshu.data.update.UpdateDownloader
+import cc.uukanshu.data.update.UpdateDownloadRecord
 import cc.uukanshu.data.update.UpdateInfo
 import cc.uukanshu.core.Errors
 import cc.uukanshu.ui.update.UpdateViewModel
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -71,12 +73,25 @@ class UpdateIntegrityVmTest {
         var onEnqueue: () -> Long = { 42L },
         var onRunning: () -> Unit = {},
         var onSuccess: () -> Unit = {},
+        var existingId: Long? = null,
+        var missing: Boolean = false,
         private val gate: kotlinx.coroutines.CompletableDeferred<Unit>? = null,
     ) : ApkDownloader {
+        var enqueueCalls = 0
+        val observedIds = mutableListOf<Long>()
         override fun apkFile(info: UpdateInfo): File = file
-        override fun enqueue(info: UpdateInfo): Long = onEnqueue()
+        override fun findDownload(info: UpdateInfo): Long? = existingId
+        override fun enqueue(info: UpdateInfo): Long {
+            enqueueCalls++
+            return onEnqueue()
+        }
         override fun cancel(downloadId: Long) = Unit
         override fun observe(downloadId: Long) = flow {
+            observedIds += downloadId
+            if (missing) {
+                emit(DownloadStatus.Missing)
+                return@flow
+            }
             onRunning()
             emit(DownloadStatus.Running(0.5f))
             gate?.await()
@@ -142,6 +157,91 @@ class UpdateIntegrityVmTest {
         assertTrue(ui.downloadSucceeded)
         assertFalse(ui.downloading)
         assertNull(ui.error)
+        file.delete()
+    }
+
+    @Test fun `new ViewModel reattaches to an in-flight download without enqueueing again`() = runTest(main.dispatcher) {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        grantCanInstall(app)
+        val payload = info(5L, sha(good))
+        val file = File.createTempFile("uukanshu-restart", ".apk").also { it.delete() }
+        val gate = CompletableDeferred<Unit>()
+        val dl = FakeDl(file, onSuccess = { file.writeBytes(good) }, gate = gate)
+        val prefs = MutableFakePrefs()
+        val fetcher = object : ReleaseFetcher {
+            override fun fetchLatest(): UpdateInfo = payload
+        }
+        val firstVm = UpdateViewModel(app, prefs, fetcher, dl, ActivityLauncher { }, main.dispatcher)
+        firstVm.manualCheck()
+        await()
+        firstVm.startDownload()
+        await()
+        assertTrue(firstVm.ui.value.downloading)
+        assertEquals(UpdateDownloadRecord(payload, 42L), prefs.updateDownloadRecord.first())
+
+        // A second VM represents a process recreation with the same durable store and DM job.
+        val restoredVm = UpdateViewModel(app, prefs, fetcher, dl, ActivityLauncher { }, main.dispatcher)
+        await()
+        assertEquals(1, dl.enqueueCalls)
+        assertEquals(42L, restoredVm.ui.value.downloadId)
+        assertTrue(restoredVm.ui.value.downloading)
+        // Recovery must not force the dismissed prompt back on screen.
+        assertFalse(restoredVm.ui.value.visible)
+        assertEquals(listOf(42L, 42L), dl.observedIds)
+
+        gate.complete(Unit)
+        await()
+        assertTrue(restoredVm.ui.value.fileReady)
+        assertTrue(restoredVm.ui.value.downloadSucceeded)
+        assertFalse(restoredVm.ui.value.downloading)
+        file.delete()
+    }
+
+    @Test fun `recovered id purged from DownloadManager clears the record silently`() = runTest(main.dispatcher) {
+        // A stored id whose row was removed outside the app (user cleared the
+        // Downloads list) must not surface "download not found" on launch.
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val payload = info(5L, sha(good))
+        val file = File.createTempFile("uukanshu-missing", ".apk").also { it.delete() }
+        val dl = FakeDl(file, existingId = 55L, missing = true)
+        val prefs = MutableFakePrefs().also {
+            it.setUpdateDownloadRecord(UpdateDownloadRecord(payload, downloadId = 55L))
+        }
+        val vm = UpdateViewModel(
+            app, prefs, object : ReleaseFetcher {
+                override fun fetchLatest(): UpdateInfo = payload
+            }, dl, ActivityLauncher { }, main.dispatcher,
+        )
+        await()
+        assertNull(prefs.updateDownloadRecord.first())
+        assertFalse(vm.ui.value.downloading)
+        assertFalse(vm.ui.value.visible)
+        assertNull(vm.ui.value.error)
+        file.delete()
+    }
+
+    @Test fun `id-less pending record rediscovers the matching DownloadManager request`() = runTest(main.dispatcher) {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val payload = info(5L, sha(good))
+        val file = File.createTempFile("uukanshu-pending", ".apk").also { it.delete() }
+        val gate = CompletableDeferred<Unit>()
+        val dl = FakeDl(file, existingId = 42L, onSuccess = { file.writeBytes(good) }, gate = gate)
+        val prefs = MutableFakePrefs().also {
+            it.setUpdateDownloadRecord(UpdateDownloadRecord(payload))
+        }
+        val fetcher = object : ReleaseFetcher {
+            override fun fetchLatest(): UpdateInfo = payload
+        }
+        val vm = UpdateViewModel(
+            app, prefs, fetcher, dl, ActivityLauncher { }, main.dispatcher,
+        )
+        await()
+        assertEquals(0, dl.enqueueCalls)
+        assertEquals(42L, prefs.updateDownloadRecord.first()?.downloadId)
+        assertEquals(42L, vm.ui.value.downloadId)
+        gate.complete(Unit)
+        await()
+        assertTrue(vm.ui.value.fileReady)
         file.delete()
     }
 

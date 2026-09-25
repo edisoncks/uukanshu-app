@@ -3,9 +3,12 @@ package cc.uukanshu
 import androidx.test.core.app.ApplicationProvider
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.data.prefs.PrefsKeys
+import cc.uukanshu.data.update.UpdateDownloadRecord
+import cc.uukanshu.data.update.UpdateInfo
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -24,6 +27,7 @@ class PrefsStoreTest {
         p.setFontScale(Prefs.FONT_DEFAULT)
         p.setTheme(Prefs.SYSTEM)
         p.setAutoBookCheckEnabled(true)
+        p.setUpdateDownloadRecord(null)
     }
 
     @Test fun defaultsAreTraditionalSystem() = runTest {
@@ -72,5 +76,31 @@ class PrefsStoreTest {
         assertEquals(false, p.autoBookCheckEnabled.first())
         p.setAutoBookCheckEnabled(true)
         assertEquals(true, p.autoBookCheckEnabled.first())
+    }
+
+    @Test fun updateDownloadRecordRoundtrip() = runTest {
+        val p = prefs()
+        val record = UpdateDownloadRecord(
+            info = UpdateInfo(
+                tag = "v2.0.0",
+                version = "2.0.0",
+                changelog = "notes\nline two",
+                apkUrl = "https://example.com/uukanshu-2.0.0.apk",
+                apkName = "uukanshu-2.0.0.apk",
+                htmlUrl = "https://example.com/releases/2.0.0",
+                size = 123L,
+                sha256 = "a".repeat(64),
+            ),
+            downloadId = 42L,
+        )
+        p.setUpdateDownloadRecord(record)
+        assertEquals(record, p.updateDownloadRecord.first())
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        assertTrue(java.io.File(app.noBackupFilesDir, "uukanshu-update-download.preferences_pb").exists())
+        val pending = UpdateDownloadRecord(record.info.copy(size = null, sha256 = null))
+        p.setUpdateDownloadRecord(pending)
+        assertEquals(pending, p.updateDownloadRecord.first())
+        p.setUpdateDownloadRecord(null)
+        assertEquals(null, p.updateDownloadRecord.first())
     }
 }

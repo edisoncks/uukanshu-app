@@ -1,16 +1,37 @@
 package cc.uukanshu.data.prefs
 
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import cc.uukanshu.data.update.UpdateDownloadRecord
+import cc.uukanshu.data.update.UpdateInfo
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.io.File
 
 private val Context.store by preferencesDataStore("uukanshu")
+
+/** DownloadManager ids are device-local and must not be restored by cloud/device backup. */
+private object UpdateDownloadStore {
+    private val stores = mutableMapOf<String, DataStore<Preferences>>()
+
+    fun get(context: Context): DataStore<Preferences> {
+        val app = context.applicationContext
+        val file = File(app.noBackupFilesDir, "uukanshu-update-download.preferences_pb")
+        return synchronized(stores) {
+            stores.getOrPut(file.absolutePath) {
+                PreferenceDataStoreFactory.create { file }
+            }
+        }
+    }
+}
 
 object PrefsKeys {
     val SIMPLIFIED = booleanPreferencesKey("simplified")
@@ -22,6 +43,15 @@ object PrefsKeys {
     // reset every existing install (no migration). Pinned by PrefsStoreTest.
     val AUTO_BOOK_CHECK_ENABLED = booleanPreferencesKey("bg_check_enabled")
     val LAST_BOOK_CHECK = longPreferencesKey("last_book_check")
+    val UPDATE_DOWNLOAD_TAG = stringPreferencesKey("update_download_tag")
+    val UPDATE_DOWNLOAD_VERSION = stringPreferencesKey("update_download_version")
+    val UPDATE_DOWNLOAD_CHANGELOG = stringPreferencesKey("update_download_changelog")
+    val UPDATE_DOWNLOAD_URL = stringPreferencesKey("update_download_url")
+    val UPDATE_DOWNLOAD_NAME = stringPreferencesKey("update_download_name")
+    val UPDATE_DOWNLOAD_HTML_URL = stringPreferencesKey("update_download_html_url")
+    val UPDATE_DOWNLOAD_SIZE = longPreferencesKey("update_download_size")
+    val UPDATE_DOWNLOAD_SHA256 = stringPreferencesKey("update_download_sha256")
+    val UPDATE_DOWNLOAD_ID = longPreferencesKey("update_download_id")
 }
 
 class Prefs(private val context: Context) : cc.uukanshu.di.PrefsApi {
@@ -78,6 +108,31 @@ class Prefs(private val context: Context) : cc.uukanshu.di.PrefsApi {
     override val lastUpdateCheck: Flow<Long> =
         context.store.data.map { it[PrefsKeys.LAST_UPDATE_CHECK] ?: 0L }
 
+    private val updateDownloadStore by lazy { UpdateDownloadStore.get(context) }
+
+    override val updateDownloadRecord: Flow<UpdateDownloadRecord?> =
+        updateDownloadStore.data.map { values ->
+            val tag = values[PrefsKeys.UPDATE_DOWNLOAD_TAG] ?: return@map null
+            val version = values[PrefsKeys.UPDATE_DOWNLOAD_VERSION] ?: return@map null
+            val changelog = values[PrefsKeys.UPDATE_DOWNLOAD_CHANGELOG] ?: return@map null
+            val url = values[PrefsKeys.UPDATE_DOWNLOAD_URL] ?: return@map null
+            val name = values[PrefsKeys.UPDATE_DOWNLOAD_NAME] ?: return@map null
+            val htmlUrl = values[PrefsKeys.UPDATE_DOWNLOAD_HTML_URL] ?: return@map null
+            UpdateDownloadRecord(
+                info = UpdateInfo(
+                    tag = tag,
+                    version = version,
+                    changelog = changelog,
+                    apkUrl = url,
+                    apkName = name,
+                    htmlUrl = htmlUrl,
+                    size = values[PrefsKeys.UPDATE_DOWNLOAD_SIZE],
+                    sha256 = values[PrefsKeys.UPDATE_DOWNLOAD_SHA256],
+                ),
+                downloadId = values[PrefsKeys.UPDATE_DOWNLOAD_ID],
+            )
+        }
+
     override suspend fun setLastUpdateCheck(now: Long) {
         context.store.edit { it[PrefsKeys.LAST_UPDATE_CHECK] = now }
     }
@@ -107,6 +162,36 @@ class Prefs(private val context: Context) : cc.uukanshu.di.PrefsApi {
         context.store.edit {
             if (v == null) it.remove(PrefsKeys.SKIPPED_VERSION)
             else it[PrefsKeys.SKIPPED_VERSION] = v
+        }
+    }
+
+    override suspend fun setUpdateDownloadRecord(record: UpdateDownloadRecord?) {
+        updateDownloadStore.edit { values ->
+            if (record == null) {
+                values.remove(PrefsKeys.UPDATE_DOWNLOAD_TAG)
+                values.remove(PrefsKeys.UPDATE_DOWNLOAD_VERSION)
+                values.remove(PrefsKeys.UPDATE_DOWNLOAD_CHANGELOG)
+                values.remove(PrefsKeys.UPDATE_DOWNLOAD_URL)
+                values.remove(PrefsKeys.UPDATE_DOWNLOAD_NAME)
+                values.remove(PrefsKeys.UPDATE_DOWNLOAD_HTML_URL)
+                values.remove(PrefsKeys.UPDATE_DOWNLOAD_SIZE)
+                values.remove(PrefsKeys.UPDATE_DOWNLOAD_SHA256)
+                values.remove(PrefsKeys.UPDATE_DOWNLOAD_ID)
+            } else {
+                val info = record.info
+                values[PrefsKeys.UPDATE_DOWNLOAD_TAG] = info.tag
+                values[PrefsKeys.UPDATE_DOWNLOAD_VERSION] = info.version
+                values[PrefsKeys.UPDATE_DOWNLOAD_CHANGELOG] = info.changelog
+                values[PrefsKeys.UPDATE_DOWNLOAD_URL] = info.apkUrl
+                values[PrefsKeys.UPDATE_DOWNLOAD_NAME] = info.apkName
+                values[PrefsKeys.UPDATE_DOWNLOAD_HTML_URL] = info.htmlUrl
+                if (info.size == null) values.remove(PrefsKeys.UPDATE_DOWNLOAD_SIZE)
+                else values[PrefsKeys.UPDATE_DOWNLOAD_SIZE] = info.size
+                if (info.sha256 == null) values.remove(PrefsKeys.UPDATE_DOWNLOAD_SHA256)
+                else values[PrefsKeys.UPDATE_DOWNLOAD_SHA256] = info.sha256
+                if (record.downloadId == null) values.remove(PrefsKeys.UPDATE_DOWNLOAD_ID)
+                else values[PrefsKeys.UPDATE_DOWNLOAD_ID] = record.downloadId
+            }
         }
     }
 }

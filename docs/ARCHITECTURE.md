@@ -167,8 +167,11 @@ UI (ViewModels)
   bounds shared by read-clamp, write-clamp and reader step),
   `theme: String` (`system`/`light`/`dark`, `normalizeTheme` fails safe to
   `system`), `lastUpdateCheck: Long`,
-  `skippedVersion: String`. All UI prefs are `Flow`s; screens collect them
-  so a change in Settings re-renders everywhere live.
+  `skippedVersion: String`. The updater's `UpdateDownloadRecord` lives in a
+  separate `noBackupFilesDir` DataStore because DownloadManager ids are device-local.
+  Timestamp read/write failures are logged and cannot escape a check or
+  leave its Main-thread guard set. All UI prefs are `Flow`s; screens collect
+  them so a change in Settings re-renders everywhere live.
 - `data/convert/T2S.kt` (opencc4j, LRU-500 for short UI strings, bodies
   >4k bypass): Traditional → Simplified is applied **at render time only**;
   caches and DB always store raw Traditional. Reader re-renders `currentRaw`
@@ -228,8 +231,17 @@ scheduler instead of polling real threads (`UpdateViewModelTest`,
   for the tag is offered (stale/second APK yields no update).
 - Download via system `DownloadManager`, polled through
   `UpdateDownloader.observe(id)` (emits `DownloadStatus` until terminal,
-  then completes) with progress (0..1, indeterminate fallback). The VM
-  only maps states to dialog state. Single file-state table `ApkState`
+  then completes) with progress (0..1, indeterminate fallback). A DataStore
+  `UpdateDownloadRecord` pins the enqueued `UpdateInfo` and request id; the
+  record is written before enqueue, and a recreated ViewModel reattaches by id
+  or rediscovers the matching URL/name if death fell between enqueue and id
+  persistence. Matching in-flight files are never deleted/re-enqueued. The
+  record remains through verified success so the DM receipt can be restored;
+  cancel/terminal failure clears it. Recovery restores state without forcing
+  the prompt back on screen (the Settings banner reopens it), and a request
+  purged from DownloadManager clears its record silently. The VM maps states
+  to dialog state.
+  Single file-state table `ApkState`
   (`Missing/Partial/Ready`, truly-pure `apkState(exists, length, size, sha256,
   computed, dmSuccess)` + single-stat IO wrapper `apkStateIO` that hashes
   lazily on Dispatchers.IO with a size-mismatch short-circuit, plus strict
