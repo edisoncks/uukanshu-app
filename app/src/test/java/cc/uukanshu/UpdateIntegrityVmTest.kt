@@ -78,14 +78,21 @@ class UpdateIntegrityVmTest {
         private val gate: kotlinx.coroutines.CompletableDeferred<Unit>? = null,
     ) : ApkDownloader {
         var enqueueCalls = 0
+        var findDownloadCalls = 0
         val observedIds = mutableListOf<Long>()
+        val cancelledIds = mutableListOf<Long>()
         override fun apkFile(info: UpdateInfo): File = file
-        override fun findDownload(info: UpdateInfo): Long? = existingId
+        override fun findDownload(info: UpdateInfo): Long? {
+            findDownloadCalls++
+            return existingId
+        }
         override fun enqueue(info: UpdateInfo): Long {
             enqueueCalls++
             return onEnqueue()
         }
-        override fun cancel(downloadId: Long) = Unit
+        override fun cancel(downloadId: Long) {
+            cancelledIds += downloadId
+        }
         override fun observe(downloadId: Long) = flow {
             observedIds += downloadId
             if (missing) {
@@ -510,6 +517,82 @@ class UpdateIntegrityVmTest {
         assertNull("error=${ui.error}", ui.error)
         assertFalse(ui.fileReady)
         assertFalse(ui.downloadSucceeded)
+        file.delete()
+    }
+
+    @Test fun `stale record for the installed version is cancelled and cleared`() = runTest(main.dispatcher) {
+        // Version check must run before reattach: a record for a release that is
+        // no longer newer than the installed app is a leftover request, not an
+        // update in flight.
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val file = File.createTempFile("uukanshu-stale", ".apk").also { it.delete() }
+        val payload = info(5L, sha(good), version = UpdateDownloader.currentVersion(app))
+        val dl = FakeDl(file, existingId = 77L)
+        val prefs = MutableFakePrefs().also {
+            it.setUpdateDownloadRecord(UpdateDownloadRecord(payload))
+        }
+        val vm = UpdateViewModel(
+            app, prefs, object : ReleaseFetcher {
+                override fun fetchLatest(): UpdateInfo = payload
+            }, dl, ActivityLauncher { }, main.dispatcher,
+        )
+        await()
+        assertEquals(listOf(77L), dl.cancelledIds)
+        assertNull(prefs.updateDownloadRecord.first())
+        assertFalse(vm.ui.value.downloading)
+        assertFalse(vm.ui.value.visible)
+        file.delete()
+    }
+
+    @Test fun `stale record with a stored id cancels without rescanning DownloadManager`() = runTest(main.dispatcher) {
+        // The version check comes first, so a stale record that already pins its
+        // DownloadManager id never pays for a findDownload scan/hash.
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val file = File.createTempFile("uukanshu-stale-id", ".apk").also { it.delete() }
+        val payload = info(5L, sha(good), version = UpdateDownloader.currentVersion(app))
+        val dl = FakeDl(file, existingId = 77L)
+        val prefs = MutableFakePrefs().also {
+            it.setUpdateDownloadRecord(UpdateDownloadRecord(payload, downloadId = 55L))
+        }
+        val vm = UpdateViewModel(
+            app, prefs, object : ReleaseFetcher {
+                override fun fetchLatest(): UpdateInfo = payload
+            }, dl, ActivityLauncher { }, main.dispatcher,
+        )
+        await()
+        assertEquals(0, dl.findDownloadCalls)
+        assertEquals(listOf(55L), dl.cancelledIds)
+        assertNull(prefs.updateDownloadRecord.first())
+        assertFalse(vm.ui.value.visible)
+        file.delete()
+    }
+
+    @Test fun `cancel download clears the durable record`() = runTest(main.dispatcher) {
+        // Regression: after success the dialog nulls downloadId, so cancel rebuilt
+        // a record with a null id. Full structural equality then never matched the
+        // stored id and the record leaked; sameRequestAs fixes that.
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        grantCanInstall(app)
+        val payload = info(5L, sha(good))
+        val file = File.createTempFile("uukanshu-cancel", ".apk").also { it.delete() }
+        val gate = CompletableDeferred<Unit>()
+        val dl = FakeDl(file, gate = gate, onSuccess = { file.writeBytes(good) })
+        val prefs = MutableFakePrefs()
+        val vm = UpdateViewModel(
+            app, prefs, object : ReleaseFetcher {
+                override fun fetchLatest(): UpdateInfo = payload
+            }, dl, ActivityLauncher { }, main.dispatcher,
+        )
+        vm.manualCheck()
+        await()
+        vm.startDownload()
+        await()
+        assertEquals(UpdateDownloadRecord(payload, 42L), prefs.updateDownloadRecord.first())
+        vm.cancelDownload()
+        await()
+        assertEquals(listOf(42L), dl.cancelledIds)
+        assertNull(prefs.updateDownloadRecord.first())
+        assertFalse(vm.ui.value.downloading)
         file.delete()
     }
 }
