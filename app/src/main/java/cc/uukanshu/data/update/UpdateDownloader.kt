@@ -70,14 +70,20 @@ class UpdateDownloader(private val context: Context) : ApkDownloader {
                 )
             }
         }
-        val file = apkFile(info)
-        for (row in DownloadRequestMatcher.matching(rows, info)) {
-            if (DownloadRequestMatcher.isActiveStatus(row.status)) return row.id
-            if (apkStateIO(file, info.size, info.sha256, dmSuccess = true) == ApkState.Ready) {
-                return row.id
-            }
+        val matches = DownloadRequestMatcher.matching(rows, info)
+        // Active work reattaches without touching disk.
+        matches.firstOrNull { DownloadRequestMatcher.isActiveStatus(it.status) }
+            ?.let { return it.id }
+        // Only a successful row needs the installer's gate, and the verdict is a
+        // property of the file, not the row: evaluate it exactly once — and not
+        // at all when there is nothing to reattach to (the caller's own
+        // completeness check would otherwise rehash the same file).
+        val successful = matches.firstOrNull { !DownloadRequestMatcher.isActiveStatus(it.status) }
+            ?: return null
+        if (apkStateIO(apkFile(info), info.size, info.sha256, dmSuccess = true) != ApkState.Ready) {
+            return null
         }
-        return null
+        return successful.id
     }
 
     /**
