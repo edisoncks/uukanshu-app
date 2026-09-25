@@ -71,7 +71,7 @@ Body text…
 
 - **首頁 Home**: recent updates + categories.
 - **搜索 Search**: search by title.
-- **書架 Library**: saved books. New chapters show a badge; **Check for updates** refreshes all (or wait for the daily check). Opening the detail clears it.
+- **書架 Library**: saved books. New chapters show a badge; **Check for updates** refreshes all (or wait for the daily check). The badge clears after Detail successfully refreshes the chapter list; it stays when offline or when refresh fails.
 - **設定 Settings**: appearance, language, follow-updates, update (current version lives here).
 
 ## Offline
