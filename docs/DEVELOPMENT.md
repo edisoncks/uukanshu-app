@@ -118,9 +118,9 @@ app/src/main/java/cc/uukanshu/
     parse/Parser.kt (facade) + BookIds/CardsParser/TocParser/MetaParser/ChapterParser
     repo/BookRepo.kt + TocDiff/ShelfOrder
     db/                  # Room: AppDb, Entities (+metas/cachedPageIds), DAOs
-    prefs/Prefs.kt       # DataStore: theme, simplified, fontScale, update check state
+    prefs/Prefs.kt       # DataStore: user prefs/check timestamps; updater job record is device-local noBackupFilesDir
     convert/T2S.kt       # Traditional → Simplified (opencc4j) + LRU
-    update/              # UpdateApi(ReleaseFetcher), UpdateDownloader(ApkDownloader), VersionCompare, JsonMini
+    update/              # UpdateApi, DownloadManager recovery, APK integrity, VersionCompare, JsonMini
     updatecheck/         # 追更: UpdateChecker (6h foreground gate), BookUpdateScheduler/Worker (24h), Notifier, AppInit
     paging/BookPagingSource.kt       # Home Paging 3 source, per-list seen-id dedup
     download/BookDownloadManager.kt  # app-scoped, monitor-serialized ownership/state, slot-queued

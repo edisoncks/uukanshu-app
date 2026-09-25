@@ -15,6 +15,8 @@ import java.io.File
  */
 interface ApkDownloader {
     fun apkFile(info: UpdateInfo): File
+    /** Find a matching active or successful DownloadManager request after process recreation. */
+    fun findDownload(info: UpdateInfo): Long?
     fun enqueue(info: UpdateInfo): Long
     fun cancel(downloadId: Long)
     fun observe(downloadId: Long): Flow<DownloadStatus>

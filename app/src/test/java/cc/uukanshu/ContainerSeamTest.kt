@@ -7,6 +7,7 @@ import cc.uukanshu.data.update.ApkDownloader
 import cc.uukanshu.data.update.DownloadStatus
 import cc.uukanshu.data.update.ReleaseFetcher
 import cc.uukanshu.data.update.UpdateInfo
+import cc.uukanshu.data.update.UpdateDownloadRecord
 import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.di.AppContainer
 import cc.uukanshu.di.PrefsApi
@@ -60,6 +61,7 @@ class FakePrefs : PrefsApi {
     override val theme: Flow<String> = flowOf("system")
     override val lastUpdateCheck: Flow<Long> = flowOf(0L)
     override val skippedVersion: Flow<String?> = flowOf(null)
+    override val updateDownloadRecord: Flow<UpdateDownloadRecord?> = flowOf(null)
     override val autoBookCheckEnabled: Flow<Boolean> = flowOf(true)
     override val lastBookCheck: Flow<Long> = flowOf(0L)
     override suspend fun setSimplified(v: Boolean) = Unit
@@ -67,6 +69,8 @@ class FakePrefs : PrefsApi {
     override suspend fun setTheme(v: String) = Unit
     override suspend fun setLastUpdateCheck(now: Long) = Unit
     override suspend fun setSkippedVersion(v: String?) = Unit
+    override suspend fun setUpdateDownloadRecord(record: UpdateDownloadRecord?) = Unit
+    override suspend fun clearUpdateDownloadRecord(expected: UpdateDownloadRecord) = Unit
     override suspend fun setAutoBookCheckEnabled(v: Boolean) = Unit
     override suspend fun setLastBookCheck(now: Long) = Unit
 }
@@ -79,6 +83,7 @@ class FakeReleaseFetcher(var info: UpdateInfo? = null) : ReleaseFetcher {
 class FakeApkDownloader : ApkDownloader {
     override fun apkFile(info: UpdateInfo): java.io.File =
         java.io.File.createTempFile("uukanshu-test", ".apk")
+    override fun findDownload(info: UpdateInfo): Long? = null
     override fun enqueue(info: UpdateInfo): Long = -1L
     override fun cancel(downloadId: Long) = Unit
     override fun observe(downloadId: Long): kotlinx.coroutines.flow.Flow<DownloadStatus> =

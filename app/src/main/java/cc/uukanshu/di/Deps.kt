@@ -8,6 +8,7 @@ import cc.uukanshu.data.repo.BookRepo
 import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.data.update.ApkDownloader
 import cc.uukanshu.data.update.ReleaseFetcher
+import cc.uukanshu.data.update.UpdateDownloadRecord
 import kotlinx.coroutines.flow.Flow
 
 /** Manual constructor DI (no framework). App singletons, faked in JVM tests. */
@@ -46,6 +47,7 @@ interface PrefsApi {
     val theme: Flow<String>
     val lastUpdateCheck: Flow<Long>
     val skippedVersion: Flow<String?>
+    val updateDownloadRecord: Flow<UpdateDownloadRecord?>
     val autoBookCheckEnabled: Flow<Boolean>
     val lastBookCheck: Flow<Long>
     suspend fun setSimplified(v: Boolean)
@@ -53,6 +55,9 @@ interface PrefsApi {
     suspend fun setTheme(v: String)
     suspend fun setLastUpdateCheck(now: Long)
     suspend fun setSkippedVersion(v: String?)
+    suspend fun setUpdateDownloadRecord(record: UpdateDownloadRecord?)
+    /** Clear the stored record only if it still describes [expected], atomically. */
+    suspend fun clearUpdateDownloadRecord(expected: UpdateDownloadRecord)
     suspend fun setAutoBookCheckEnabled(v: Boolean)
     suspend fun setLastBookCheck(now: Long)
 }

@@ -58,6 +58,7 @@ class UpdateRealIoSmokeTest {
                 // does not exist, so the check proceeds past it to the offer.
                 override fun apkFile(info: UpdateInfo): File =
                     File(app.cacheDir, "uukanshu-smoke.apk")
+                override fun findDownload(info: UpdateInfo): Long? = null
                 // This test only drives a check; a download must never start.
                 override fun enqueue(info: UpdateInfo): Long =
                     error("enqueue not exercised by the smoke test")

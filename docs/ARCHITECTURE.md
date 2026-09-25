@@ -61,7 +61,7 @@ tab/category/position changed mid-fetch.
 ## 追更 (library update check)
 
 - DB v5 `books`: `seenTotal` (user-seen baseline) + `newCount` (badge) + `lastCheckedAt`. `MIGRATION_4_5` adds 3 cols DEFAULT 0; first check seeds baseline with no false badge. `ShelfOrder.preserve` carries all three so background refresh never wipes badges or bumps `updatedAt` (shelf order untouched by checks).
-- `BookRepo.checkUpdate/checkAllUpdates/markSeen` under `dbWrite` lock: `detail()` merges TOC via `replaceToc`, then badge diff `freshSize - seenTotal`. Empty/shrink keep badge+baseline but stamp `lastCheckedAt` so empty books sort last instead of wedging oldest-first; per-book failure = skip without stamp, never throws except cancel. `checkAllUpdates(limit=20)` oldest-`lastCheckedAt`-first + `crawlDelay` between (10-min Worker bound). `markSeen` (Detail `Ready` paint) advances baseline, clears badge.
+- `BookRepo.checkUpdate/checkAllUpdates/markSeen` under `dbWrite` lock: `detail()` merges TOC via `replaceToc`, then badge diff `freshSize - seenTotal`. Empty/shrink keep badge+baseline but stamp `lastCheckedAt` so empty books sort last instead of wedging oldest-first; per-book failure = skip without stamp, never throws except cancel. `checkAllUpdates(limit=20)` oldest-`lastCheckedAt`-first + `crawlDelay` between (10-min Worker bound). `markSeen` after an accepted Detail `Fresh` TOC (or a fully successful download) advances the baseline and clears the badge; stale/offline/failed refreshes preserve it.
 - `data/updatecheck/`: `UpdateChecker` (pure orchestration + `shouldForegroundCheck` 6h + `formatLastCheck`, JVM-tested), `BookUpdateScheduler` (unique `book-update-check`, 24h, CONNECTED only, KEEP on boot), `BookUpdateWorker` (thin shell on App singletons, no custom Factory; disabled = early success; one summary `Notifier`), `Notifier` (channel `book_updates`, single `有 N 本書更新，共 M 章`, `FLAG_IMMUTABLE` tap → MainActivity, denied perm = silent badges). `UpdateChecker.isAutoBookCheckEnabled` is the single read-side gate for both the Worker and the library-open Doze fallback (fail-closed + logged); scheduling is always-on and the flag is enforced at run; manual 檢查更新 always runs.
 - UI: Library thin bar + footer (stale-while-revalidate, never full-screen on refresh), Detail banner + `下載新增` (existing `downloads.start`, skips cached), tab dot when any `newChapters>0`.
 
@@ -167,8 +167,11 @@ UI (ViewModels)
   bounds shared by read-clamp, write-clamp and reader step),
   `theme: String` (`system`/`light`/`dark`, `normalizeTheme` fails safe to
   `system`), `lastUpdateCheck: Long`,
-  `skippedVersion: String`. All UI prefs are `Flow`s; screens collect them
-  so a change in Settings re-renders everywhere live.
+  `skippedVersion: String`. The updater's `UpdateDownloadRecord` lives in a
+  separate `noBackupFilesDir` DataStore because DownloadManager ids are device-local.
+  Timestamp read/write failures are logged and cannot escape a check or
+  leave its Main-thread guard set. All UI prefs are `Flow`s; screens collect
+  them so a change in Settings re-renders everywhere live.
 - `data/convert/T2S.kt` (opencc4j, LRU-500 for short UI strings, bodies
   >4k bypass): Traditional → Simplified is applied **at render time only**;
   caches and DB always store raw Traditional. Reader re-renders `currentRaw`
@@ -228,8 +231,17 @@ scheduler instead of polling real threads (`UpdateViewModelTest`,
   for the tag is offered (stale/second APK yields no update).
 - Download via system `DownloadManager`, polled through
   `UpdateDownloader.observe(id)` (emits `DownloadStatus` until terminal,
-  then completes) with progress (0..1, indeterminate fallback). The VM
-  only maps states to dialog state. Single file-state table `ApkState`
+  then completes) with progress (0..1, indeterminate fallback). A DataStore
+  `UpdateDownloadRecord` pins the enqueued `UpdateInfo` and request id; the
+  record is written before enqueue, and a recreated ViewModel reattaches by id
+  or rediscovers the matching URL/name if death fell between enqueue and id
+  persistence. Matching in-flight files are never deleted/re-enqueued. The
+  record remains through verified success so the DM receipt can be restored;
+  cancel/terminal failure clears it. Recovery restores state without forcing
+  the prompt back on screen (the Settings banner reopens it), and a request
+  purged from DownloadManager clears its record silently. The VM maps states
+  to dialog state.
+  Single file-state table `ApkState`
   (`Missing/Partial/Ready`, truly-pure `apkState(exists, length, size, sha256,
   computed, dmSuccess)` + single-stat IO wrapper `apkStateIO` that hashes
   lazily on Dispatchers.IO with a size-mismatch short-circuit, plus strict
