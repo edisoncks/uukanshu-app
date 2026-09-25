@@ -96,22 +96,25 @@ class UpdateViewModel(
 
     private suspend fun recoverDownload() {
         val record = prefs.updateDownloadRecord.first() ?: return
-        val id = record.downloadId ?: withContext(ioDispatcher) {
-            downloader.findDownload(record.info)
-        }
-        val recovered = record.copy(downloadId = id)
-        if (!VersionCompare.isNewer(record.info.version, withContext(ioDispatcher) {
-                UpdateDownloader.currentVersion(app)
-            })
-        ) {
-            if (id != null) withContext(ioDispatcher) { downloader.cancel(id) }
+        val currentVersion = withContext(ioDispatcher) { UpdateDownloader.currentVersion(app) }
+        if (!VersionCompare.isNewer(record.info.version, currentVersion)) {
+            // Already installed: resolve the request only to cancel it (an
+            // id-less record still needs a lookup), never to reattach.
+            val staleId = record.downloadId ?: withContext(ioDispatcher) {
+                downloader.findDownload(record.info)
+            }
+            if (staleId != null) withContext(ioDispatcher) { downloader.cancel(staleId) }
             clearDownloadRecord(record)
             return
+        }
+        val id = record.downloadId ?: withContext(ioDispatcher) {
+            downloader.findDownload(record.info)
         }
         if (id == null) {
             clearDownloadRecord(record)
             return
         }
+        val recovered = record.copy(downloadId = id)
         if (record.downloadId == null) {
             try {
                 prefs.setUpdateDownloadRecord(recovered)
