@@ -142,7 +142,7 @@ class UpdateViewModel(
 
     private suspend fun clearDownloadRecord(expected: UpdateDownloadRecord) {
         try {
-            if (prefs.updateDownloadRecord.first() == expected) {
+            if (prefs.updateDownloadRecord.first()?.sameRequestAs(expected) == true) {
                 prefs.setUpdateDownloadRecord(null)
             }
         } catch (e: CancellationException) {
@@ -304,7 +304,9 @@ class UpdateViewModel(
         val v = info.version
         viewModelScope.launch {
             prefs.setSkippedVersion(v)
-            prefs.updateDownloadRecord.first()?.takeIf { it.info == info }?.let { clearDownloadRecord(it) }
+            prefs.updateDownloadRecord.first()
+                ?.takeIf { it.sameRequestAs(UpdateDownloadRecord(info)) }
+                ?.let { clearDownloadRecord(it) }
         }
         // Skipping means go away: clear the pending update so the Settings
         // banner and dialog don't come straight back. Next manual check
