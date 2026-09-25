@@ -18,10 +18,15 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [31])
 class PrefsStoreTest {
-    private fun prefs() = Prefs(ApplicationProvider.getApplicationContext())
+    // JUnit builds a fresh test instance per method, so this cache is per test:
+    // one Prefs per sandbox. Two Prefs in one method would open two DataStores
+    // for the same no-backup file, which DataStore forbids.
+    private var cachedPrefs: Prefs? = null
+    private fun prefs(): Prefs =
+        cachedPrefs ?: Prefs(ApplicationProvider.getApplicationContext()).also { cachedPrefs = it }
 
     @Before fun resetToDefaults() = kotlinx.coroutines.runBlocking {
-        // Same DataStore file persists across tests in one Robolectric app: reset first.
+        // The main DataStore file is a process singleton: reset it first.
         val p = prefs()
         p.setSimplified(false)
         p.setFontScale(Prefs.FONT_DEFAULT)
@@ -101,6 +106,32 @@ class PrefsStoreTest {
         p.setUpdateDownloadRecord(pending)
         assertEquals(pending, p.updateDownloadRecord.first())
         p.setUpdateDownloadRecord(null)
+        assertEquals(null, p.updateDownloadRecord.first())
+    }
+
+    @Test fun clearUpdateDownloadRecordOnlyClearsMatchingRequest() = runTest {
+        val p = prefs()
+        val record = UpdateDownloadRecord(
+            info = UpdateInfo(
+                tag = "v2.0.0",
+                version = "2.0.0",
+                changelog = "notes",
+                apkUrl = "https://example.com/uukanshu-2.0.0.apk",
+                apkName = "uukanshu-2.0.0.apk",
+                htmlUrl = "https://example.com/releases/2.0.0",
+            ),
+            downloadId = 42L,
+        )
+        p.setUpdateDownloadRecord(record)
+
+        // A different release must not clobber the stored request.
+        p.clearUpdateDownloadRecord(
+            UpdateDownloadRecord(record.info.copy(tag = "v3.0.0", version = "3.0.0")),
+        )
+        assertEquals(record, p.updateDownloadRecord.first())
+
+        // The same request (id-less dialog copy) clears it.
+        p.clearUpdateDownloadRecord(UpdateDownloadRecord(record.info))
         assertEquals(null, p.updateDownloadRecord.first())
     }
 }

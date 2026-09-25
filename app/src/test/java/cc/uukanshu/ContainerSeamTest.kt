@@ -70,6 +70,7 @@ class FakePrefs : PrefsApi {
     override suspend fun setLastUpdateCheck(now: Long) = Unit
     override suspend fun setSkippedVersion(v: String?) = Unit
     override suspend fun setUpdateDownloadRecord(record: UpdateDownloadRecord?) = Unit
+    override suspend fun clearUpdateDownloadRecord(expected: UpdateDownloadRecord) = Unit
     override suspend fun setAutoBookCheckEnabled(v: Boolean) = Unit
     override suspend fun setLastBookCheck(now: Long) = Unit
 }

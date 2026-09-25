@@ -2,6 +2,7 @@ package cc.uukanshu.data.prefs
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -17,21 +18,6 @@ import kotlinx.coroutines.flow.map
 import java.io.File
 
 private val Context.store by preferencesDataStore("uukanshu")
-
-/** DownloadManager ids are device-local and must not be restored by cloud/device backup. */
-private object UpdateDownloadStore {
-    private val stores = mutableMapOf<String, DataStore<Preferences>>()
-
-    fun get(context: Context): DataStore<Preferences> {
-        val app = context.applicationContext
-        val file = File(app.noBackupFilesDir, "uukanshu-update-download.preferences_pb")
-        return synchronized(stores) {
-            stores.getOrPut(file.absolutePath) {
-                PreferenceDataStoreFactory.create { file }
-            }
-        }
-    }
-}
 
 object PrefsKeys {
     val SIMPLIFIED = booleanPreferencesKey("simplified")
@@ -108,30 +94,46 @@ class Prefs(private val context: Context) : cc.uukanshu.di.PrefsApi {
     override val lastUpdateCheck: Flow<Long> =
         context.store.data.map { it[PrefsKeys.LAST_UPDATE_CHECK] ?: 0L }
 
-    private val updateDownloadStore by lazy { UpdateDownloadStore.get(context) }
-
-    override val updateDownloadRecord: Flow<UpdateDownloadRecord?> =
-        updateDownloadStore.data.map { values ->
-            val tag = values[PrefsKeys.UPDATE_DOWNLOAD_TAG] ?: return@map null
-            val version = values[PrefsKeys.UPDATE_DOWNLOAD_VERSION] ?: return@map null
-            val changelog = values[PrefsKeys.UPDATE_DOWNLOAD_CHANGELOG] ?: return@map null
-            val url = values[PrefsKeys.UPDATE_DOWNLOAD_URL] ?: return@map null
-            val name = values[PrefsKeys.UPDATE_DOWNLOAD_NAME] ?: return@map null
-            val htmlUrl = values[PrefsKeys.UPDATE_DOWNLOAD_HTML_URL] ?: return@map null
-            UpdateDownloadRecord(
-                info = UpdateInfo(
-                    tag = tag,
-                    version = version,
-                    changelog = changelog,
-                    apkUrl = url,
-                    apkName = name,
-                    htmlUrl = htmlUrl,
-                    size = values[PrefsKeys.UPDATE_DOWNLOAD_SIZE],
-                    sha256 = values[PrefsKeys.UPDATE_DOWNLOAD_SHA256],
-                ),
-                downloadId = values[PrefsKeys.UPDATE_DOWNLOAD_ID],
+    /**
+     * DownloadManager ids are device-local and must never be restored by
+     * cloud/device backup, unlike the main `uukanshu` store. `Prefs` is an app
+     * singleton, so one lazily-created store per process is enough — DataStore
+     * forbids a second active instance for the same file.
+     */
+    private val updateDownloadStore: DataStore<Preferences> by lazy {
+        PreferenceDataStoreFactory.create {
+            File(
+                context.applicationContext.noBackupFilesDir,
+                "uukanshu-update-download.preferences_pb",
             )
         }
+    }
+
+    override val updateDownloadRecord: Flow<UpdateDownloadRecord?> =
+        updateDownloadStore.data.map { it.toUpdateDownloadRecord() }
+
+    /** Decode the record from a preferences snapshot; null unless every required key is present. */
+    private fun Preferences.toUpdateDownloadRecord(): UpdateDownloadRecord? {
+        val tag = this[PrefsKeys.UPDATE_DOWNLOAD_TAG] ?: return null
+        val version = this[PrefsKeys.UPDATE_DOWNLOAD_VERSION] ?: return null
+        val changelog = this[PrefsKeys.UPDATE_DOWNLOAD_CHANGELOG] ?: return null
+        val url = this[PrefsKeys.UPDATE_DOWNLOAD_URL] ?: return null
+        val name = this[PrefsKeys.UPDATE_DOWNLOAD_NAME] ?: return null
+        val htmlUrl = this[PrefsKeys.UPDATE_DOWNLOAD_HTML_URL] ?: return null
+        return UpdateDownloadRecord(
+            info = UpdateInfo(
+                tag = tag,
+                version = version,
+                changelog = changelog,
+                apkUrl = url,
+                apkName = name,
+                htmlUrl = htmlUrl,
+                size = this[PrefsKeys.UPDATE_DOWNLOAD_SIZE],
+                sha256 = this[PrefsKeys.UPDATE_DOWNLOAD_SHA256],
+            ),
+            downloadId = this[PrefsKeys.UPDATE_DOWNLOAD_ID],
+        )
+    }
 
     override suspend fun setLastUpdateCheck(now: Long) {
         context.store.edit { it[PrefsKeys.LAST_UPDATE_CHECK] = now }
@@ -168,15 +170,7 @@ class Prefs(private val context: Context) : cc.uukanshu.di.PrefsApi {
     override suspend fun setUpdateDownloadRecord(record: UpdateDownloadRecord?) {
         updateDownloadStore.edit { values ->
             if (record == null) {
-                values.remove(PrefsKeys.UPDATE_DOWNLOAD_TAG)
-                values.remove(PrefsKeys.UPDATE_DOWNLOAD_VERSION)
-                values.remove(PrefsKeys.UPDATE_DOWNLOAD_CHANGELOG)
-                values.remove(PrefsKeys.UPDATE_DOWNLOAD_URL)
-                values.remove(PrefsKeys.UPDATE_DOWNLOAD_NAME)
-                values.remove(PrefsKeys.UPDATE_DOWNLOAD_HTML_URL)
-                values.remove(PrefsKeys.UPDATE_DOWNLOAD_SIZE)
-                values.remove(PrefsKeys.UPDATE_DOWNLOAD_SHA256)
-                values.remove(PrefsKeys.UPDATE_DOWNLOAD_ID)
+                values.clearUpdateDownloadFields()
             } else {
                 val info = record.info
                 values[PrefsKeys.UPDATE_DOWNLOAD_TAG] = info.tag
@@ -193,5 +187,29 @@ class Prefs(private val context: Context) : cc.uukanshu.di.PrefsApi {
                 else values[PrefsKeys.UPDATE_DOWNLOAD_ID] = record.downloadId
             }
         }
+    }
+
+    override suspend fun clearUpdateDownloadRecord(expected: UpdateDownloadRecord) {
+        // Read and conditional remove share one edit transaction: a record
+        // written by a concurrent path (e.g. a fresh reattach) is never
+        // clobbered by a clear that raced it.
+        updateDownloadStore.edit { values ->
+            val current = values.toUpdateDownloadRecord()
+            if (current == null || current.sameRequestAs(expected)) {
+                values.clearUpdateDownloadFields()
+            }
+        }
+    }
+
+    private fun MutablePreferences.clearUpdateDownloadFields() {
+        remove(PrefsKeys.UPDATE_DOWNLOAD_TAG)
+        remove(PrefsKeys.UPDATE_DOWNLOAD_VERSION)
+        remove(PrefsKeys.UPDATE_DOWNLOAD_CHANGELOG)
+        remove(PrefsKeys.UPDATE_DOWNLOAD_URL)
+        remove(PrefsKeys.UPDATE_DOWNLOAD_NAME)
+        remove(PrefsKeys.UPDATE_DOWNLOAD_HTML_URL)
+        remove(PrefsKeys.UPDATE_DOWNLOAD_SIZE)
+        remove(PrefsKeys.UPDATE_DOWNLOAD_SHA256)
+        remove(PrefsKeys.UPDATE_DOWNLOAD_ID)
     }
 }

@@ -56,6 +56,8 @@ interface PrefsApi {
     suspend fun setLastUpdateCheck(now: Long)
     suspend fun setSkippedVersion(v: String?)
     suspend fun setUpdateDownloadRecord(record: UpdateDownloadRecord?)
+    /** Clear the stored record only if it still describes [expected], atomically. */
+    suspend fun clearUpdateDownloadRecord(expected: UpdateDownloadRecord)
     suspend fun setAutoBookCheckEnabled(v: Boolean)
     suspend fun setLastBookCheck(now: Long)
 }

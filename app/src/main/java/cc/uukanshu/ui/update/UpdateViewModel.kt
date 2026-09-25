@@ -145,9 +145,10 @@ class UpdateViewModel(
 
     private suspend fun clearDownloadRecord(expected: UpdateDownloadRecord) {
         try {
-            if (prefs.updateDownloadRecord.first()?.sameRequestAs(expected) == true) {
-                prefs.setUpdateDownloadRecord(null)
-            }
+            // Atomic conditional clear: the match-and-remove happens inside one
+            // DataStore edit, so a concurrent writer can never be clobbered
+            // between the read and the write.
+            prefs.clearUpdateDownloadRecord(expected)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -307,9 +308,7 @@ class UpdateViewModel(
         val v = info.version
         viewModelScope.launch {
             prefs.setSkippedVersion(v)
-            prefs.updateDownloadRecord.first()
-                ?.takeIf { it.sameRequestAs(UpdateDownloadRecord(info)) }
-                ?.let { clearDownloadRecord(it) }
+            clearDownloadRecord(UpdateDownloadRecord(info))
         }
         // Skipping means go away: clear the pending update so the Settings
         // banner and dialog don't come straight back. Next manual check

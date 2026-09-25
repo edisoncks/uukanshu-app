@@ -161,6 +161,11 @@ class MutableFakePrefs(
     override suspend fun setUpdateDownloadRecord(record: UpdateDownloadRecord?) {
         _updateDownloadRecord.value = record
     }
+
+    override suspend fun clearUpdateDownloadRecord(expected: UpdateDownloadRecord) {
+        val current = _updateDownloadRecord.value ?: return
+        if (current.sameRequestAs(expected)) _updateDownloadRecord.value = null
+    }
 }
 
 /** Fake fidelity: MutableFakePrefs must mirror production write contracts. */
