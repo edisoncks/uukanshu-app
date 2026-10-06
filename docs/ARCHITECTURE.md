@@ -137,7 +137,11 @@ UI (ViewModels)
   continue-reading survives TOC shifts; `position` stays as display order +
   pre-v4 fallback. `ChapterDao.metas` (pageId/position/title/url, never bodies) and
   `cachedPageIds` avoid full-entity loads. Single write paths
-  `AppDb.replaceToc/deleteBookFull/clearAllFull` (`@Transaction`) own the merge
+  `AppDb.replaceToc/deleteBookFull/clearAllFull` (explicit
+  `withTransaction` — Room 2.6.1 generates no override for a non-abstract
+  `@Transaction` method of a `@Database` class, so the annotation alone was a
+  no-op and mid-body cancellation could commit half a merge; pinned by
+  `DbTransactionTest`) own the merge
   so callers cannot forget content preservation (wiped downloads) or pruning
   (ghost rows): `replaceToc` applies the pure `TocDiff` (inserts + in-place
   metadata updates + prune) without ever reading or rewriting the content
