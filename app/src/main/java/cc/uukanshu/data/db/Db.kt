@@ -102,7 +102,7 @@ abstract class AppDb : RoomDatabase() {
      * gone, inserts missing). `DbTransactionTest` pins the atomicity
      * behaviourally, so this cannot silently regress.
      */
-    open suspend fun replaceToc(book: BookEntity, skeleton: List<ChapterEntity>) = withTransaction {
+    open suspend fun replaceToc(book: BookEntity, skeleton: List<ChapterEntity>): Unit = withTransaction {
         books().upsert(book)
         val d = TocDiff.diff(chapters().metas(book.id), skeleton)
         if (!d.isNoop()) {
@@ -115,14 +115,14 @@ abstract class AppDb : RoomDatabase() {
     }
 
     /** Atomic per-book wipe (one transaction — see [replaceToc] for why explicit). */
-    open suspend fun deleteBookFull(bookId: String) = withTransaction {
+    open suspend fun deleteBookFull(bookId: String): Unit = withTransaction {
         chapters().deleteBook(bookId)
         books().deleteBook(bookId)
         progress().deleteBook(bookId)
     }
 
     /** Atomic wipe of all tables (one transaction — see [replaceToc] for why explicit). */
-    open suspend fun clearAllFull() = withTransaction {
+    open suspend fun clearAllFull(): Unit = withTransaction {
         chapters().clearAll()
         books().clearAll()
         progress().clearAll()
