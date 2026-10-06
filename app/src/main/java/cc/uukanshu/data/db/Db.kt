@@ -4,7 +4,7 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import androidx.room.Transaction
+import androidx.room.withTransaction
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import cc.uukanshu.data.repo.TocDiff
@@ -93,30 +93,36 @@ abstract class AppDb : RoomDatabase() {
      * one book upsert, and bodies survive refreshes without ever leaving the DB.
      * Callers must serialize against `updateContent` via repo `dbWrite` Mutex.
      * See ARCHITECTURE.md § Offline cache model.
+     *
+     * The transaction is opened explicitly by [withTransaction], not by the
+     * `@Transaction` annotation: Room 2.6.1 generated no override for a
+     * non-abstract `@Transaction` method of a `@Database` class, so the
+     * annotation alone left these statements auto-committing one by one — a
+     * cancel or error mid-body could commit a half-merged TOC (pruned pageIds
+     * gone, inserts missing). `DbTransactionTest` pins the atomicity
+     * behaviourally, so this cannot silently regress.
      */
-    @Transaction
-    open suspend fun replaceToc(book: BookEntity, skeleton: List<ChapterEntity>) {
+    open suspend fun replaceToc(book: BookEntity, skeleton: List<ChapterEntity>) = withTransaction {
         books().upsert(book)
         val d = TocDiff.diff(chapters().metas(book.id), skeleton)
-        if (d.isNoop()) return
-        if (d.deleteIds.isNotEmpty()) chapters().deleteByPageIds(book.id, d.deleteIds)
-        if (d.insert.isNotEmpty()) chapters().upsertAll(d.insert)
-        d.update.forEach {
-            chapters().updateMeta(book.id, it.pageId, it.position, it.title, it.url)
+        if (!d.isNoop()) {
+            if (d.deleteIds.isNotEmpty()) chapters().deleteByPageIds(book.id, d.deleteIds)
+            if (d.insert.isNotEmpty()) chapters().upsertAll(d.insert)
+            d.update.forEach {
+                chapters().updateMeta(book.id, it.pageId, it.position, it.title, it.url)
+            }
         }
     }
 
-    /** Atomic per-book wipe (single transaction). */
-    @Transaction
-    open suspend fun deleteBookFull(bookId: String) {
+    /** Atomic per-book wipe (one transaction — see [replaceToc] for why explicit). */
+    open suspend fun deleteBookFull(bookId: String) = withTransaction {
         chapters().deleteBook(bookId)
         books().deleteBook(bookId)
         progress().deleteBook(bookId)
     }
 
-    /** Atomic wipe of all tables (single transaction). */
-    @Transaction
-    open suspend fun clearAllFull() {
+    /** Atomic wipe of all tables (one transaction — see [replaceToc] for why explicit). */
+    open suspend fun clearAllFull() = withTransaction {
         chapters().clearAll()
         books().clearAll()
         progress().clearAll()
