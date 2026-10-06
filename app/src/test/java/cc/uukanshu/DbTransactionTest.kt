@@ -9,6 +9,7 @@ import cc.uukanshu.data.db.ProgressEntity
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -65,17 +66,28 @@ class DbTransactionTest {
         assertEquals(7L, db.progress().progress("b1")?.updatedAt)
     }
 
+    /** Must fail, and the failure must be the trigger's RAISE(ABORT) — not any incidental error. */
+    private fun assertAbortedByTrigger(stmt: String, err: Throwable?) {
+        if (err == null) throw AssertionError("trigger must abort the $stmt")
+        assertTrue(
+            "failure must be the trigger's RAISE(ABORT), was: $err",
+            err.message?.contains("boom") == true,
+        )
+    }
+
     @Test fun replaceTocRollsBackWhenALaterStatementFails() = runTest {
         seedBook()
+        // Fires on the insert — the LAST statement only because this fixture's
+        // TocDiff yields no metadata updates; keep that true when changing it.
         abortOn("CREATE TRIGGER boom BEFORE INSERT ON chapters BEGIN SELECT RAISE(ABORT, 'boom'); END")
 
-        val threw = runCatching {
+        val err = runCatching {
             db.replaceToc(
                 BookEntity("b1", "after"),
                 listOf(ChapterEntity("b1", 1, 103L, "c3", "u3", content = "")),
             )
-        }.isFailure
-        assertEquals("trigger must abort the insert", true, threw)
+        }.exceptionOrNull()
+        assertAbortedByTrigger("insert", err)
 
         assertUntouched()
     }
@@ -84,8 +96,8 @@ class DbTransactionTest {
         seedBook()
         abortOn("CREATE TRIGGER boom BEFORE DELETE ON progress BEGIN SELECT RAISE(ABORT, 'boom'); END")
 
-        val threw = runCatching { db.deleteBookFull("b1") }.isFailure
-        assertEquals("trigger must abort the delete", true, threw)
+        val err = runCatching { db.deleteBookFull("b1") }.exceptionOrNull()
+        assertAbortedByTrigger("delete", err)
 
         assertUntouched()
     }
@@ -94,8 +106,8 @@ class DbTransactionTest {
         seedBook()
         abortOn("CREATE TRIGGER boom BEFORE DELETE ON progress BEGIN SELECT RAISE(ABORT, 'boom'); END")
 
-        val threw = runCatching { db.clearAllFull() }.isFailure
-        assertEquals("trigger must abort the delete", true, threw)
+        val err = runCatching { db.clearAllFull() }.exceptionOrNull()
+        assertAbortedByTrigger("delete", err)
 
         assertUntouched()
     }
