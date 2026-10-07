@@ -47,20 +47,32 @@ mise run test           # ./gradlew testDebugUnitTest
 ```
 
 Unit tests live in `app/src/test/java/cc/uukanshu/` and cover the pure-logic
-layers (no device/emulator needed):
+layers (no device/emulator needed), grouped by area (see the directory for
+the full list — class names drift faster than this doc):
 
-- `ParserTest`, `ParserSplitTest` — HTML fixtures + sub-parser (BookIds/
-  Toc/Chapter/Cards) delegation, LAST-wins dedup, tracking-param tolerance
-- `T2STest` — Traditional → Simplified conversion + `CachePolicy` bounds
-- `BookPagingSourceTest`, `SearchDedupTest` — paging dedup / list dedup by stable book id
-- `ReaderTitleTest`, `BookRepoTest`, `DownloadRobustnessTest` — title
-  resolution, TOC merge/shelf rules, batched `BookRepo.missing`, concurrent
-  `BookDownloadManager.start` atomicity
-- `UpdateCheckTest`, `UpdatePolicyTest`, `ApkCompleteTest`, `SiteApiRetryTest` —
-  version compare / throttle + offer policy / APK completeness / retry
-- `ErrorsTest`, `ErrorsFriendlyTest`, `HardeningTest` — cancellation safety,
-  friendly Chinese mapping without URL leaks
-- `ContainerSeamTest` — DI fakes (Repo/Prefs/Convert/Downloads/Release/Apk)
+- Parse/scrape fixtures — `ParserTest`, `ParserSplitTest` (BookIds/
+  Toc/Chapter/Cards delegation, LAST-wins dedup, tracking-param tolerance),
+  `SiteContractTest` (BASE alias, Cloudflare interstitial), `SiteApiRetryTest`
+  (3x retry/backoff), `UukanshuGateTest` (single-flight)
+- Render/convert — `T2STest` (Traditional → Simplified + cache bounds),
+  `ReaderTitleTest`/`ReaderHeaderTest`/`ReaderChromeTest`, `RoutesDisplayTest`
+- Lists/search — `BookPagingSourceTest`, `SearchDedupTest`,
+  `SearchViewModelTest`, `LibraryHomeViewModelTest` (Home/Library VMs),
+  `LibraryAssembleTest`
+- Repo/DB/downloads — `BookRepoTest`, `BookRepoGuardRaceTest`,
+  `BookRepoUpdateCheckTest`/`BookUpdateCheckTest` (追更 badges),
+  `DownloadRobustnessTest`, `BookDownloadManagerTest`/`BookDownloadGuardTest`/
+  `BookDownloadLoopTest`, `DbDaoTest`/`DbSchemaTest`/`DbTransactionTest`,
+  `TocDiffTest`/`TocRevalidatorTest`/`TocSourceTest`, `PrefsStoreTest`, `AppInitTest`
+- Detail/Reader — `DetailViewModelTest`, `DetailShareTest`, `ReaderViewModelTest`
+- Updater — `UpdateCheckTest` (VersionCompare), `UpdatePolicyTest`/
+  `UpdateDecisionsTest`, `UpdateViewModelTest`/`UpdateIntegrityVmTest`/
+  `UpdateIntegrityTest`/`UpdateRealIoSmokeTest`, `ApkCompleteTest` (ApkState/gate),
+  `DownloadRequestMatcherTest`, `UpdateDownloadRecordTest`, `JsonMiniStrictTest`,
+  `VersionContractTest`
+- Infra — `ErrorsTest`, `ErrorsFriendlyTest`, `HardeningTest`
+  (cancellation safety, friendly Chinese mapping without URL leaks),
+  `ContainerSeamTest` (DI fakes)
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the expected workflow before
 pushing.
@@ -114,20 +126,21 @@ app/src/main/java/cc/uukanshu/
   core/Errors.kt         # friendly (UI Chinese, URL-stripped) + cancellation-safe helpers
   core/Display.kt        # single T2S render rule
   data/
-    net/SiteApi.kt + SiteGateway.kt  # HTTP client behind a fakeable interface
-    parse/Parser.kt (facade) + BookIds/CardsParser/TocParser/MetaParser/ChapterParser
-    repo/BookRepo.kt + TocDiff/ShelfOrder
+    net/SiteApi.kt + SiteGateway.kt + UukanshuGate.kt  # HTTP client behind a fakeable interface + single-flight gate + BulkFetch marker
+    parse/Parser.kt (facade) + BookIds/CardsParser/TocParser/MetaParser/ChapterParser/ParserText
+    repo/BookRepo.kt + TocDiff/ShelfOrder/TocSource/TocState/TocRevalidator
     db/                  # Room: AppDb, Entities (+metas/cachedPageIds), DAOs
     prefs/Prefs.kt       # DataStore: user prefs/check timestamps; updater job record is device-local noBackupFilesDir
     convert/T2S.kt       # Traditional → Simplified (opencc4j) + LRU
-    update/              # UpdateApi, DownloadManager recovery, APK integrity, VersionCompare, JsonMini
+    update/              # UpdateApi/ReleaseFetcher, UpdateDownloader/ApkDownloader, ActivityLauncher, DownloadRequestMatcher, UpdateDownloadRecord, APK integrity (ApkState), VersionCompare, JsonMini
     updatecheck/         # 追更: UpdateChecker (6h foreground gate), BookUpdateScheduler/Worker (24h), Notifier, AppInit
     paging/BookPagingSource.kt       # Home Paging 3 source, per-list seen-id dedup
     download/BookDownloadManager.kt  # app-scoped, monitor-serialized ownership/state, slot-queued
   ui/
-    AppTheme.kt (pure isDark) + AppNavHost.kt (tabs/nav/update overlay)
+    AppTheme.kt (pure isDark) + AppNavHost.kt (tabs/nav/update overlay) + Nav.kt (Routes) + VmFactory.kt (single VM factory) + ThemeButton.kt
     home/ detail/ search/ reader/ library/
       # each: *Screen.kt (composable) + *ViewModel.kt (StateFlow UI state)
+      # reader splits helpers: ReaderErrors/ReaderHeader/ReaderParagraphs/ReaderTitle (+ Screen/ViewModel)
     settings/            # SettingsScreen.kt only — plain composable on Prefs (no VM of its
                          # own: everything here is pref writes other screens already collect)
     update/              # UpdateDialog + pure UpdateDecisions + UpdateViewModel (no Screen)
