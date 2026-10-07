@@ -124,4 +124,14 @@ class UpdateApiParseTest {
             ),
         )
     }
+    @Test
+    fun `rejects second uukanshu apk even when first matches`() {
+        // Exactly-one-asset contract: an extra uukanshu-*.apk alongside the
+        // exact match fails closed instead of offering the first of two.
+        assertNull(
+            UpdateApi.parse(
+                """{"tag_name":"v1.0.15","assets":[{"name":"uukanshu-1.0.15.apk","browser_download_url":"https://example.com/u.apk"},{"name":"uukanshu-1.0.15-debug.apk","browser_download_url":"https://example.com/d.apk"}]}""",
+            ),
+        )
+    }
 }

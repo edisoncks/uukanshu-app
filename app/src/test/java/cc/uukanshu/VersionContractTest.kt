@@ -29,10 +29,17 @@ class VersionContractTest {
     }
 
     @Test fun secondApkNeverOffered() {
-        // First exact match wins; a payload with only a stray apk yields null.
+        // Exactly-one-asset contract: a stray apk yields null, and so does a
+        // second uukanshu-*.apk alongside the exact match (fail closed
+        // instead of offering the first of two).
         assertNull(
             UpdateApi.parse(
                 """{"tag_name":"v1.0.34","assets":[{"name":"app.apk","browser_download_url":"https://example.com/a.apk"}]}""",
+            ),
+        )
+        assertNull(
+            UpdateApi.parse(
+                """{"tag_name":"v1.0.34","assets":[{"name":"uukanshu-1.0.34.apk","browser_download_url":"https://example.com/u.apk"},{"name":"uukanshu-1.0.34-debug.apk","browser_download_url":"https://example.com/d.apk"}]}""",
             ),
         )
     }
