@@ -23,9 +23,15 @@ android {
         // Never hand-edit versionCode. Each component supports 0..999 (no 1.0.100 vs 1.1.0
         // collision) — enforced below so a typo'd versionName fails the build instead of
         // silently colliding (1.0.1234 and 1.1.234 would both derive 1001234).
+        // Prerelease suffixes are rejected for the same reason: 1.2.17-beta would
+        // strip to 1.2.17 and collide with the release, so fail fast instead.
         versionCode = run {
             val name = versionName ?: "0.0.0"
-            val parts = name.split(".").map { it.filter(Char::isDigit).toIntOrNull() ?: 0 }
+            require(name.matches(Regex("""\d+\.\d+\.\d+"""))) {
+                "versionName \"$name\" must be numeric X.Y.Z; " +
+                    "prerelease/build suffixes would strip and collide versionCode"
+            }
+            val parts = name.split(".").map { it.toIntOrNull() ?: 0 }
             val (major, minor, patch) = Triple(parts.getOrElse(0) { 0 }, parts.getOrElse(1) { 0 }, parts.getOrElse(2) { 0 })
             listOf(major, minor, patch).forEach {
                 require(it in 0..999) {

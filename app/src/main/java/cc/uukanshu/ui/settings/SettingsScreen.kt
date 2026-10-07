@@ -246,27 +246,31 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
                             style = MaterialTheme.typography.bodyMedium,
                         )
                     }
-                    if (updateUi.error != null && updateUi.info == null) {
+                    // Snapshot nullable UI state into locals so smart-cast (not !!)
+                    // guards the error/info renders below.
+                    val updateError = updateUi.error
+                    val updateInfo = updateUi.info
+                    if (updateError != null && updateInfo == null) {
                         Text(
-                            display(updateUi.error!!),
+                            display(updateError),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.error,
                         )
                     }
                     // Dismissed-but-available update: tonal button reopens the dialog.
-                    if (updateUi.info != null && !updateUi.visible) {
+                    if (updateInfo != null && !updateUi.visible) {
                         FilledTonalButton(
                             onClick = { updateVm.reopen() },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text(
                                 if (updateUi.fileReady) display("更新已下載完成，點擊立即安裝")
-                                else display("發現新版本 ${updateUi.info!!.tag}，點擊查看"),
+                                else display("發現新版本 ${updateInfo.tag}，點擊查看"),
                             )
                         }
                     }
                     // Skip-version stays discoverable without leaving the card.
-                    if (updateUi.info != null && !updateUi.downloading && !updateUi.fileReady) {
+                    if (updateInfo != null && !updateUi.downloading && !updateUi.fileReady) {
                         TextButton(onClick = { updateVm.skipVersion() }) {
                             Text(display("跳過此版本"))
                         }

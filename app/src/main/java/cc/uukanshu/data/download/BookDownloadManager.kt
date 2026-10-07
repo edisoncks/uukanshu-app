@@ -67,7 +67,9 @@ class BookDownloadManager(
     /** Idempotent start (second tap no-op). */
     fun start(bookId: String) {
         val job = scope.launch(start = CoroutineStart.LAZY) {
-            val self = coroutineContext[Job]!!
+            val self = checkNotNull(coroutineContext[Job]) {
+                "BookDownloadManager: missing Job in coroutineContext"
+            }
             try {
                 slot.withLock {
                     downloadFn(bookId) { done, total ->
