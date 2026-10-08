@@ -6,7 +6,7 @@ start at the [README](../README.md) instead — this folder is for developers.
 | Doc | What it covers |
 |---|---|
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Toolchain (mise, Java 17, Gradle, Kotlin), Android SDK setup, build, test, signing, versioning, project layout |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Screens, navigation, data layers (SiteApi, Parser, BookRepo, Room, DataStore), Traditional/Simplified rendering, offline cache, update flow |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Screens, navigation, declared permissions, data layers (SiteApi, Parser, BookRepo, Room, DataStore), Traditional/Simplified rendering, offline cache, update flow |
 | [SCRAPING.md](SCRAPING.md) | How the app fetches and parses uukanshu.cc (endpoints, retry, Cloudflare handling, TOC/chapter rules, rate limiting) |
 | [RELEASING.md](RELEASING.md) | How to cut a release, including the **updater contract** that must not be broken |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Git conventions, workflow, tests |

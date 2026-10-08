@@ -12,6 +12,9 @@ How to build, test, and sign the app locally.
     (`ANDROID_SDK_ROOT` / `ANDROID_HOME` point there via `mise.toml [env]`).
 - App targets: `minSdk 31` (Android 12+), `targetSdk 35`, `compileSdk 35`
   (see `app/build.gradle.kts`).
+- Permissions: what the app declares and which behaviour owns each entry is
+  inventoried in [ARCHITECTURE.md § Permissions](ARCHITECTURE.md#permissions) —
+  keep that list there, not here.
 
 ## First-time setup
 

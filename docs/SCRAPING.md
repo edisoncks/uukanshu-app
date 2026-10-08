@@ -98,7 +98,10 @@ rules below look odd — they encode real site quirks. **Do not "simplify".**
 
 ## Platform constraints
 
-- `minSdk 31` (Android 12+), `targetSdk 35`, `compileSdk 35`.
-- Permissions: `INTERNET` (reading/fetching; offline via exception + cache
-  fallback, no connectivity observer),
-  `REQUEST_INSTALL_PACKAGES` (in-app update installer handoff only).
+- Build targets (`minSdk 31` / `targetSdk 35` / `compileSdk 35`) and the
+  permission inventory are not scraping facts, so they no longer live here:
+  see [DEVELOPMENT.md](DEVELOPMENT.md#requirements) and
+  [ARCHITECTURE.md](ARCHITECTURE.md#permissions).
+- The one scraping consequence of that permission set: offline is detected by
+  exception + cache fallback, never by a connectivity observer — a fetch is
+  skipped by failing, not by pre-checking the network.
