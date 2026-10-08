@@ -38,6 +38,24 @@ default with a global Simplified toggle (see below).
 - `Site.kt`: `BASE_URL = https://uukanshu.cc` + fixed `CATEGORIES` list
   (ids 1–10, `/class_{id}_{page}.html`).
 
+## Permissions
+
+[`AndroidManifest.xml`](../app/src/main/AndroidManifest.xml) is the source of
+truth — every entry carries its own why-comment there. This is the inventory of
+what is declared and which behaviour owns it: every permission must appear here,
+and nothing may be declared without an owner (the app is text-only; there is no
+analytics/ad SDK surface).
+
+| Permission | Why | Owner |
+|---|---|---|
+| `INTERNET` | Fetch uukanshu.cc HTML and check GitHub Releases. Android 12+ has no separate network-state permission. | [Data layers](#data-layers), [Offline cache model](#offline-cache-model) |
+| `POST_NOTIFICATIONS` | One summary notification per 追更 run (channel `book_updates`). Denied permission = silent badges, never a crash. | [追更](#追更-library-update-check) |
+| `REQUEST_INSTALL_PACKAGES` | Hand the downloaded APK to the system package installer. The grant itself is a system Settings toggle ("install unknown apps"), not a runtime dialog. | [In-app update](#in-app-update) |
+
+Build targets (`minSdk`/`targetSdk`/`compileSdk`) live in
+[DEVELOPMENT.md](DEVELOPMENT.md#requirements). Fetch/parse consequences of the
+text-only, no-connectivity-observer design are in [SCRAPING.md](SCRAPING.md).
+
 ## Screen-by-screen (MVVM)
 
 Each screen has a `*Screen.kt` composable + `*ViewModel` exposing a `Ui`
