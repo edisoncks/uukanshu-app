@@ -78,6 +78,7 @@ Body text…
 
 - Opened/downloaded chapters work without internet.
 - **離線模式 · 緩存版本** on the detail page means you are reading the saved copy.
+- If that flag never clears: when the online chapter list is shorter than your saved one (chapters removed on the site), the app keeps your local copy instead of overwriting it. To take the online list, tap **重新同步章節列表** on the detail page (chapters the site removed are deleted along with their downloads).
 - Out of space? Delete finished books from the library.
 
 ## Troubleshooting

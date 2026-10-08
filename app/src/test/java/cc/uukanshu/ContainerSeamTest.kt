@@ -31,6 +31,7 @@ class FakeRepo(
     override suspend fun cachedDetail(bookId: String) = cached
     override suspend fun detail(bookId: String): BookRepo.Detail =
         failure?.let { throw it } ?: fresh ?: throw java.io.IOException("no fresh")
+    override suspend fun detailAcceptingShrink(bookId: String): BookRepo.Detail = detail(bookId)
     override suspend fun chapter(url: String) =
         Parser.ChapterContent("", "", "", null, null, null)
     override suspend fun cachedChapterContent(bookId: String, pageId: Long): String? = null

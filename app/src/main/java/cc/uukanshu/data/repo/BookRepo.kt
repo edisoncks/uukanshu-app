@@ -152,7 +152,20 @@ class BookRepo(
         )
     }
 
-    override suspend fun detail(bookId: String): Detail {
+    /**
+     * User-confirmed refresh (Detail 重新同步章節列表): accepts a shrunken fresh TOC
+     * the default guard refuses. That guard's baseline is the cached row count and
+     * only an accepted fetch can lower it, so a site-side deletion would otherwise
+     * stay rejected forever (see SCRAPING.md). Pruning stays [TocDiff]'s, so
+     * chapters the site kept keep their downloaded bodies; an empty fresh TOC is
+     * still refused, and [detail] stays fail-closed.
+     */
+    override suspend fun detailAcceptingShrink(bookId: String): Detail =
+        fetchDetail(bookId, acceptShrink = true)
+
+    override suspend fun detail(bookId: String): Detail = fetchDetail(bookId, acceptShrink = false)
+
+    private suspend fun fetchDetail(bookId: String, acceptShrink: Boolean): Detail {
         val url = "${Parser.BASE}/book/$bookId/"
         // Single-flight lives inside SiteApi per HTTP attempt; parse + DB
         // merge run outside the gate so a slow transaction never blocks others.
@@ -172,9 +185,9 @@ class BookRepo(
             dbWrite.withLock {
                 // Shrunken TOC is the same failure shape (truncated parse): fail
                 // closed before replaceToc can delete downloaded chapters whose
-                // pageIds are absent from the short parse. See SCRAPING.md.
+                // pageIds are absent from the short parse (see SCRAPING.md).
                 val cachedCount = db.chapters().countByBook(bookId)
-                if (!TocRevalidator.shouldAcceptFresh(chapters, cachedCount)) {
+                if (!acceptShrink && !TocRevalidator.shouldAcceptFresh(chapters, cachedCount)) {
                     throw TocShrunkException(cachedCount, chapters.size)
                 }
                 val existing = db.books().book(bookId)

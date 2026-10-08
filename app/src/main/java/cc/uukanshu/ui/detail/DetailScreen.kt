@@ -19,6 +19,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -31,10 +32,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -75,6 +80,9 @@ fun DetailScreen(
         },
     )
     val ui by vm.ui.collectAsState()
+    // Destructive and user-confirmed: accepting a shorter online TOC prunes the
+    // chapters the site dropped, downloads included (see vm.forceResync).
+    var confirmResync by remember { mutableStateOf(false) }
     val barTitle = when (val load = ui.load) {
         is DetailViewModel.Load.Ready -> vm.displayTitle(load.meta.title)
         else -> "…"
@@ -114,6 +122,23 @@ fun DetailScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.tertiary,
                     )
+                    if (load.canResync) {
+                        // Stalled shrink: the refresh guard's baseline is the
+                        // cached row count, so only the user can break the tie
+                        // between a truncated parse and a real site deletion.
+                        Text(
+                            vm.displayTitle("線上章節列表比本地短，已保留本地版本。"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                        OutlinedButton(
+                            onClick = { confirmResync = true },
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        ) {
+                            Text(vm.displayTitle("重新同步章節列表"))
+                        }
+                    }
                 }
                 Text(
                     "作者：${vm.displayTitle(m.author)}  ${vm.displayTitle(m.status)}  ${m.words}".trim(),
@@ -253,6 +278,33 @@ fun DetailScreen(
             }
         }
         }
+    }
+
+    if (confirmResync) {
+        AlertDialog(
+            onDismissRequest = { confirmResync = false },
+            title = { Text(vm.displayTitle("以線上章節列表覆蓋？")) },
+            text = {
+                Text(
+                    vm.displayTitle(
+                        "網站已移除的章節會連同已下載內容一起刪除；其餘章節的下載會保留。",
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmResync = false
+                        vm.forceResync()
+                    },
+                ) { Text(vm.displayTitle("覆蓋")) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmResync = false }) {
+                    Text(vm.displayTitle("取消"))
+                }
+            },
+        )
     }
 }
 

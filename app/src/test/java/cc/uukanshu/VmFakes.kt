@@ -31,6 +31,10 @@ class MutableFakeRepo(
     var chaptersText: MutableMap<Long, String> = mutableMapOf(),
     var searchResult: Parser.SearchResult = Parser.SearchResult(null, emptyList()),
     var searchFailure: Exception? = null,
+    /** Shorter TOC served to [detailAcceptingShrink] only (null = same as [detail]). */
+    var shrinkAccepted: BookRepo.Detail? = null,
+    /** Thrown by [detailAcceptingShrink]: a confirmed run that still fails (network). */
+    var shrinkFailure: Exception? = null,
     var libraryRows: List<BookRepo.CachedBook> = emptyList(),
     var libraryFlowRows: List<BookRepo.CachedBook> = emptyList(),
     var libraryFailure: Exception? = null,
@@ -41,6 +45,7 @@ class MutableFakeRepo(
     val savedProgress = mutableListOf<Triple<String, Int, Long>>()
     val savedContent = mutableListOf<Triple<String, Long, String>>()
     var downloadAllCalls = 0
+    var forcedDetailCalls = 0
     var deleted = mutableListOf<String>()
     var cleared = 0
     var checkAllCalls = 0
@@ -54,6 +59,14 @@ class MutableFakeRepo(
     override suspend fun cachedDetail(bookId: String) = cached
     override suspend fun detail(bookId: String): BookRepo.Detail =
         failure?.let { throw it } ?: fresh ?: throw java.io.IOException("no fresh stub")
+    override suspend fun detailAcceptingShrink(bookId: String): BookRepo.Detail {
+        forcedDetailCalls++
+        // Models the user-confirmed path: the guard is off, so a shorter
+        // [shrinkAccepted] list is served even when [detail] throws. The guard is
+        // off, the network is not — [shrinkFailure] still throws.
+        shrinkFailure?.let { throw it }
+        return shrinkAccepted ?: detail(bookId)
+    }
     override suspend fun chapter(url: String): Parser.ChapterContent {
         val pageId = Regex("""/(\d+)\.html""").find(url)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
         val text = chaptersText[pageId] ?: "text-$pageId"

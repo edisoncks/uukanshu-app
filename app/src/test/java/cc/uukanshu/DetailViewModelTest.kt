@@ -1,5 +1,6 @@
 package cc.uukanshu
 
+import cc.uukanshu.core.TocShrunkException
 import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.download.BookDownloadManager
 import cc.uukanshu.data.repo.BookRepo
@@ -95,6 +96,86 @@ class DetailViewModelTest {
         assertEquals(2, load.chapters.size)
         assertEquals(true, load.offline)
         assertEquals(false, load.refreshing)
+    }
+
+    @Test fun stalledShrinkOffersResyncAndForcedRunClearsIt() = runTest {
+        // The shrink guard's baseline is the cached row count, so its Stale state
+        // can never clear itself: Detail flags it (canResync), and the confirmed
+        // run goes through detailAcceptingShrink, which serves the short list.
+        val repo = MutableFakeRepo(
+            cached = testDetail(101L, 102L),
+            failure = TocShrunkException(2, 1),
+            shrinkAccepted = testDetail(101L),
+        )
+        val vm = vm(repo, manager(this))
+        idle()
+        var load = vm.ui.value.load as DetailViewModel.Load.Ready
+        assertEquals(true, load.offline)
+        assertEquals(true, load.canResync)
+        assertEquals(2, load.chapters.size)
+
+        vm.forceResync()
+        idle()
+        load = vm.ui.value.load as DetailViewModel.Load.Ready
+        assertEquals(false, load.offline)
+        assertEquals(false, load.canResync)
+        assertEquals(1, load.chapters.size)
+        assertEquals(1, repo.forcedDetailCalls)
+    }
+
+    @Test fun plainOfflineStaleIsNotResyncable() = runTest {
+        // A network failure heals by itself, and the override is destructive
+        // (prunes what the site dropped), so it must stay hidden for it.
+        val repo = MutableFakeRepo(cached = testDetail(101L, 102L), failure = IOException("down"))
+        val vm = vm(repo, manager(this))
+        idle()
+        val load = vm.ui.value.load as DetailViewModel.Load.Ready
+        assertEquals(true, load.offline)
+        assertEquals(false, load.canResync)
+    }
+
+    @Test fun failedForcedResyncKeepsTheOffer() = runTest {
+        // The confirmed run can fail on the network while the stall stays put:
+        // Stale(Error) learned nothing new, and the guard's baseline cannot move
+        // by itself — hiding the offer there would be the same dead end again,
+        // and exactly when the user had just asked for the override.
+        val repo = MutableFakeRepo(
+            cached = testDetail(101L, 102L),
+            failure = TocShrunkException(2, 1),
+            shrinkFailure = IOException("down"),
+        )
+        val vm = vm(repo, manager(this))
+        idle()
+        assertEquals(true, (vm.ui.value.load as DetailViewModel.Load.Ready).canResync)
+
+        vm.forceResync()
+        idle()
+        val load = vm.ui.value.load as DetailViewModel.Load.Ready
+        assertEquals(true, load.offline)
+        assertEquals(true, load.canResync)
+        assertEquals(2, load.chapters.size)
+        assertEquals(1, repo.forcedDetailCalls)
+    }
+
+    @Test fun observedEmptyStaleClearsTheOffer() = runTest {
+        // Stale(Empty) is an observed verdict, not a failed run: an empty fresh
+        // TOC is refused on both paths (block page), so the guard is not the
+        // blocker and the offer must not linger as if it could help.
+        val repo = MutableFakeRepo(
+            cached = testDetail(101L, 102L),
+            failure = TocShrunkException(2, 1),
+            shrinkAccepted = testDetail(),
+        )
+        val vm = vm(repo, manager(this))
+        idle()
+        assertEquals(true, (vm.ui.value.load as DetailViewModel.Load.Ready).canResync)
+
+        vm.forceResync()
+        idle()
+        val load = vm.ui.value.load as DetailViewModel.Load.Ready
+        assertEquals(true, load.offline)
+        assertEquals(false, load.canResync)
+        assertEquals(2, load.chapters.size)
     }
 
     @Test fun markSeenClearsExactlyOnFresh() = runTest {
