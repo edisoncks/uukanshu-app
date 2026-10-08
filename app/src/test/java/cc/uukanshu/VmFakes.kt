@@ -33,6 +33,8 @@ class MutableFakeRepo(
     var searchFailure: Exception? = null,
     /** Shorter TOC served to [detailAcceptingShrink] only (null = same as [detail]). */
     var shrinkAccepted: BookRepo.Detail? = null,
+    /** Thrown by [detailAcceptingShrink]: a confirmed run that still fails (network). */
+    var shrinkFailure: Exception? = null,
     var libraryRows: List<BookRepo.CachedBook> = emptyList(),
     var libraryFlowRows: List<BookRepo.CachedBook> = emptyList(),
     var libraryFailure: Exception? = null,
@@ -60,7 +62,9 @@ class MutableFakeRepo(
     override suspend fun detailAcceptingShrink(bookId: String): BookRepo.Detail {
         forcedDetailCalls++
         // Models the user-confirmed path: the guard is off, so a shorter
-        // [shrinkAccepted] list is served even when [detail] throws.
+        // [shrinkAccepted] list is served even when [detail] throws. The guard is
+        // off, the network is not — [shrinkFailure] still throws.
+        shrinkFailure?.let { throw it }
         return shrinkAccepted ?: detail(bookId)
     }
     override suspend fun chapter(url: String): Parser.ChapterContent {

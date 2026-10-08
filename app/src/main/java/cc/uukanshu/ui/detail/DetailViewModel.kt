@@ -40,8 +40,9 @@ class DetailViewModel(
             /**
              * Refresh is stalled on the shrink guard — the one Stale cause no
              * retry can clear (its baseline is the cached row count), so the
-             * screen offers the user-confirmed [forceResync] for it. See
-             * [cc.uukanshu.data.repo.TocState.StaleReason].
+             * screen offers the user-confirmed [forceResync] for it. Survives a
+             * run that reached no verdict ([canResyncAfter]); only an observed
+             * fetch clears it. See [cc.uukanshu.data.repo.TocState.StaleReason].
              */
             val canResync: Boolean = false,
         ) : Load
@@ -163,19 +164,19 @@ class DetailViewModel(
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
             tocSource.toc(bookId, allowShrink).collect { st ->
-                _ui.update {
+                _ui.update { prev ->
                     when (st) {
-                        is TocState.Loading -> it.copy(load = Load.Loading)
-                        is TocState.Ready -> it.copy(
+                        is TocState.Loading -> prev.copy(load = Load.Loading)
+                        is TocState.Ready -> prev.copy(
                             load = Load.Ready(
                                 meta = st.meta,
                                 chapters = st.chapters,
                                 offline = st.phase == TocState.Phase.Stale,
                                 refreshing = st.phase == TocState.Phase.Syncing,
-                                canResync = st.staleReason == TocState.StaleReason.Shrunk,
+                                canResync = canResyncAfter(st, prev.load),
                             ),
                         )
-                        is TocState.Failed -> it.copy(load = Load.Failed(st.message))
+                        is TocState.Failed -> prev.copy(load = Load.Failed(st.message))
                     }
                 }
                 if (st is TocState.Ready && st.phase == TocState.Phase.Fresh) {
@@ -192,9 +193,27 @@ class DetailViewModel(
     }
 
     /**
+     * The resync offer only moves on an observed run: a fetch that threw (or is
+     * still in flight) learned nothing about the shrink, and the guard's baseline
+     * cannot move by itself — dropping the flag there would hide the only way out
+     * exactly when a confirmed run failed on the network. [TocState.Phase.Fresh]
+     * clears it; so does [TocState.StaleReason.Empty], because an empty fresh TOC
+     * is refused on both paths (no confirmation may wipe a chapter list on a
+     * block page), i.e. the guard is not the blocker and a later fetch heals it.
+     */
+    private fun canResyncAfter(st: TocState.Ready, prev: Load): Boolean = when {
+        st.phase == TocState.Phase.Fresh -> false
+        st.staleReason == TocState.StaleReason.Shrunk -> true
+        st.staleReason == TocState.StaleReason.Empty -> false
+        // Syncing (no verdict yet) or Stale(Error: the fetch threw): keep the last one.
+        else -> (prev as? Load.Ready)?.canResync == true
+    }
+
+    /**
      * 重新同步章節列表 — the only way out of a stalled shrink guard ([Load.Ready.canResync]):
      * the user confirms that the online chapter list is the truth, so this run may
-     * accept a list shorter than the cache and prune what the site dropped.
+     * accept a list shorter than the cache and prune what the site dropped. A run
+     * that fails leaves the offer up (that stall is still there; see [canResyncAfter]).
      */
     fun forceResync() = refresh(allowShrink = true)
 

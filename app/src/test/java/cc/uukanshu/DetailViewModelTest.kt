@@ -134,6 +134,50 @@ class DetailViewModelTest {
         assertEquals(false, load.canResync)
     }
 
+    @Test fun failedForcedResyncKeepsTheOffer() = runTest {
+        // The confirmed run can fail on the network while the stall stays put:
+        // Stale(Error) learned nothing new, and the guard's baseline cannot move
+        // by itself — hiding the offer there would be the same dead end again,
+        // and exactly when the user had just asked for the override.
+        val repo = MutableFakeRepo(
+            cached = testDetail(101L, 102L),
+            failure = TocShrunkException(2, 1),
+            shrinkFailure = IOException("down"),
+        )
+        val vm = vm(repo, manager(this))
+        idle()
+        assertEquals(true, (vm.ui.value.load as DetailViewModel.Load.Ready).canResync)
+
+        vm.forceResync()
+        idle()
+        val load = vm.ui.value.load as DetailViewModel.Load.Ready
+        assertEquals(true, load.offline)
+        assertEquals(true, load.canResync)
+        assertEquals(2, load.chapters.size)
+        assertEquals(1, repo.forcedDetailCalls)
+    }
+
+    @Test fun observedEmptyStaleClearsTheOffer() = runTest {
+        // Stale(Empty) is an observed verdict, not a failed run: an empty fresh
+        // TOC is refused on both paths (block page), so the guard is not the
+        // blocker and the offer must not linger as if it could help.
+        val repo = MutableFakeRepo(
+            cached = testDetail(101L, 102L),
+            failure = TocShrunkException(2, 1),
+            shrinkAccepted = testDetail(),
+        )
+        val vm = vm(repo, manager(this))
+        idle()
+        assertEquals(true, (vm.ui.value.load as DetailViewModel.Load.Ready).canResync)
+
+        vm.forceResync()
+        idle()
+        val load = vm.ui.value.load as DetailViewModel.Load.Ready
+        assertEquals(true, load.offline)
+        assertEquals(false, load.canResync)
+        assertEquals(2, load.chapters.size)
+    }
+
     @Test fun markSeenClearsExactlyOnFresh() = runTest {
         // The 追更 badge clears once per accepted Fresh run (manual retry included).
         val repo = MutableFakeRepo(fresh = testDetail(101L, 102L))
