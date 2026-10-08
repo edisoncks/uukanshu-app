@@ -18,6 +18,9 @@ interface RepoApi {
     suspend fun search(keyword: String): Parser.SearchResult
     suspend fun cachedDetail(bookId: String): BookRepo.Detail?
     suspend fun detail(bookId: String): BookRepo.Detail
+
+    /** [detail] with the shrink guard waived for a user-confirmed resync (see BookRepo). */
+    suspend fun detailAcceptingShrink(bookId: String): BookRepo.Detail
     suspend fun chapter(url: String): Parser.ChapterContent
     suspend fun cachedChapterContent(bookId: String, pageId: Long): String?
     fun cachedPositionsFlow(bookId: String): Flow<Set<Long>>

@@ -58,8 +58,16 @@ rules below look odd — they encode real site quirks. **Do not "simplify".**
   Both fail closed — `TocSource` rejects them via `TocRevalidator.shouldAcceptFresh`
   (painted cache stays the truth) and `TocShrunkException` from `BookRepo.detail`
   fails closed before any DB write — so a short parse
-  can never wipe downloaded chapters. Stale cache stays visible with the offline flag;
-  the next full fetch heals. **Do not "simplify" this into an empty-only check.**
+  can never wipe downloaded chapters. Stale cache stays visible with the offline flag,
+  and the two rejected shapes resolve differently: an **empty** fresh TOC writes
+  nothing, so the next fetch that returns a list heals it; a **shrunken** one does not
+  heal by retrying — the guard's baseline is the cached row count, so only an accepted
+  fetch can lower it, and a site-side deletion would stay rejected forever. That dead
+  end is why Detail offers the user-confirmed **重新同步章節列表**
+  (`TocState.StaleReason.Shrunk` → `Load.Ready.canResync` → `BookRepo.detailAcceptingShrink`,
+  i.e. `TocSource.toc(bookId, allowShrink = true)`), which takes the shorter list and
+  prunes what the site dropped — an empty fresh TOC is still refused on that path.
+  **Do not "simplify" this into an empty-only check.**
 - **TOC dedup (LAST wins):** the chapter-list page leads with a "latest
   updates" duplicate block, so the parser keeps the **LAST** occurrence of
   each (book, chapter) pair. Links pointing at *other* books (recommendation

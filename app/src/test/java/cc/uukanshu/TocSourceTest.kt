@@ -52,7 +52,12 @@ class TocSourceTest {
         assertEquals(
             listOf(
                 TocState.Ready(testMeta(), testDetail(1L, 2L).chapters, TocState.Phase.Syncing),
-                TocState.Ready(testMeta(), testDetail(1L, 2L).chapters, TocState.Phase.Stale),
+                TocState.Ready(
+                    testMeta(),
+                    testDetail(1L, 2L).chapters,
+                    TocState.Phase.Stale,
+                    TocState.StaleReason.Empty,
+                ),
             ),
             states,
         )
@@ -64,10 +69,17 @@ class TocSourceTest {
         assertEquals(
             listOf(
                 TocState.Ready(testMeta(), testDetail(1L, 2L).chapters, TocState.Phase.Syncing),
-                TocState.Ready(testMeta(), testDetail(1L, 2L).chapters, TocState.Phase.Stale),
+                TocState.Ready(
+                    testMeta(),
+                    testDetail(1L, 2L).chapters,
+                    TocState.Phase.Stale,
+                    TocState.StaleReason.Shrunk,
+                ),
             ),
             states,
         )
+        // The default run never touches the guard-waiving path.
+        assertEquals(0, repo.forcedDetailCalls)
     }
 
     @Test fun shrunkenListReturnedWithoutThrowKeepsCacheAsStale() = runTest {
@@ -82,7 +94,12 @@ class TocSourceTest {
         assertEquals(
             listOf(
                 TocState.Ready(testMeta(), testDetail(1L, 2L, 3L, 4L, 5L).chapters, TocState.Phase.Syncing),
-                TocState.Ready(testMeta(), testDetail(1L, 2L, 3L, 4L, 5L).chapters, TocState.Phase.Stale),
+                TocState.Ready(
+                    testMeta(),
+                    testDetail(1L, 2L, 3L, 4L, 5L).chapters,
+                    TocState.Phase.Stale,
+                    TocState.StaleReason.Shrunk,
+                ),
             ),
             states,
         )
@@ -113,7 +130,12 @@ class TocSourceTest {
         assertEquals(
             listOf(
                 TocState.Ready(testMeta(), testDetail(1L).chapters, TocState.Phase.Syncing),
-                TocState.Ready(testMeta(), testDetail(1L).chapters, TocState.Phase.Stale),
+                TocState.Ready(
+                    testMeta(),
+                    testDetail(1L).chapters,
+                    TocState.Phase.Stale,
+                    TocState.StaleReason.Error,
+                ),
             ),
             states,
         )
@@ -168,5 +190,46 @@ class TocSourceTest {
                 last is TocState.Ready || last is TocState.Failed,
             )
         }
+    }
+
+    /**
+     * 重新同步章節列表 (Detail): the user confirms the online list is the truth,
+     * so this run waives the shrink guard and a shorter TOC is accepted.
+     */
+    @Test fun userConfirmedResyncAcceptsShrunkenFresh() = runTest {
+        val repo = MutableFakeRepo(
+            cached = testDetail(1L, 2L, 3L),
+            shrinkAccepted = testDetail(1L, 2L),
+        )
+        val states = TocSource(repo).toc("1", allowShrink = true).toList()
+        assertEquals(
+            listOf(
+                TocState.Ready(testMeta(), testDetail(1L, 2L, 3L).chapters, TocState.Phase.Syncing),
+                TocState.Ready(testMeta(), testDetail(1L, 2L).chapters, TocState.Phase.Fresh),
+            ),
+            states,
+        )
+        assertEquals(1, repo.forcedDetailCalls)
+    }
+
+    /**
+     * The override cannot conjure a chapter list: an empty fresh TOC is still a
+     * block page / layout change, so the painted TOC stays (see TocState.StaleReason).
+     */
+    @Test fun userConfirmedResyncStillRefusesEmptyFresh() = runTest {
+        val repo = MutableFakeRepo(cached = testDetail(1L, 2L), shrinkAccepted = testDetail())
+        val states = TocSource(repo).toc("1", allowShrink = true).toList()
+        assertEquals(
+            listOf(
+                TocState.Ready(testMeta(), testDetail(1L, 2L).chapters, TocState.Phase.Syncing),
+                TocState.Ready(
+                    testMeta(),
+                    testDetail(1L, 2L).chapters,
+                    TocState.Phase.Stale,
+                    TocState.StaleReason.Empty,
+                ),
+            ),
+            states,
+        )
     }
 }

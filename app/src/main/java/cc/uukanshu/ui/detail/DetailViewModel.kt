@@ -37,6 +37,13 @@ class DetailViewModel(
             val chapters: List<Parser.ChapterRef>,
             val offline: Boolean = false,
             val refreshing: Boolean = false,
+            /**
+             * Refresh is stalled on the shrink guard — the one Stale cause no
+             * retry can clear (its baseline is the cached row count), so the
+             * screen offers the user-confirmed [forceResync] for it. See
+             * [cc.uukanshu.data.repo.TocState.StaleReason].
+             */
+            val canResync: Boolean = false,
         ) : Load
     }
 
@@ -147,12 +154,15 @@ class DetailViewModel(
      * Maps TocState emissions to Load — offline/refreshing are derived, never
      * tracked — and clears the 追更 badge exactly on accepted Fresh:
      * failed loads keep the badge signal, as before.
+     *
+     * [allowShrink] is the user-confirmed 重新同步章節列表 path ([forceResync]);
+     * the default keeps the guard on.
      */
-    fun refresh() {
+    fun refresh(allowShrink: Boolean = false) {
         // Refresh never cancels downloads (independent jobs).
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
-            tocSource.toc(bookId).collect { st ->
+            tocSource.toc(bookId, allowShrink).collect { st ->
                 _ui.update {
                     when (st) {
                         is TocState.Loading -> it.copy(load = Load.Loading)
@@ -162,6 +172,7 @@ class DetailViewModel(
                                 chapters = st.chapters,
                                 offline = st.phase == TocState.Phase.Stale,
                                 refreshing = st.phase == TocState.Phase.Syncing,
+                                canResync = st.staleReason == TocState.StaleReason.Shrunk,
                             ),
                         )
                         is TocState.Failed -> it.copy(load = Load.Failed(st.message))
@@ -179,6 +190,13 @@ class DetailViewModel(
             }
         }
     }
+
+    /**
+     * 重新同步章節列表 — the only way out of a stalled shrink guard ([Load.Ready.canResync]):
+     * the user confirms that the online chapter list is the truth, so this run may
+     * accept a list shorter than the cache and prune what the site dropped.
+     */
+    fun forceResync() = refresh(allowShrink = true)
 
     /** Manual full-novel download: app-scoped, survives leaving detail. */
     fun downloadAll() {
