@@ -46,15 +46,16 @@ Common scopes in this repo: `home`, `search`, `detail`, `reader`, `library`,
 
 ## Tests
 
-- Location: `app/src/test/java/cc/uukanshu/` (JVM, runs in `mise run test`)
-  plus `app/src/androidTest/` (instrumented `MigrationTest`, needs emulator).
+- Location: `app/src/test/java/cc/uukanshu/` (JVM, runs in `mise run test`);
+  instrumented tests in `app/src/androidTest/` (need an emulator). List the JVM
+  tests with `ls app/src/test/java/cc/uukanshu/` — [DEVELOPMENT.md](DEVELOPMENT.md#test)
+  explains how the suite is organised.
 - JVM includes Robolectric (Room in-memory DAO, DataStore prefs) — first run
   downloads the SDK sandbox (~200MB).
-- What's covered: `Parser` fixtures, `T2S`, merge/dedup by stable id, reader
-  title + TOC-shift guard, `TocSource`/`TocState` + `TocRevalidator.shouldAcceptFresh`, VM orchestration
-  (Detail/Reader/Search/Library/Home/Update via shared fakes +
-  `MainDispatcherRule`), Room DAO merge/wipe, Prefs defaults/clamps,
-  `Routes`/render contract, updater, `SiteApi` retry.
+- What they cover, by area: parse/scrape fixtures, Traditional → Simplified,
+  merge/dedup by stable id, the TOC shift and shrink guards, ViewModel
+  orchestration, Room merge/wipe transactions, prefs defaults and clamps, the
+  routes/render contract, the updater, and HTTP retry.
 - Coverage report: `./gradlew :app:jacocoTestReport` →
   `app/build/reports/jacoco/` (report-only, no gates).
 - Add or extend a fixture/test with any parser, merge, or updater change —

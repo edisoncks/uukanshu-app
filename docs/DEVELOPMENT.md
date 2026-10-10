@@ -50,32 +50,14 @@ mise run test           # ./gradlew testDebugUnitTest
 ```
 
 Unit tests live in `app/src/test/java/cc/uukanshu/` and cover the pure-logic
-layers (no device/emulator needed), grouped by area (see the directory for
-the full list — class names drift faster than this doc):
+layers — no device or emulator needed, though Robolectric backs the Room and
+DataStore ones. List them with `ls app/src/test/java/cc/uukanshu/`: the class
+names say what they cover, and this doc deliberately does not repeat the list
+(a hand-maintained inventory only goes stale). Instrumented tests (they do
+need an emulator) live in `app/src/androidTest/`.
 
-- Parse/scrape fixtures — `ParserTest`, `ParserSplitTest` (BookIds/
-  Toc/Chapter/Cards delegation, LAST-wins dedup, tracking-param tolerance),
-  `SiteContractTest` (BASE alias, Cloudflare interstitial), `SiteApiRetryTest`
-  (3x retry/backoff), `UukanshuGateTest` (single-flight)
-- Render/convert — `T2STest` (Traditional → Simplified + cache bounds),
-  `ReaderTitleTest`/`ReaderHeaderTest`/`ReaderChromeTest`, `RoutesDisplayTest`
-- Lists/search — `BookPagingSourceTest`, `SearchDedupTest`,
-  `SearchViewModelTest`, `LibraryHomeViewModelTest` (Home/Library VMs),
-  `LibraryAssembleTest`
-- Repo/DB/downloads — `BookRepoTest`, `BookRepoGuardRaceTest`,
-  `BookRepoUpdateCheckTest`/`BookUpdateCheckTest` (追更 badges),
-  `DownloadRobustnessTest`, `BookDownloadManagerTest`/`BookDownloadGuardTest`/
-  `BookDownloadLoopTest`, `DbDaoTest`/`DbSchemaTest`/`DbTransactionTest`,
-  `TocDiffTest`/`TocRevalidatorTest`/`TocSourceTest`, `PrefsStoreTest`, `AppInitTest`
-- Detail/Reader — `DetailViewModelTest`, `DetailShareTest`, `ReaderViewModelTest`
-- Updater — `UpdateCheckTest` (VersionCompare), `UpdatePolicyTest`/
-  `UpdateDecisionsTest`, `UpdateViewModelTest`/`UpdateIntegrityVmTest`/
-  `UpdateIntegrityTest`/`UpdateRealIoSmokeTest`, `ApkCompleteTest` (ApkState/gate),
-  `DownloadRequestMatcherTest`, `UpdateDownloadRecordTest`, `JsonMiniStrictTest`,
-  `VersionContractTest`
-- Infra — `ErrorsTest`, `ErrorsFriendlyTest`, `HardeningTest`
-  (cancellation safety, friendly Chinese mapping without URL leaks),
-  `ContainerSeamTest` (DI fakes)
+Add a fixture or a test with any parser, merge or updater change — what those
+tests pin is real site behaviour, documented in [SCRAPING.md](SCRAPING.md).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the expected workflow before
 pushing.
