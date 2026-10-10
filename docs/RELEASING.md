@@ -4,7 +4,7 @@ How to cut a `uukanshu` release. The APK is built locally (or on any machine
 with `mise`), signed, and attached to a GitHub Release.
 
 End users never need this — they install and update from the
-[README](../README.md#install). This page is for maintainers.
+[README](../README.md). This page is for maintainers.
 
 ## Prerequisites
 
