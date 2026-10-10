@@ -45,6 +45,17 @@ class VersionCompareTest {
         assertTrue(VersionCompare.isNewer("1.0.15-rc2", "1.0.15-beta10"))
         assertFalse(VersionCompare.isNewer("1.0.15-beta", "1.0.15-beta"))
     }
+
+    @Test
+    fun `prerelease detection`() {
+        // The updater's stable-only gate keys on this (see UpdateApi.parse).
+        assertTrue(VersionCompare.isPrerelease("v1.2.19-beta"))
+        assertTrue(VersionCompare.isPrerelease("1.2.19-rc.1"))
+        assertFalse(VersionCompare.isPrerelease("1.2.19"))
+        // `+build` metadata is cut by normalize, so it is not a prerelease:
+        // only a `-suffix` marks a build as not-for-stable-users.
+        assertFalse(VersionCompare.isPrerelease("1.2.19+build7"))
+    }
 }
 
 class UpdateApiParseTest {
@@ -131,6 +142,39 @@ class UpdateApiParseTest {
         assertNull(
             UpdateApi.parse(
                 """{"tag_name":"v1.0.15","assets":[{"name":"uukanshu-1.0.15.apk","browser_download_url":"https://example.com/u.apk"},{"name":"uukanshu-1.0.15-debug.apk","browser_download_url":"https://example.com/d.apk"}]}""",
+            ),
+        )
+    }
+
+    @Test
+    fun `never offers a prerelease tag`() {
+        // Stable-only channel. Both payloads below are otherwise perfect (tag,
+        // asset name and parsed version all agree), which is exactly the shape
+        // of a beta published without GitHub's prerelease flag: it must be
+        // refused, not offered to users of the previous release.
+        assertNull(
+            UpdateApi.parse(
+                """{"tag_name":"v1.2.19-beta","assets":[{"name":"uukanshu-1.2.19-beta.apk","browser_download_url":"https://example.com/b.apk"}]}""",
+            ),
+        )
+        assertNull(
+            UpdateApi.parse(
+                """{"tag_name":"v1.2.19-rc.1","assets":[{"name":"uukanshu-1.2.19-rc.1.apk","browser_download_url":"https://example.com/b.apk"}]}""",
+            ),
+        )
+    }
+
+    @Test
+    fun `prerelease flag refuses an otherwise usable payload`() {
+        assertNull(
+            UpdateApi.parse(
+                """{"tag_name":"v1.0.15","prerelease":true,"assets":[{"name":"uukanshu-1.0.15.apk","browser_download_url":"https://example.com/u.apk"}]}""",
+            ),
+        )
+        // Field absent (old payloads) and explicit false both stay usable.
+        assertNotNull(
+            UpdateApi.parse(
+                """{"tag_name":"v1.0.15","prerelease":false,"assets":[{"name":"uukanshu-1.0.15.apk","browser_download_url":"https://example.com/u.apk"}]}""",
             ),
         )
     }

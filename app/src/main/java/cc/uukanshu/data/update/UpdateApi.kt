@@ -11,6 +11,10 @@ import java.util.concurrent.TimeUnit
  *
  * Release contract (see RELEASING.md): tag `vX.Y.Z` matches
  * `versionName X.Y.Z`, exactly one `uukanshu-*.apk` asset, body = changelog.
+ *
+ * The channel is **stable-only**: a prerelease (`v1.2.19-beta`) is never
+ * offered, so a beta published without GitHub's prerelease flag still cannot
+ * reach a stable user (see [VersionCompare.isPrerelease]).
  */
 data class UpdateInfo(
     /** Raw tag, e.g. `v1.0.15`. */
@@ -41,6 +45,13 @@ object VersionCompare {
     /** Strip leading `v`, cut `+build` metadata, keep `1.0.15[-suffix]`. */
     fun normalize(v: String): String =
         v.trim().trimStart('v', 'V').substringBefore('+').trim()
+
+    /**
+     * True when [v] carries a prerelease suffix (`1.2.19-beta`). The updater
+     * refuses these: stable users must never be offered a beta, not even one
+     * published without GitHub's prerelease flag (see RELEASING.md).
+     */
+    fun isPrerelease(v: String): Boolean = normalize(v).contains('-')
 
     private fun coreParts(v: String): List<Int> =
         normalize(v).substringBefore('-').split('.')
@@ -104,7 +115,10 @@ class UpdateApi(
         client.newCall(req).execute().use { res ->
             if (!res.isSuccessful) throw cc.uukanshu.core.HttpStatusException(res.code, LATEST_URL)
             val body = res.body?.string() ?: throw IOException("empty release body")
-            return parse(body) ?: throw IOException("no uukanshu-*.apk asset in latest release")
+            return parse(body) ?: throw IOException(
+                "latest release is unusable (a prerelease, or no exactly one " +
+                    "uukanshu-{version}.apk asset) — see RELEASING.md",
+            )
         }
     }
 
@@ -143,11 +157,17 @@ class UpdateApi(
         /**
          * Pure parse of a `releases/latest` payload; null when unusable.
          * Uses [JsonMini] (not org.json) so it also runs in JVM unit tests.
+         *
+         * A prerelease is unusable by definition (stable-only channel):
+         * `releases/latest` already skips flagged prereleases, so the tag
+         * check is the guard against a beta published without that flag.
          */
         fun parse(json: String): UpdateInfo? = runCatching {
             val root = JsonMini.parse(json) as? Map<*, *> ?: return null
             val tag = (root["tag_name"] as? String)?.trim().orEmpty()
             if (tag.isEmpty()) return null
+            if (VersionCompare.isPrerelease(tag)) return null
+            if (root["prerelease"] as? Boolean == true) return null
             val assets = root["assets"] as? List<*> ?: return null
             // Fail closed: exactly one uukanshu-*.apk asset is ever offered for
             // install. A stray .apk, a version-mismatched asset, or a second
