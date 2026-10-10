@@ -111,8 +111,9 @@ Resolution order in `app/build.gradle.kts` (`signingConfigs.release`):
 3. If neither exists the build **fails fast** with a message suggesting
    `mise run setup-signing` or the official vars. A debug-signed release
    would require uninstall to update, so it needs explicit opt-in:
-   `-PallowDebugSigning` or `UUKANSHU_ALLOW_DEBUG_SIGNING=1` (throwaway
-   local builds only, never official releases).
+   `-PallowDebugSigning=true` or `UUKANSHU_ALLOW_DEBUG_SIGNING=1` (throwaway
+   local builds only, never official releases). A bare `-PallowDebugSigning`
+   does **not** work: Gradle sets a valueless property to the empty string.
 
 Generate the local dev key:
 

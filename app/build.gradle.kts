@@ -74,7 +74,7 @@ android {
     // ("package appears to be invalid"). Fail fast when no key exists so a
     // debug-signed "release" can never masquerade as official (it would
     // require uninstall to update). Opt out explicitly for throwaway local
-    // builds with -PallowDebugSigning or UUKANSHU_ALLOW_DEBUG_SIGNING=1.
+    // builds with -PallowDebugSigning=true or UUKANSHU_ALLOW_DEBUG_SIGNING=1.
     signingConfigs {
         create("release") {
             val ksProp = System.getenv("UUKANSHU_KEYSTORE_FILE")
@@ -98,7 +98,7 @@ android {
                     throw GradleException(
                         "No release keystore found at ${ksFile} (or \$UUKANSHU_KEYSTORE_FILE). " +
                             "Run `mise run setup-signing` for a local dev key, export UUKANSHU_KEYSTORE_* " +
-                            "for official releases, or rebuild with -PallowDebugSigning for a throwaway debug-signed APK."
+                            "for official releases, or rebuild with -PallowDebugSigning=true for a throwaway debug-signed APK."
                     )
                 }
                 initWith(getByName("debug"))
