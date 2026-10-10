@@ -85,9 +85,20 @@ pushing.
 Release builds must be signed — Android rejects unsigned APKs at install
 time ("package appears to be invalid").
 
-`versionCode` is derived from `versionName` (1.0.34 → 1000034: each
-component × 10^(6−k), each bounded 0..999 by a build-time `require`) so
-the two cannot drift; never hand-edit `versionCode`.
+`versionName` is `X.Y.Z` or `X.Y.Z-<prerelease>` (e.g. `1.2.19-beta`), and
+`versionCode` is derived from it — never hand-edit `versionCode`. A release
+maps to X×10⁶ + Y×10³ + Z with each component bounded 0..999 at configure
+time, so two releases cannot collide (a typo'd `1.0.1234` fails the build
+instead of sharing a code with `1.1.234`).
+
+A prerelease keeps the code of its core version: `1.2.19-beta` builds
+`1002019`, the same as `1.2.19`. Android refuses only a *lower* versionCode
+([versioning docs](https://developer.android.com/studio/publish/versioning)),
+so a beta installs over any earlier release and the final installs over its
+own betas; going back to an older stable release means uninstalling first.
+Publish betas as GitHub **prereleases** — the in-app updater is stable-only
+(see [RELEASING.md](RELEASING.md#publishing-a-prerelease-beta)). The mapping
+is self-checked at configure time.
 
 Resolution order in `app/build.gradle.kts` (`signingConfigs.release`):
 
