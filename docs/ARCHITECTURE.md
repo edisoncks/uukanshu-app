@@ -61,9 +61,11 @@ Rules every screen follows:
 - `Ui` state is a sealed interface whose alternatives are real states, so
   impossible combinations (content *and* spinner, loaded *and* error) cannot be
   represented and every `when` is exhaustive.
-- Every user-visible failure is rendered through `core/Errors.kt` and
-  `core/Display.kt`, so no screen invents its own wording, leaks a URL, or
-  mixes scripts.
+- Failure wording is owned, not invented per call site: transport/IO text comes
+  from `core/Errors.kt`, the reader's deleted and out-of-range cases from
+  `ui/reader/ReaderErrors.kt` and its bounds check, and every screen renders
+  that text through `core/Display.kt` — so nothing leaks a URL or mixes
+  scripts.
 - **Rapid-tap rule:** taps are guarded synchronously on the Main thread, and an
   async result that belongs to an earlier target (another tab, category or
   chapter) is dropped rather than painted.
@@ -73,7 +75,7 @@ Rules every screen follows:
 | Home | Two feeds (recent / category) over Paging 3, one HTML page per load, no hand-rolled prefetcher. Ids, scroll and cached pagers are per list and bounded: lists never leak items or positions into each other, coming back from a book replays already-loaded pages instead of refetching page 1, an explicit tab/category switch resets that list to the top, and a long session cannot accumulate pagers. |
 | Search | One cancellable query pipeline per keystroke (a superseded search cancels structurally, and re-submitting the same text refires instead of being conflated away), deduped by book id, following the language toggle live. While a new query loads, the previous results stay visible under a progress bar. |
 | Detail | The chapter list is stale-while-revalidate: the cached list paints immediately and one refresh either confirms it or leaves it visibly stale with the reason; offline and refreshing are derived from that phase rather than tracked, so they cannot disagree with it. Download progress, cached-chapter badges and the bookmark are separate live overlays, so they can never invalidate the loaded book. Shrink handling and its escape hatch are invariants — see below. |
-| Reader | One chapter load owns one TOC generation and may restart at most twice, so a TOC shift mid-load cannot open the wrong chapter, and a failure cannot loop. Text is cache-first, network second, always keyed by the stable chapter id. Prev/next are last-tap-wins. A chapter the site deleted is reported as deleted instead of being retried forever. |
+| Reader | One chapter load owns one TOC generation and gets at most one bounded restart (two fetch attempts in total, never a loop), so a TOC shift mid-load cannot open the wrong chapter, and a failure cannot retry forever. Text is cache-first, network second, always keyed by the stable chapter id. Prev/next are last-tap-wins. A chapter the site deleted is reported as deleted instead of being retried forever. |
 | Library | The shelf is a single reactive read (never a one-shot query racing its own flow), stale-while-revalidate, with per-book download rows taken from the app-scoped manager. Deleting a book also drops the manager's retained state for that book. |
 | Settings | Four cards — appearance, language, 追更, update — all writing `Prefs`, so every screen follows live. |
 | Update | A dialog over the updater state machine; the decisions behind it are pure functions (see [In-app update](#in-app-update)). |
@@ -88,7 +90,8 @@ expensive to notice.
 | Content and progress are keyed by the stable chapter id, never by position. | The site inserts chapters, which shifts positions; keying by position misfiles cached text and continue-reading. | `chapters`/`progress` schema, `resolveBookmark`, `resolveEffectivePosition` |
 | An empty **or shrunken** fresh chapter list is a failed refresh, not an empty book. | A block page or a truncated parse must never delete downloaded chapters. | `TocRevalidator.shouldAcceptFresh`, `TocShrunkException`, `BookRepo.detail` |
 | The shrink guard cannot clear itself; the only way out is user-confirmed. | Retrying cannot heal a genuine site-side deletion, so Detail offers 重新同步章節列表 — which still refuses an empty list and prunes through the normal diff. That offer must also survive a confirmed run that failed, or the only way out disappears with it. | `TocState.StaleReason.Shrunk`, `Load.Ready.canResync`, `detailAcceptingShrink` |
-| TOC replacement and single-row content writes serialize on one writer. | A refresh running against a download must not lose a committed chapter or resurrect pruned rows. | repo `dbWrite` mutex + `AppDb.replaceToc` |
+| TOC replacement and single-row content writes serialize on one writer, and the shrink-guard read sits inside the same lock as the write it authorizes. | A refresh running against a download must not lose a committed chapter or resurrect pruned rows; two concurrent same-book refreshes must not regress the TOC. | repo `dbWrite` mutex + `AppDb.replaceToc`, `BookRepoGuardRaceTest` |
+| A shipped migration is never edited, and the schema exports stay committed. | An upgrade path cannot be fixed by a release note, and a missing export only surfaces at review time for the next migration. | `app/schemas/`, `DbSchemaTest` (data-level run: `MigrationTest`) |
 | DB writes go through `AppDb`'s transactional methods, with explicit transactions. | Room 2.6.1 generated no override for a non-abstract `@Transaction` method of a `@Database` class: the annotation alone was a silent no-op, and a cancel mid-body could commit half a merge. | `AppDb.replaceToc/deleteBookFull/clearAllFull`, `DbTransactionTest` |
 | The single-flight gate is held per HTTP attempt, never across backoff or crawl delay. | Otherwise one dead bulk fetch head-of-line blocks a user tap for minutes. | `SiteApi` + `UukanshuGate` |
 | Batch fetches differ from interactive ones only by timeout profile, and must opt in. | A stuck background fetch has to fail in seconds; the default has to stay safe for taps. | `BulkFetch` marker + the two profiles |
@@ -220,8 +223,9 @@ behind `ApkDownloader`, `VersionCompare`, `JsonMini`) and `ui/update/`
   suffixes ordered numerically. Assets fail closed: only exactly
   `uukanshu-{version}.apk` for that tag is ever offered, so a stale or second
   APK yields no update rather than the wrong binary.
-- Download runs through the system `DownloadManager` and is observed, not
-  polled by hand. A durable record pins the enqueued release, so a process
+- Download runs through the system `DownloadManager`, observed as a Flow
+  that polls it until a terminal status (never unbounded). A durable record
+  pins the enqueued release, so a process
   death between enqueue and completion reattaches to the same request instead
   of starting a second one; matching in-flight files are never deleted or
   re-enqueued. The record survives a verified success so the DownloadManager
