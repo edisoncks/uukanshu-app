@@ -20,27 +20,52 @@ android {
         versionName = "1.2.19"
         // Derived (not manual) so code/name cannot drift: 1.0.36 -> 1000036.
         // Monotonic from the legacy 34, so side-load updates never see a downgrade.
-        // Never hand-edit versionCode. Each component supports 0..999 (no 1.0.100 vs 1.1.0
-        // collision) — enforced below so a typo'd versionName fails the build instead of
-        // silently colliding (1.0.1234 and 1.1.234 would both derive 1001234).
-        // Prerelease suffixes are rejected for the same reason: 1.2.17-beta would
-        // strip to 1.2.17 and collide with the release, so fail fast instead.
-        versionCode = run {
-            val name = versionName ?: "0.0.0"
-            require(name.matches(Regex("""\d+\.\d+\.\d+"""))) {
-                "versionName \"$name\" must be numeric X.Y.Z; " +
-                    "prerelease/build suffixes would strip and collide versionCode"
-            }
-            val parts = name.split(".").map { it.toIntOrNull() ?: 0 }
-            val (major, minor, patch) = Triple(parts.getOrElse(0) { 0 }, parts.getOrElse(1) { 0 }, parts.getOrElse(2) { 0 })
+        // Never hand-edit versionCode.
+        //
+        // `versionName` is `X.Y.Z` or `X.Y.Z-<prerelease>` (e.g. `1.2.19-beta`),
+        // and the suffix keeps the core version's code: 1.2.19-beta -> 1002019.
+        // Android refuses only a *lower* code ([versioning docs](
+        // https://developer.android.com/studio/publish/versioning)), so a beta
+        // installs over any earlier release and the final installs over its own
+        // betas. Publish betas as GitHub prereleases: the in-app updater is
+        // stable-only (see docs/RELEASING.md § Publishing a prerelease).
+        //
+        // The mapping is a release contract, so it is self-checked below: an
+        // edit here must fail the build rather than silently renumber releases.
+        fun deriveVersionCode(name: String): Int {
+            val parsed = Regex("""^(\d+)\.(\d+)\.(\d+)(?:-[A-Za-z0-9]+(?:\.[A-Za-z0-9]+)*)?$""")
+                .matchEntire(name)
+                ?: throw GradleException(
+                    "versionName \"$name\" must be X.Y.Z or X.Y.Z-<prerelease> " +
+                        "(e.g. 1.2.19 or 1.2.19-beta): the release tag and the " +
+                        "uukanshu-{version}.apk asset name are built from it",
+                )
+            val (major, minor, patch) = parsed.groupValues.drop(1).take(3).map { it.toInt() }
             listOf(major, minor, patch).forEach {
                 require(it in 0..999) {
                     "versionName \"$name\" component $it out of 0..999; " +
                         "the versionCode mapping (n * 10^(6-k)) would collide or regress"
                 }
             }
-            major * 1000000 + minor * 1000 + patch
+            return major * 1000000 + minor * 1000 + patch
         }
+        val releaseName = versionName ?: "0.0.0"
+        versionCode = deriveVersionCode(releaseName)
+        if (!releaseName.matches(Regex("""\d+\.\d+\.\d+"""))) {
+            logger.lifecycle(
+                "prerelease versionName \"$releaseName\" keeps versionCode $versionCode; " +
+                    "publish it as a GitHub prerelease so stable users are never offered it",
+            )
+        }
+        check(
+            mapOf(
+                "1.0.34" to 1000034,
+                "1.0.999" to 1000999,
+                "1.2.19" to 1002019,
+                "1.2.19-beta" to 1002019,
+                "1.2.19-rc.1" to 1002019,
+            ).all { (n, expected) -> deriveVersionCode(n) == expected },
+        ) { "versionName -> versionCode mapping self-check failed" }
     }
 
     // Release signing: local `release.keystore` (dev key, gitignored) by
