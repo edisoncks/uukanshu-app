@@ -50,6 +50,17 @@ class VersionContractTest {
         assertFalse(VersionCompare.isNewer("1.0.34", "1.0.34"))
     }
 
+    @Test fun betaTagNeverOffered() {
+        // Stable-only channel: the shape contract above describes vX.Y.Z, and a
+        // prerelease tag fails closed even with a perfectly matching asset. A
+        // sideloaded beta is still offered the final (see UpdateCheckTest).
+        assertNull(
+            UpdateApi.parse(
+                """{"tag_name":"v1.0.34-beta","assets":[{"name":"uukanshu-1.0.34-beta.apk","browser_download_url":"https://example.com/b.apk"}]}""",
+            ),
+        )
+    }
+
     @Test fun currentReleaseParses() {
         val info = UpdateApi.parse(
             """{"tag_name":"v1.0.34","body":"hardening","html_url":"https://github.com/edisoncks/uukanshu-app/releases/tag/v1.0.34","assets":[{"name":"uukanshu-1.0.34.apk","browser_download_url":"https://example.com/u.apk","size":12345}]}""",

@@ -85,6 +85,39 @@ so keep it short, no huge dumps, no jargon).
 3. Smoke-test the in-app path: install the *previous* release, trigger the
    update check from **設定 → 更新 → 檢查更新**, confirm the prompt →
    download progress → installer handoff preserves data.
+4. For the first beta→final pair (see below), sideload the beta and then
+   update it to the final in-app: both carry the same `versionCode`, which
+   the platform accepts (it refuses only a lower one). Every later beta
+   relies on that, so confirm it once.
+
+## Publishing a prerelease (beta)
+
+Same steps as above, three differences:
+
+1. **The version and tag carry a suffix**: `versionName = "1.2.19-beta"`, tag
+   `v1.2.19-beta`, asset `uukanshu-1.2.19-beta.apk`. The derived `versionCode`
+   is the core version's (1002019), because the platform refuses only a
+   *lower* code (see [DEVELOPMENT.md](DEVELOPMENT.md#signing)) — that is what
+   lets a beta install over any earlier release and the final install over
+   its own betas.
+2. **Create it as a GitHub prerelease:**
+   ```sh
+   gh release create v1.2.19-beta \
+     app/build/outputs/apk/release/uukanshu-1.2.19-beta.apk \
+     --prerelease --title "v1.2.19-beta" --notes "…concise changelog…"
+   ```
+   `releases/latest` skips prereleases, so stable users keep seeing the last
+   final release. The in-app updater additionally refuses any payload whose
+   tag carries a suffix (or whose API `prerelease` flag is set), so a beta
+   published *without* this flag still cannot be installed by the app — the
+   check reports an error until the flag is added.
+3. **Never publish a prerelease for a version whose final is already out.**
+   Successive betas of the same `X.Y.Z` are fine (they share one
+   `versionCode`; a later beta simply replaces the earlier one).
+
+Testers install the APK by hand from the release page: the app has one
+stable channel, so a beta build's own **檢查更新** keeps answering
+"up to date" until the final ships, and it will then offer the final.
 
 ## Updater contract (do not break)
 
@@ -94,7 +127,9 @@ shape — keep it stable or the auto-update flow silently stops finding
 releases:
 
 - Tag is `vX.Y.Z` and **must equal** `versionName X.Y.Z` (numeric
-  dot-separated compare; leading `v` stripped).
+  dot-separated compare; leading `v` stripped). Prerelease tags
+  (`vX.Y.Z-suffix`) are outside this contract: the app refuses them, see
+  [Publishing a prerelease](#publishing-a-prerelease-beta).
 - Exactly one asset named `uukanshu-X.Y.Z.apk` (the updater enforces an exact
   `uukanshu-{tag-version}.apk` match; any other `.apk`, including a
   version-mismatched `uukanshu-*.apk`, is ignored and yields no update).

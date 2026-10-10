@@ -248,7 +248,11 @@ scheduler instead of polling real threads (`UpdateViewModelTest`,
 - Source: GitHub Releases API. Auto-check throttled to once per 24h
   (`AUTO_CHECK_INTERVAL_MS`, persisted `lastUpdateCheck`); manual check from
   Settings always hits the network (flips `checking` atomically so rapid taps
-  can't launch duplicate checks).
+  can't launch duplicate checks). The channel is **stable-only**: a payload
+  whose tag carries a prerelease suffix (or whose `prerelease` flag is set) is
+  refused, so a beta cannot be handed to the installer even if it was
+  published without GitHub's prerelease flag (see
+  [RELEASING.md](RELEASING.md#publishing-a-prerelease-beta)).
 - Version compare is numeric dot-separated on `versionName` vs tag (leading
   `v` stripped; prerelease suffixes compare numerically, `beta10` > `beta2`). APK assets fail closed: only exactly `uukanshu-{version}.apk`
   for the tag is offered (stale/second APK yields no update).
