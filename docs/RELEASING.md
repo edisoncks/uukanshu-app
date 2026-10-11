@@ -1,7 +1,9 @@
 # Releasing
 
-How to cut a `uukanshu` release. The APK is built locally (or on any machine
-with `mise`), signed, and attached to a GitHub Release.
+How to cut a `uukanshu` release. Official releases are built and
+published by GitHub CI only (`.github/workflows/release.yml`, production
+environment) — never from a laptop, so a dev-signed local build can never
+slip into a release. Local `mise run build` APKs are dev-only test builds.
 
 End users never need this — they install and update from the
 [README](../README.md). This page is for maintainers.
@@ -9,69 +11,58 @@ End users never need this — they install and update from the
 ## Prerequisites
 
 - Push access to `main`.
-- The official release keystore (see [DEVELOPMENT.md](DEVELOPMENT.md#signing)).
-  Export the four env vars so the APK signature matches previous releases —
-  otherwise users must uninstall before updating (data loss):
-  ```sh
-  export UUKANSHU_KEYSTORE_FILE=/path/to/official.keystore
-  export UUKANSHU_KEYSTORE_PASSWORD=…
-  export UUKANSHU_KEY_ALIAS=…
-  export UUKANSHU_KEY_PASSWORD=…
-  ```
-- `mise` toolchain + Android SDK ready (`mise install`, `mise run setup-android` —
-  see [DEVELOPMENT.md](DEVELOPMENT.md#first-time-setup)).
+- The `production` environment on GitHub holds the official signing key
+  (`KEYSTORE_BASE64`) plus `UUKANSHU_KEYSTORE_PASSWORD` /
+  `UUKANSHU_KEY_PASSWORD` secrets, with required reviewers so every
+  release needs a human tap. Only maintainers who can approve that
+  environment can ship. Secrets are entered in the GitHub UI (or via
+  `gh secret set --env production` with piped stdin, never pasted into
+  chat, docs, or shell history).
+- No local keystore is needed for official releases. A repo-root
+  `release.keystore` (from `mise run setup-signing`) is dev-only.
 
-## Release steps
+## Release steps (official, via CI)
 
 ### 1. Bump the version
 
-The version lives in one place: `versionName` in `app/build.gradle.kts`
-(the APK is renamed to `uukanshu-{version}.apk` from it). Keep the tag in
-sync:
+The version lives in one place: `versionName` in `app/build.gradle.kts`.
+Keep the tag in sync:
 
 ```sh
 # edit versionName in app/build.gradle.kts, then:
 git add app/build.gradle.kts
 git commit -m "chore: bump version to X.Y.Z"
+git push origin main
 ```
 
-### 2. Build and verify
+### 2. Push an annotated tag with the changelog
+
+The tag message becomes the release notes verbatim (shown in the in-app
+update dialog, which scrolls at ~220dp — keep it short, Traditional
+Chinese, no jargon):
 
 ```sh
-mise run test
-mise run build
-# → app/build/outputs/apk/release/uukanshu-X.Y.Z.apk
+git tag -a vX.Y.Z -m "閱讀排版大升級
+
+- 字體可選黑體 / 宋體
+- 行距、段距隨手調"
+git push origin vX.Y.Z
 ```
 
-Verify the signature before publishing:
+Use an annotated tag (`-a`): a lightweight tag has no message and CI
+refuses it. Prerelease tags (`vX.Y.Z-beta`) are ignored by CI — betas
+ship by hand (see below).
 
-```sh
-export ANDROID_SDK_ROOT=$PWD/.android-sdk
-.android-sdk/build-tools/35.0.0/apksigner verify \
-  app/build/outputs/apk/release/uukanshu-X.Y.Z.apk
-```
+### 3. Approve + watch CI
 
-### 3. Push the tag
+The `release` workflow (production environment) tests, builds, verifies
+(versionName == tag, exact `uukanshu-X.Y.Z.apk` asset name, `apksigner`
+check, official-key fingerprint match), then publishes the GitHub release.
+Approve the environment run when prompted and watch it go green. If it
+fails, fix forward with a new tag — published assets are never
+overwritten.
 
-```sh
-git tag vX.Y.Z
-git push origin main vX.Y.Z
-```
-
-### 4. Publish the release
-
-```sh
-gh release create vX.Y.Z \
-  app/build/outputs/apk/release/uukanshu-X.Y.Z.apk \
-  --title "vX.Y.Z" \
-  --notes "…concise changelog, plain Markdown (shown verbatim in the in-app update dialog)…"
-```
-
-Write the release notes in Traditional Chinese for non-technical users (what changed, in a few lines) —
-they are shown verbatim as the update changelog (dialog scrolls at ~220dp,
-so keep it short, no huge dumps, no jargon).
-
-### 5. Smoke-test
+### 4. Smoke-test
 
 1. Open the **Releases** page and confirm exactly one APK is attached, and
    that the API exposes its digest (the in-app updater verifies it):
@@ -92,7 +83,9 @@ so keep it short, no huge dumps, no jargon).
 
 ## Publishing a prerelease (beta)
 
-Same steps as above, three differences:
+Betas ship by hand from a trusted machine (CI ignores suffix tags).
+Build with the production key via env vars, three differences from the
+CI flow:
 
 1. **The version and tag carry a suffix**: `versionName = "1.2.19-beta"`, tag
    `v1.2.19-beta`, asset `uukanshu-1.2.19-beta.apk`. The derived `versionCode`
