@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -388,7 +389,8 @@ private fun ReaderSettingsSheet(
     onSetPaperEnabled: (Boolean) -> Unit,
 ) {
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding()
+            .padding(horizontal = 16.dp).padding(top = 8.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(display("閱讀設定"), style = MaterialTheme.typography.titleMedium)
