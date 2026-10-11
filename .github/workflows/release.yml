@@ -25,6 +25,8 @@ jobs:
     # Finals only (vX.Y.Z). Anything with a suffix is a beta, handled manually.
     if: ${{ !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
+    # A hung run should fail in minutes, not burn 6h of bills by default.
+    timeout-minutes: 45
     # Holds KEYSTORE_BASE64 + key passwords. Give it required reviewers so
     # every official release needs a human tap before anything is signed.
     environment: production
@@ -95,8 +97,12 @@ jobs:
           "$APKSIGNER" verify "$APK"
           # Signer must be the official production key — a dev-key build
           # can never slip into a release, even if secrets get miswired.
-          FP="$("$APKSIGNER" verify --print-certs "$APK" \
-            | grep -i 'SHA-256 digest' | head -n 1)"
+          # Exactly one signer: --print-certs prints one SHA-256 digest
+          # line per signer, so a second stacked signature fails closed.
+          CERTS="$("$APKSIGNER" verify --print-certs "$APK")"
+          test "$(printf '%s' "$CERTS" | grep -c -i 'SHA-256 digest')" = 1 \
+            || { echo "expected exactly 1 signer"; exit 1; }
+          FP="$(printf '%s' "$CERTS" | grep -i 'SHA-256 digest' | head -n 1)"
           echo "$FP" | grep -qi "$EXPECTED_FINGERPRINT" \
             || { echo "signer is NOT the official production key"; exit 1; }
           # The tag must be annotated: its message is the user-facing
