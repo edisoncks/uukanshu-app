@@ -26,7 +26,7 @@ yes | "$TOOLS" --sdk_root="$SDK" --licenses >/dev/null 2>&1 || true
 """
 
 [tasks.setup-signing]
-description = "Generate local release.keystore (dev key, gitignored)"
+description = "Generate repo-root release.keystore for LOCAL DEV BUILDS ONLY (never an official release — those build on CI)"
 run = """
 set -e
 if [ -f "$MISE_CONFIG_ROOT/release.keystore" ]; then
