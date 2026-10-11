@@ -84,7 +84,18 @@ overwritten.
 ## Publishing a prerelease (beta)
 
 Betas ship by hand from a trusted machine (CI ignores suffix tags).
-Build with the production key via env vars, three differences from the
+Build with the production key via env vars (alias is `uukanshu`, same as CI):
+
+```sh
+export UUKANSHU_KEYSTORE_FILE=/path/to/official.keystore
+export UUKANSHU_KEYSTORE_PASSWORD=…
+export UUKANSHU_KEY_ALIAS=uukanshu
+export UUKANSHU_KEY_PASSWORD=…
+mise run test && mise run build
+# → app/build/outputs/apk/release/uukanshu-X.Y.Z-beta.apk
+```
+
+Three differences from the
 CI flow:
 
 1. **The version and tag carry a suffix**: `versionName = "1.2.19-beta"`, tag
