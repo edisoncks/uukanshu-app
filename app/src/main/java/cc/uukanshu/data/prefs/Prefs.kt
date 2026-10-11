@@ -42,12 +42,15 @@ object PrefsKeys {
     val READER_LINE_SCALE = floatPreferencesKey("reader_line_scale")
     val READER_PARA_SCALE = floatPreferencesKey("reader_para_scale")
     val READER_PAPER = booleanPreferencesKey("reader_paper")
+    // Legacy paper switch (pre-4-theme): theme read derives PAPER from it,
+    // writes clear it. Never set it true again; remove once old installs age out.
 }
 
 class Prefs(private val context: Context) : cc.uukanshu.di.PrefsApi {
     companion object {
         const val SYSTEM = "system"
         const val LIGHT = "light"
+        const val PAPER = "paper"
         const val DARK = "dark"
 
         /** Single source for font bounds: read-clamp, write-clamp, UI step must agree. */
@@ -82,14 +85,15 @@ class Prefs(private val context: Context) : cc.uukanshu.di.PrefsApi {
 
         /** Normalize persisted/unknown theme strings to a known mode (fail-safe to SYSTEM). */
         fun normalizeTheme(v: String?): String = when (v) {
-            LIGHT, DARK -> v
+            LIGHT, PAPER, DARK -> v
             else -> SYSTEM
         }
 
         /** Cycle order for the theme toggle. Unknown input restarts at SYSTEM. */
         fun next(current: String): String = when (normalizeTheme(current)) {
             SYSTEM -> LIGHT
-            LIGHT -> DARK
+            LIGHT -> PAPER
+            PAPER -> DARK
             else -> SYSTEM
         }
     }
@@ -113,8 +117,26 @@ class Prefs(private val context: Context) : cc.uukanshu.di.PrefsApi {
         context.store.data.map { coerceLineScale(it[PrefsKeys.READER_LINE_SCALE] ?: LINE_DEFAULT) }
     override val paraScale: Flow<Float> =
         context.store.data.map { coerceParaScale(it[PrefsKeys.READER_PARA_SCALE] ?: PARA_DEFAULT) }
-    override val paperEnabled: Flow<Boolean> =
-        context.store.data.map { it[PrefsKeys.READER_PAPER] ?: false }
+
+    /** Theme mode: [SYSTEM] (follow system), [LIGHT], [PAPER], or [DARK].
+     *  PAPER is a warm-light theme: global chrome renders light, reader renders sepia.
+     *  Legacy installs with reader_paper=true read as PAPER until they next write theme. */
+    override val theme: Flow<String> =
+        context.store.data.map {
+            if (it[PrefsKeys.READER_PAPER] == true) PAPER
+            else normalizeTheme(it[PrefsKeys.THEME])
+        }
+
+    override suspend fun setTheme(v: String) {
+        // Normalize on write (mirrors setFontScale clamping): unknown values
+        // must not persist in DataStore just because the read path tolerates them.
+        // Clears the legacy paper flag: THEME is now the single source of truth.
+        val next = normalizeTheme(v)
+        context.store.edit {
+            it[PrefsKeys.THEME] = next
+            it.remove(PrefsKeys.READER_PAPER)
+        }
+    }
 
     override suspend fun setReaderFont(v: String) {
         context.store.edit { it[PrefsKeys.READER_FONT] = normalizeReaderFont(v) }
@@ -126,20 +148,6 @@ class Prefs(private val context: Context) : cc.uukanshu.di.PrefsApi {
 
     override suspend fun setParaScale(v: Float) {
         context.store.edit { it[PrefsKeys.READER_PARA_SCALE] = coerceParaScale(v) }
-    }
-
-    override suspend fun setPaperEnabled(v: Boolean) {
-        context.store.edit { it[PrefsKeys.READER_PAPER] = v }
-    }
-
-    /** Theme mode: [SYSTEM] (follow system), [LIGHT], or [DARK]. Unknown stored values read as SYSTEM. */
-    override val theme: Flow<String> =
-        context.store.data.map { normalizeTheme(it[PrefsKeys.THEME]) }
-
-    override suspend fun setTheme(v: String) {
-        // Normalize on write (mirrors setFontScale clamping): unknown values
-        // must not persist in DataStore just because the read path tolerates them.
-        context.store.edit { it[PrefsKeys.THEME] = normalizeTheme(v) }
     }
 
     /** Last GitHub update-check timestamp (epoch millis, 0 = never). */

@@ -101,6 +101,7 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
                     val options = listOf(
                         Prefs.SYSTEM to "自動",
                         Prefs.LIGHT to "淺色",
+                        Prefs.PAPER to "紙色",
                         Prefs.DARK to "深色",
                     )
                     options.forEachIndexed { index, (value, name) ->

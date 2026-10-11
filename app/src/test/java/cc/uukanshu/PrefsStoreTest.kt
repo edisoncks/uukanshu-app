@@ -34,7 +34,6 @@ class PrefsStoreTest {
         p.setReaderFont(Prefs.READER_FONT_SANS)
         p.setLineScale(Prefs.LINE_DEFAULT)
         p.setParaScale(Prefs.PARA_DEFAULT)
-        p.setPaperEnabled(false)
         p.setAutoBookCheckEnabled(true)
         p.setUpdateDownloadRecord(null)
     }
@@ -66,6 +65,15 @@ class PrefsStoreTest {
         val p = prefs()
         p.setTheme(Prefs.DARK)
         assertEquals(Prefs.DARK, p.theme.first())
+        p.setTheme(Prefs.PAPER)
+        assertEquals(Prefs.PAPER, p.theme.first())
+    }
+
+    @Test fun themeCycleIncludesPaper() {
+        assertEquals(Prefs.LIGHT, Prefs.next(Prefs.SYSTEM))
+        assertEquals(Prefs.PAPER, Prefs.next(Prefs.LIGHT))
+        assertEquals(Prefs.DARK, Prefs.next(Prefs.PAPER))
+        assertEquals(Prefs.SYSTEM, Prefs.next(Prefs.DARK))
     }
 
     @Test fun themeWriteNormalizesUnknown() = runTest {
@@ -79,7 +87,6 @@ class PrefsStoreTest {
         assertEquals(Prefs.READER_FONT_SANS, p.readerFont.first())
         assertEquals(Prefs.LINE_DEFAULT, p.lineScale.first())
         assertEquals(Prefs.PARA_DEFAULT, p.paraScale.first())
-        assertEquals(false, p.paperEnabled.first())
     }
 
     @Test fun readerFontWriteNormalizesUnknown() = runTest {
@@ -102,12 +109,14 @@ class PrefsStoreTest {
         assertEquals(Prefs.PARA_MIN, p.paraScale.first())
     }
 
-    @Test fun paperRoundtrip() = runTest {
+    @Test fun paperThemePersistsWithoutLegacyResurrection() = runTest {
         val p = prefs()
-        p.setPaperEnabled(true)
-        assertEquals(true, p.paperEnabled.first())
-        p.setPaperEnabled(false)
-        assertEquals(false, p.paperEnabled.first())
+        // PAPER persists like any other theme value; a later non-paper
+        // write stays non-paper (the cleared legacy flag never resurrects it).
+        p.setTheme(Prefs.PAPER)
+        assertEquals(Prefs.PAPER, p.theme.first())
+        p.setTheme(Prefs.DARK)
+        assertEquals(Prefs.DARK, p.theme.first())
     }
 
     @Test fun autoBookCheckKeyStaysLegacy() {

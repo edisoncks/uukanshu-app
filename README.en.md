@@ -65,7 +65,7 @@ Body text…
 [⋯] [Prev] [Next]
 ```
 
-- Scroll to read, switch chapters at the bottom. The **⋯** sheet holds language (繁體/簡體), font size (remembered), theme (auto/light/dark), font family (sans/serif), line/paragraph spacing, and sepia paper mode (all remembered).
+- Scroll to read, switch chapters at the bottom. The **⋯** sheet holds language (繁體/簡體), font size (remembered), theme (auto/light/paper/dark), font family (sans/serif), and line/paragraph spacing (all remembered).
 
 ### Four tabs
 

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.WindowInsets
@@ -45,7 +46,6 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -76,8 +76,8 @@ import kotlinx.coroutines.launch
  * chapter header, selectable paragraphs. No tap-to-hide: it fights with
  * text selection long-press, and ships untested without Compose UI tests.
  *
- * Paper mode is reader-only (never touches global AppTheme): a fixed sepia
- * palette that forces light paper even in dark mode, like Kindle sepia.
+ * Paper is the fourth theme value (see Prefs.PAPER): a fixed sepia palette
+ * that renders light paper even in dark mode, like Kindle sepia.
  * Intentional exception to the dynamic-color-only rule in the settings sheet.
  */
 private val PaperBackground = Color(0xFFF6F0DC)
@@ -106,14 +106,14 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
     val readerFont by vm.readerFont.collectAsState()
     val lineScale by vm.lineScale.collectAsState()
     val paraScale by vm.paraScale.collectAsState()
-    val paperEnabled by vm.paperEnabled.collectAsState()
     val bookTitleRaw by vm.bookTitle.collectAsState()
+    val isPaper = theme == Prefs.PAPER
     val snacks = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var showSheet by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
-        containerColor = if (paperEnabled) PaperBackground else MaterialTheme.colorScheme.background,
+        containerColor = if (isPaper) PaperBackground else MaterialTheme.colorScheme.background,
         topBar = {
             val (pos, total, title) = when (val s = ui) {
                 is ReaderViewModel.Ui.Content -> Triple(s.position, s.total, s.title)
@@ -127,7 +127,7 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
                     if (title.isEmpty()) "${pos} / ${total}" else ReaderHeader.line2(pos, total, title)
                 } else "…",
                 backLabel = vm.display("返回"),
-                paperEnabled = paperEnabled,
+                isPaper = isPaper,
                 onBack = onBack,
             )
         },
@@ -135,7 +135,7 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
             ReaderBottomBar(
                 ui = ui,
                 display = vm::display,
-                paperEnabled = paperEnabled,
+                isPaper = isPaper,
                 onSettings = { showSheet = true },
                 onPrev = { vm.prev(); Unit },
                 onNext = {
@@ -174,7 +174,7 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
                     lineScale = lineScale,
                     paraScale = paraScale,
                     readerFont = readerFont,
-                    paperEnabled = paperEnabled,
+                    isPaper = isPaper,
                 )
             }
         }
@@ -193,7 +193,6 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
                 readerFont = readerFont,
                 lineScale = lineScale,
                 paraScale = paraScale,
-                paperEnabled = paperEnabled,
                 display = vm::display,
                 onSetSimplified = vm::setSimplified,
                 onSetFontScale = vm::setFontScale,
@@ -201,7 +200,6 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
                 onSetReaderFont = vm::setReaderFont,
                 onSetLineScale = vm::setLineScale,
                 onSetParaScale = vm::setParaScale,
-                onSetPaperEnabled = vm::setPaperEnabled,
             )
         }
     }
@@ -209,7 +207,7 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ReaderTopBar(book: String, line2: String, backLabel: String, paperEnabled: Boolean, onBack: () -> Unit) {
+private fun ReaderTopBar(book: String, line2: String, backLabel: String, isPaper: Boolean, onBack: () -> Unit) {
     // Static divider under the bar (replaces the one lost with the sticky
     // header; mirrors the bottom bar). Not scroll-linked: hoisting scroll
     // state for elevation costs recomposes for zero gain on a static bar.
@@ -217,7 +215,7 @@ private fun ReaderTopBar(book: String, line2: String, backLabel: String, paperEn
     TopAppBar(
         // Outer NavHost padding owns status height once; Detail + Reader both zero.
         windowInsets = WindowInsets(0),
-        colors = if (paperEnabled) {
+        colors = if (isPaper) {
             TopAppBarDefaults.topAppBarColors(
                 containerColor = PaperBackground,
                 navigationIconContentColor = PaperOnBackground,
@@ -240,7 +238,7 @@ private fun ReaderTopBar(book: String, line2: String, backLabel: String, paperEn
                 Text(
                     line2,
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (paperEnabled) PaperOnVariant else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (isPaper) PaperOnVariant else MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                 )
             }
@@ -261,7 +259,7 @@ private fun ReaderContent(
     lineScale: Float,
     paraScale: Float,
     readerFont: String,
-    paperEnabled: Boolean,
+    isPaper: Boolean,
 ) {
     val scroll = rememberScrollState()
     // Paging chapters reuses this composition: jump to top on chapter change.
@@ -276,7 +274,7 @@ private fun ReaderContent(
                     fontSize = ReaderTypography.fontSizeSp(fontScale).sp,
                     lineHeight = ReaderTypography.lineHeightSp(fontScale, lineScale).sp,
                     fontFamily = readerFontFamily(readerFont),
-                    color = if (paperEnabled) PaperOnBackground else Color.Unspecified,
+                    color = if (isPaper) PaperOnBackground else Color.Unspecified,
                     modifier = Modifier.padding(bottom = ReaderTypography.paragraphSpacingDp(paraScale).dp),
                 )
             }
@@ -311,7 +309,7 @@ private fun ReaderError(
 private fun ReaderBottomBar(
     ui: ReaderViewModel.Ui,
     display: (String) -> String,
-    paperEnabled: Boolean,
+    isPaper: Boolean,
     onSettings: () -> Unit,
     onPrev: () -> Unit,
     onNext: () -> Unit,
@@ -321,8 +319,8 @@ private fun ReaderBottomBar(
     // prev/next dominate the thumb zone. Paper tints the surface only;
     // buttons stay dynamic so contrast never breaks.
     Surface(
-        color = if (paperEnabled) PaperBackground else MaterialTheme.colorScheme.surface,
-        contentColor = if (paperEnabled) PaperOnBackground else MaterialTheme.colorScheme.onSurface,
+        color = if (isPaper) PaperBackground else MaterialTheme.colorScheme.surface,
+        contentColor = if (isPaper) PaperOnBackground else MaterialTheme.colorScheme.onSurface,
         tonalElevation = 0.dp,
     ) {
         Column {
@@ -362,7 +360,7 @@ private fun ReaderBottomBar(
  * Settings sheet: reader-optimized variants of the same Prefs/VM source used
  * by SettingsScreen (same keys, same VM). Widgets differ on purpose for
  * in-reading use: segmented language (both options visible), slider + stepper
- * with WYSIWYG preview, tonal theme tiles in one row. All labels via
+ * with WYSIWYG preview, tonal theme tiles in a 2x2 grid. All labels via
  * display() so 簡體 mode converts. Dumb: all state lives in the VM.
  *
  * Visual contract (matches ReaderTopBar/BottomBar): surface cards, 16dp/8dp
@@ -381,7 +379,6 @@ private fun ReaderSettingsSheet(
     readerFont: String,
     lineScale: Float,
     paraScale: Float,
-    paperEnabled: Boolean,
     display: (String) -> String,
     onSetSimplified: (Boolean) -> Unit,
     onSetFontScale: (Float) -> Unit,
@@ -389,7 +386,6 @@ private fun ReaderSettingsSheet(
     onSetReaderFont: (String) -> Unit,
     onSetLineScale: (Float) -> Unit,
     onSetParaScale: (Float) -> Unit,
-    onSetPaperEnabled: (Boolean) -> Unit,
 ) {
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding()
@@ -473,7 +469,7 @@ private fun ReaderSettingsSheet(
                         fontSize = ReaderTypography.fontSizeSp(fontScale).sp,
                         lineHeight = ReaderTypography.lineHeightSp(fontScale, lineScale).sp,
                         fontFamily = readerFontFamily(readerFont),
-                        color = if (paperEnabled) PaperOnBackground else Color.Unspecified,
+                        color = if (theme == Prefs.PAPER) PaperOnBackground else Color.Unspecified,
                         modifier = Modifier.padding(bottom = ReaderTypography.paragraphSpacingDp(paraScale).dp),
                     )
                     Text(
@@ -481,7 +477,7 @@ private fun ReaderSettingsSheet(
                         fontSize = ReaderTypography.fontSizeSp(fontScale).sp,
                         lineHeight = ReaderTypography.lineHeightSp(fontScale, lineScale).sp,
                         fontFamily = readerFontFamily(readerFont),
-                        color = if (paperEnabled) PaperOnBackground else Color.Unspecified,
+                        color = if (theme == Prefs.PAPER) PaperOnBackground else Color.Unspecified,
                     )
                 }
             }
@@ -604,34 +600,11 @@ private fun ReaderSettingsSheet(
                 }
             }
         }
-        // Paper mode: reader-only sepia override (see PaperBackground).
-        // Forces light paper even in dark mode; buttons stay dynamic.
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                display("紙色護眼"),
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Card(Modifier.fillMaxWidth()) {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        display("米紙色"),
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
-                    Switch(
-                        checked = paperEnabled,
-                        onCheckedChange = onSetPaperEnabled,
-                    )
-                }
-            }
-        }
-        // Appearance: one row of tonal tiles (same 12dp rhythm as the bottom
-        // bar actions). Tonal surfaces follow dynamic color + dark mode;
+        // Appearance: 2x2 tonal tiles (same 12dp rhythm as the bottom bar
+        // actions). Tonal surfaces follow dynamic color + dark mode;
         // hardcoded white/black previews would lie under Material You.
+        // Paper sits with the themes (not a separate switch): a warm-light
+        // theme that paints sepia in the reader, light elsewhere.
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 display("外觀"),
@@ -639,65 +612,110 @@ private fun ReaderSettingsSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Card(Modifier.fillMaxWidth()) {
-                // IntrinsicSize.Max + fillMaxHeight: the 自動 tile carries an
-                // extra 跟隨系統 subtitle, so without stretching the three
-                // tiles render at different heights.
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)
-                        .height(IntrinsicSize.Max),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                Column(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    val options = listOf(
-                        Triple(Prefs.SYSTEM, "自動", "跟隨系統"),
-                        Triple(Prefs.LIGHT, "淺色", null),
-                        Triple(Prefs.DARK, "深色", null),
-                    )
-                    options.forEach { (value, name, sub) ->
-                        val selected = theme == value
-                        Surface(
-                            shape = MaterialTheme.shapes.medium,
-                            color = if (selected) MaterialTheme.colorScheme.primaryContainer
-                            else MaterialTheme.colorScheme.surfaceVariant,
-                            contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                            border = if (selected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
-                            modifier = Modifier.weight(1f).fillMaxHeight()
-                                .selectable(
-                                    selected = selected,
-                                    onClick = { onSetTheme(value) },
-                                    role = Role.RadioButton,
-                                ),
-                        ) {
-                            Column(
-                                Modifier.fillMaxHeight().padding(vertical = 12.dp, horizontal = 8.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                ) {
-                                    Text("Aa", style = MaterialTheme.typography.titleLarge)
-                                    // Reserve icon space when unselected so tiles
-                                    // never jitter width on selection change.
-                                    if (selected) {
-                                        Icon(
-                                            Icons.Filled.Check,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp),
-                                        )
-                                    } else {
-                                        Spacer(Modifier.size(16.dp))
-                                    }
-                                }
-                                Text(display(name), style = MaterialTheme.typography.bodyLarge)
-                                if (sub != null) {
-                                    Text(display(sub), style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                        }
+                    // IntrinsicSize.Max + fillMaxHeight: the 自動 tile carries an
+                    // extra 跟隨系統 subtitle, so without stretching the tiles
+                    // render at different heights.
+                    Row(
+                        Modifier.fillMaxWidth().height(IntrinsicSize.Max),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        ReaderThemeTile(
+                            value = Prefs.SYSTEM,
+                            name = "自動",
+                            sub = "跟隨系統",
+                            theme = theme,
+                            display = display,
+                            onSetTheme = onSetTheme,
+                        )
+                        ReaderThemeTile(
+                            value = Prefs.LIGHT,
+                            name = "淺色",
+                            sub = null,
+                            theme = theme,
+                            display = display,
+                            onSetTheme = onSetTheme,
+                        )
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().height(IntrinsicSize.Max),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        ReaderThemeTile(
+                            value = Prefs.PAPER,
+                            name = "紙色",
+                            sub = null,
+                            theme = theme,
+                            display = display,
+                            onSetTheme = onSetTheme,
+                        )
+                        ReaderThemeTile(
+                            value = Prefs.DARK,
+                            name = "深色",
+                            sub = null,
+                            theme = theme,
+                            display = display,
+                            onSetTheme = onSetTheme,
+                        )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RowScope.ReaderThemeTile(
+    value: String,
+    name: String,
+    sub: String?,
+    theme: String,
+    display: (String) -> String,
+    onSetTheme: (String) -> Unit,
+) {
+    val selected = theme == value
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer
+        else MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+        else MaterialTheme.colorScheme.onSurfaceVariant,
+        border = if (selected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
+        modifier = Modifier.weight(1f).fillMaxHeight()
+            .selectable(
+                selected = selected,
+                onClick = { onSetTheme(value) },
+                role = Role.RadioButton,
+            ),
+    ) {
+        Column(
+            Modifier.fillMaxHeight().padding(vertical = 12.dp, horizontal = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text("Aa", style = MaterialTheme.typography.titleLarge)
+                // Reserve icon space when unselected so tiles
+                // never jitter width on selection change.
+                if (selected) {
+                    Icon(
+                        Icons.Filled.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                } else {
+                    Spacer(Modifier.size(16.dp))
+                }
+            }
+            Text(display(name), style = MaterialTheme.typography.bodyLarge)
+            if (sub != null) {
+                Text(display(sub), style = MaterialTheme.typography.bodySmall)
             }
         }
     }
