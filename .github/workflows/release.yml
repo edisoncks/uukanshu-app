@@ -54,6 +54,13 @@ jobs:
           chmod 600 "$GITHUB_WORKSPACE/prod.keystore"
 
       - name: Unit tests
+        env:
+          # Gradle resolves the release signingConfig at configuration time,
+          # even for testDebugUnitTest, so the keystore must exist here too.
+          UUKANSHU_KEYSTORE_FILE: ${{ github.workspace }}/prod.keystore
+          UUKANSHU_KEYSTORE_PASSWORD: ${{ secrets.UUKANSHU_KEYSTORE_PASSWORD }}
+          UUKANSHU_KEY_ALIAS: uukanshu
+          UUKANSHU_KEY_PASSWORD: ${{ secrets.UUKANSHU_KEY_PASSWORD }}
         run: mise run test
 
       - name: Unit tests green
