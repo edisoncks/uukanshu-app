@@ -368,6 +368,9 @@ private fun ReaderBottomBar(
  * Visual contract (matches ReaderTopBar/BottomBar): surface cards, 16dp/8dp
  * rhythm, titleMedium sheet title, titleSmall + onSurfaceVariant section
  * headers, dynamic colorScheme tokens only (no hardcoded day/night colors).
+ * Sheet content scrolls (small screens + large fonts overflow) with
+ * navigationBarsPadding + 32dp bottom inset so the last section clears
+ * the gesture bar.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
