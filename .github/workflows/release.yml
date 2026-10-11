@@ -1,0 +1,113 @@
+name: release
+
+# Official releases ONLY, built on CI — never from a laptop.
+#
+# Flow: bump versionName -> push an ANNOTATED final tag whose message is the
+# Traditional Chinese changelog -> this workflow tests, builds, verifies the
+# updater contract + the official signature, and publishes the release.
+# Prerelease tags (vX.Y.Z-*) are ignored on purpose: betas ship by hand
+# (see docs/RELEASING.md). A published asset is never overwritten.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # Finals only (vX.Y.Z). Anything with a suffix is a beta, handled manually.
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    # Holds KEYSTORE_BASE64 + key passwords. Give it required reviewers so
+    # every official release needs a human tap before anything is signed.
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: jdx/mise-action@v2
+
+      - name: Install Android SDK (project-local)
+        run: mise run setup-android
+
+      - name: Restore production keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          set -e
+          test -n "$KEYSTORE_BASE64" || { echo "KEYSTORE_BASE64 secret is empty"; exit 1; }
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$GITHUB_WORKSPACE/prod.keystore"
+          chmod 600 "$GITHUB_WORKSPACE/prod.keystore"
+
+      - name: Unit tests
+        run: mise run test
+
+      - name: Unit tests green
+        run: |
+          set -e
+          python3 - <<'EOF'
+          import glob, xml.etree.ElementTree as ET
+          files = glob.glob('app/build/test-results/testDebugUnitTest/*.xml')
+          assert files, 'no test result XML found'
+          t = f = e = 0
+          for x in files:
+              r = ET.parse(x).getroot()
+              t += int(r.get('tests', 0)); f += int(r.get('failures', 0)); e += int(r.get('errors', 0))
+          print(f'tests={t} failures={f} errors={e}')
+          assert t > 0 and f == 0 and e == 0, 'unit tests are not green'
+          EOF
+
+      - name: Build release APK
+        env:
+          UUKANSHU_KEYSTORE_FILE: ${{ github.workspace }}/prod.keystore
+          UUKANSHU_KEYSTORE_PASSWORD: ${{ secrets.UUKANSHU_KEYSTORE_PASSWORD }}
+          UUKANSHU_KEY_ALIAS: uukanshu
+          UUKANSHU_KEY_PASSWORD: ${{ secrets.UUKANSHU_KEY_PASSWORD }}
+        run: mise run build
+
+      - name: Verify updater contract + official signature
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -e
+          VER="${TAG#v}"
+          # Tag must equal versionName (updater contract: tag vX.Y.Z == X.Y.Z).
+          NAME="$(sed -n 's/^[[:space:]]*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts | head -n 1)"
+          test "$NAME" = "$VER" || { echo "versionName $NAME != tag $VER"; exit 1; }
+          # Exactly one asset with the exact updater-mandated name.
+          APK="app/build/outputs/apk/release/uukanshu-$VER.apk"
+          test -f "$APK" || { echo "missing $APK"; exit 1; }
+          export ANDROID_SDK_ROOT="$PWD/.android-sdk"
+          .android-sdk/build-tools/35.0.0/apksigner verify "$APK"
+          # Signer must be the official production key — a dev-key build
+          # can never slip into a release, even if secrets get miswired.
+          FP="$(.android-sdk/build-tools/35.0.0/apksigner verify --print-certs "$APK" \
+            | grep -i 'SHA-256 digest' | head -n 1)"
+          echo "$FP" | grep -qi "f8e0e346ce994463c85313d22e471b5b5377f06ac4db84e4b89fed331d0273c0" \
+            || { echo "signer is NOT the official production key"; exit 1; }
+          # Tag message is the user-facing changelog (Traditional Chinese).
+          NOTES="$(git tag -l --format='%(contents)' "$TAG")"
+          test -n "$NOTES" || { echo "tag $TAG has no message; re-tag annotated with the changelog"; exit 1; }
+          printf '%s' "$NOTES" > "$RUNNER_TEMP/notes.md"
+          echo "APK=$APK" >> "$GITHUB_ENV"
+
+      - name: Publish GitHub release
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        # Fails if the release already exists — by design, assets are
+        # never overwritten (see docs/RELEASING.md updater contract).
+        run: gh release create "$TAG" "$APK" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
+
+      - name: Confirm digest exposure
+        run: |
+          sleep 10
+          curl -s "https://api.github.com/repos/${{ github.repository }}/releases/latest" \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); a=d['assets'][0]; assert a.get('digest','').startswith('sha256:'), a; print(a['name'], a['digest'])"
