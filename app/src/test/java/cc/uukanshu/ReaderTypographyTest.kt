@@ -51,11 +51,11 @@ class ReaderTypographyVmTest {
         vm.setReaderFont(Prefs.READER_FONT_SERIF)
         vm.setLineScale(99f)
         vm.setParaScale(-1f)
-        vm.setPaperEnabled(true)
+        vm.setTheme(Prefs.PAPER)
         assertEquals(Prefs.READER_FONT_SERIF, vm.readerFont.value)
         assertEquals(Prefs.LINE_MAX, vm.lineScale.value, 0.001f)
         assertEquals(Prefs.PARA_MIN, vm.paraScale.value, 0.001f)
-        assertEquals(true, vm.paperEnabled.value)
+        assertEquals(Prefs.PAPER, vm.theme.value)
         idle()
         assertEquals(Prefs.READER_FONT_SERIF, prefs.readerFont.first())
         // Unknown font normalizes back to sans.

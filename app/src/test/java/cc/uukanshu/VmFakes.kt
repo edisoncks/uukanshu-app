@@ -144,8 +144,6 @@ class MutableFakePrefs(
     override val lineScale: Flow<Float> = _lineScale
     private val _paraScale = MutableStateFlow(Prefs.PARA_DEFAULT)
     override val paraScale: Flow<Float> = _paraScale
-    private val _paperEnabled = MutableStateFlow(false)
-    override val paperEnabled: Flow<Boolean> = _paperEnabled
     override val lastUpdateCheck: Flow<Long> = flowOf(lastCheck)
     override val skippedVersion: Flow<String?> = flowOf(null)
     private val _updateDownloadRecord = MutableStateFlow<UpdateDownloadRecord?>(null)
@@ -176,9 +174,6 @@ class MutableFakePrefs(
     }
     override suspend fun setParaScale(v: Float) {
         _paraScale.value = Prefs.coerceParaScale(v)
-    }
-    override suspend fun setPaperEnabled(v: Boolean) {
-        _paperEnabled.value = v
     }
     override suspend fun setTheme(v: String) {
         // Mirror production write-normalization so tests cannot pass on the

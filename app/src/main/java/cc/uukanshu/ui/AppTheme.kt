@@ -18,10 +18,12 @@ import cc.uukanshu.data.prefs.Prefs
  * Global theme: dynamic color on minSdk 31, plain schemes as fallback.
  * Pure [isDark] helper is JVM-testable (no Compose needed); the composable
  * only resolves the Android color scheme.
+ * PAPER is a warm-light theme: not dark, renders the light scheme globally
+ * while the reader paints its own sepia (see ReaderScreen).
  */
 object AppTheme {
     fun isDark(theme: String, systemDark: Boolean): Boolean = when (theme) {
-        Prefs.LIGHT -> false
+        Prefs.LIGHT, Prefs.PAPER -> false
         Prefs.DARK -> true
         else -> systemDark
     }

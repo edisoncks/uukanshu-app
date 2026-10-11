@@ -27,8 +27,9 @@ UI text is Traditional Chinese by default, with a global Simplified toggle.
 - The shell owns the shared `UpdateViewModel` and overlays the update dialog on
   any tab; the library tab shows a dot while any book has unseen chapters.
 - `Site.kt`: base URL plus the fixed category catalogue (ids 1–10).
-- Theme is one pure decision (`isDark`) driven by `Prefs.theme`, wrapping
+- Theme is one pure decision (`isDark`) driven by `Prefs.theme` (system/light/paper/dark), wrapping
   dynamic color where the platform offers it with a plain-scheme fallback.
+  Paper renders light globally and sepia in the reader.
 
 ## Permissions
 

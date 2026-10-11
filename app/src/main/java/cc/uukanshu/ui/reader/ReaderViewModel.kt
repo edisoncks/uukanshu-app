@@ -88,8 +88,6 @@ class ReaderViewModel(
     val lineScale: StateFlow<Float> = _lineScale
     private val _paraScale = MutableStateFlow(Prefs.PARA_DEFAULT)
     val paraScale: StateFlow<Float> = _paraScale
-    private val _paperEnabled = MutableStateFlow(false)
-    val paperEnabled: StateFlow<Boolean> = _paperEnabled
     // Last known book title (TOC meta) for chrome: Ui.Loading carries no book,
     // so the top bar would flicker blank on every chapter turn without this.
     private val _bookTitle = MutableStateFlow("")
@@ -141,7 +139,6 @@ class ReaderViewModel(
             _readerFont.value = prefs.readerFont.first()
             _lineScale.value = prefs.lineScale.first()
             _paraScale.value = prefs.paraScale.first()
-            _paperEnabled.value = prefs.paperEnabled.first()
             // Single collector + tocGen invalidation: a late emit from the
             // cancelled run is dropped by generation check, so it can only
             // touch totals/book title via the current run, never stale content.
@@ -454,11 +451,12 @@ class ReaderViewModel(
     /** Converted theme-mode label for the settings menu. */
     fun themeLabel(): String = display(when (_theme.value) {
         Prefs.LIGHT -> "主題：淺色"
+        Prefs.PAPER -> "主題：紙色"
         Prefs.DARK -> "主題：深色"
         else -> "主題：自動"
     })
 
-    /** Cycle system → light → dark theme. Applied app-wide via prefs. */
+    /** Cycle system → light → paper → dark theme. Applied app-wide via prefs. */
     fun cycleTheme() {
         setTheme(Prefs.next(_theme.value))
     }
@@ -493,11 +491,5 @@ class ReaderViewModel(
         if (next == _paraScale.value) return
         _paraScale.value = next
         viewModelScope.launch { prefs.setParaScale(next) }
-    }
-
-    fun setPaperEnabled(v: Boolean) {
-        if (v == _paperEnabled.value) return
-        _paperEnabled.value = v
-        viewModelScope.launch { prefs.setPaperEnabled(v) }
     }
 }
