@@ -12,5 +12,6 @@
 ## Gradle
 
 - Every command gets an explicit short timeout (15–75s; never 600s). Long builds run in background (`nohup … > log &`) and are polled with short commands.
-- A task stuck with ~idle CPU and zero file writes (e.g. `kspDebugKotlin`) is wedged, not slow: kill it, `./gradlew --stop`, retry fresh — longer timeouts won't help.
+- A task stuck with ~idle CPU and zero file writes (e.g. `kspDebugKotlin`) is wedged, not slow: confirm with `jstack` plus `/proc/<pid>/io` `write_bytes` unchanged ~10s apart — longer timeouts won't help. Waiting in `connectAndLease`/`Socket.connect` means it is stuck probing a stale Kotlin-daemon registry entry (RMI connect has no timeout): kill it, `./gradlew --stop`, delete stale `~/.local/share/kotlin/daemon/*.run`, retry fresh.
+- Fallback if the daemon still won't start: `-Pkotlin.compiler.execution.strategy=in-process` (Gradle property, not `-D`), e.g. `./gradlew testDebugUnitTest --no-daemon -Pkotlin.compiler.execution.strategy=in-process`. Keep the flag local — never commit it to `gradle.properties`.
 - Verify before push: `./gradlew testDebugUnitTest` green plus zero `failures`/`errors` in `app/build/test-results/testDebugUnitTest/*.xml.
