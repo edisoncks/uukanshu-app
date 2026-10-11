@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -367,6 +368,9 @@ private fun ReaderBottomBar(
  * Visual contract (matches ReaderTopBar/BottomBar): surface cards, 16dp/8dp
  * rhythm, titleMedium sheet title, titleSmall + onSurfaceVariant section
  * headers, dynamic colorScheme tokens only (no hardcoded day/night colors).
+ * Sheet content scrolls (small screens + large fonts overflow) with
+ * navigationBarsPadding + 32dp bottom inset so the last section clears
+ * the gesture bar.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -388,7 +392,8 @@ private fun ReaderSettingsSheet(
     onSetPaperEnabled: (Boolean) -> Unit,
 ) {
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding()
+            .padding(horizontal = 16.dp).padding(top = 8.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(display("閱讀設定"), style = MaterialTheme.typography.titleMedium)
