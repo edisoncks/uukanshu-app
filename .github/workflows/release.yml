@@ -104,7 +104,16 @@ jobs:
           # the bump commit message into the release notes instead.
           test "$(git cat-file -t "$TAG")" = tag \
             || { echo "tag $TAG is lightweight; re-tag annotated (-a) with the changelog"; exit 1; }
-          NOTES="$(git tag -l --format='%(contents)' "$TAG")"
+          # Tag message as release notes, minus any GPG armor. Uses git's
+          # own subject/body split, so nothing matches literal `-----`
+          # that could rot if the armor header ever varies.
+          SUBJECT="$(git tag -l --format='%(subject)' "$TAG")"
+          BODY="$(git tag -l --format='%(body)' "$TAG")"
+          if [ -n "$BODY" ]; then
+            printf -v NOTES '%s\n\n%s' "$SUBJECT" "$BODY"
+          else
+            NOTES="$SUBJECT"
+          fi
           printf '%s' "$NOTES" | grep -q '[^[:space:]]' \
             || { echo "tag $TAG has an empty message; re-tag annotated with the changelog"; exit 1; }
           printf '%s' "$NOTES" > "$RUNNER_TEMP/notes.md"
@@ -116,7 +125,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         # Fails if the release already exists — by design, assets are
         # never overwritten (see docs/RELEASING.md updater contract).
-        run: gh release create "$TAG" "$APK" --title "$TAG" --latest --notes-file "$RUNNER_TEMP/notes.md"
+        # No explicit --latest: gh picks it automatically by date+version,
+        # so backport tags can never steal "latest" from a newer release.
+        run: gh release create "$TAG" "$APK" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
 
       - name: Confirm digest exposure
         env:
