@@ -38,6 +38,10 @@ object PrefsKeys {
     val UPDATE_DOWNLOAD_SIZE = longPreferencesKey("update_download_size")
     val UPDATE_DOWNLOAD_SHA256 = stringPreferencesKey("update_download_sha256")
     val UPDATE_DOWNLOAD_ID = longPreferencesKey("update_download_id")
+    val READER_FONT = stringPreferencesKey("reader_font")
+    val READER_LINE_SCALE = floatPreferencesKey("reader_line_scale")
+    val READER_PARA_SCALE = floatPreferencesKey("reader_para_scale")
+    val READER_PAPER = booleanPreferencesKey("reader_paper")
 }
 
 class Prefs(private val context: Context) : cc.uukanshu.di.PrefsApi {
@@ -51,7 +55,30 @@ class Prefs(private val context: Context) : cc.uukanshu.di.PrefsApi {
         const val FONT_MAX = 1.6f
         const val FONT_DEFAULT = 1f
 
+        const val READER_FONT_SANS = "sans"
+        const val READER_FONT_SERIF = "serif"
+
+        /** Line-height multiplier on top of 28sp base: read-clamp, write-clamp, UI must agree. */
+        const val LINE_MIN = 0.85f
+        const val LINE_MAX = 1.3f
+        const val LINE_DEFAULT = 1f
+
+        /** Paragraph-spacing multiplier on top of 12dp base. */
+        const val PARA_MIN = 0.5f
+        const val PARA_MAX = 2.0f
+        const val PARA_DEFAULT = 1f
+
         fun coerceFontScale(v: Float): Float = v.coerceIn(FONT_MIN, FONT_MAX)
+
+        fun coerceLineScale(v: Float): Float = v.coerceIn(LINE_MIN, LINE_MAX)
+
+        fun coerceParaScale(v: Float): Float = v.coerceIn(PARA_MIN, PARA_MAX)
+
+        /** Normalize persisted/unknown reader font to a known value (fail-safe to SANS). */
+        fun normalizeReaderFont(v: String?): String = when (v) {
+            READER_FONT_SERIF -> READER_FONT_SERIF
+            else -> READER_FONT_SANS
+        }
 
         /** Normalize persisted/unknown theme strings to a known mode (fail-safe to SYSTEM). */
         fun normalizeTheme(v: String?): String = when (v) {
@@ -78,6 +105,31 @@ class Prefs(private val context: Context) : cc.uukanshu.di.PrefsApi {
 
     override suspend fun setFontScale(v: Float) {
         context.store.edit { it[PrefsKeys.FONT_SCALE] = coerceFontScale(v) }
+    }
+
+    override val readerFont: Flow<String> =
+        context.store.data.map { normalizeReaderFont(it[PrefsKeys.READER_FONT]) }
+    override val lineScale: Flow<Float> =
+        context.store.data.map { coerceLineScale(it[PrefsKeys.READER_LINE_SCALE] ?: LINE_DEFAULT) }
+    override val paraScale: Flow<Float> =
+        context.store.data.map { coerceParaScale(it[PrefsKeys.READER_PARA_SCALE] ?: PARA_DEFAULT) }
+    override val paperEnabled: Flow<Boolean> =
+        context.store.data.map { it[PrefsKeys.READER_PAPER] ?: false }
+
+    override suspend fun setReaderFont(v: String) {
+        context.store.edit { it[PrefsKeys.READER_FONT] = normalizeReaderFont(v) }
+    }
+
+    override suspend fun setLineScale(v: Float) {
+        context.store.edit { it[PrefsKeys.READER_LINE_SCALE] = coerceLineScale(v) }
+    }
+
+    override suspend fun setParaScale(v: Float) {
+        context.store.edit { it[PrefsKeys.READER_PARA_SCALE] = coerceParaScale(v) }
+    }
+
+    override suspend fun setPaperEnabled(v: Boolean) {
+        context.store.edit { it[PrefsKeys.READER_PAPER] = v }
     }
 
     /** Theme mode: [SYSTEM] (follow system), [LIGHT], or [DARK]. Unknown stored values read as SYSTEM. */

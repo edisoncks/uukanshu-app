@@ -31,6 +31,10 @@ class PrefsStoreTest {
         p.setSimplified(false)
         p.setFontScale(Prefs.FONT_DEFAULT)
         p.setTheme(Prefs.SYSTEM)
+        p.setReaderFont(Prefs.READER_FONT_SANS)
+        p.setLineScale(Prefs.LINE_DEFAULT)
+        p.setParaScale(Prefs.PARA_DEFAULT)
+        p.setPaperEnabled(false)
         p.setAutoBookCheckEnabled(true)
         p.setUpdateDownloadRecord(null)
     }
@@ -68,6 +72,42 @@ class PrefsStoreTest {
         val p = prefs()
         p.setTheme("dark-mode")
         assertEquals(Prefs.SYSTEM, p.theme.first())
+    }
+
+    @Test fun readerTypographyDefaults() = runTest {
+        val p = prefs()
+        assertEquals(Prefs.READER_FONT_SANS, p.readerFont.first())
+        assertEquals(Prefs.LINE_DEFAULT, p.lineScale.first())
+        assertEquals(Prefs.PARA_DEFAULT, p.paraScale.first())
+        assertEquals(false, p.paperEnabled.first())
+    }
+
+    @Test fun readerFontWriteNormalizesUnknown() = runTest {
+        val p = prefs()
+        p.setReaderFont("kaiti")
+        assertEquals(Prefs.READER_FONT_SANS, p.readerFont.first())
+        p.setReaderFont(Prefs.READER_FONT_SERIF)
+        assertEquals(Prefs.READER_FONT_SERIF, p.readerFont.first())
+    }
+
+    @Test fun lineParaWriteClampsToBounds() = runTest {
+        val p = prefs()
+        p.setLineScale(99f)
+        assertEquals(Prefs.LINE_MAX, p.lineScale.first())
+        p.setLineScale(-1f)
+        assertEquals(Prefs.LINE_MIN, p.lineScale.first())
+        p.setParaScale(99f)
+        assertEquals(Prefs.PARA_MAX, p.paraScale.first())
+        p.setParaScale(-1f)
+        assertEquals(Prefs.PARA_MIN, p.paraScale.first())
+    }
+
+    @Test fun paperRoundtrip() = runTest {
+        val p = prefs()
+        p.setPaperEnabled(true)
+        assertEquals(true, p.paperEnabled.first())
+        p.setPaperEnabled(false)
+        assertEquals(false, p.paperEnabled.first())
     }
 
     @Test fun autoBookCheckKeyStaysLegacy() {

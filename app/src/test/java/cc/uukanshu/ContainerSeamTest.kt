@@ -60,6 +60,10 @@ class FakePrefs : PrefsApi {
     override val simplified: Flow<Boolean> = flowOf(false)
     override val fontScale: Flow<Float> = flowOf(1f)
     override val theme: Flow<String> = flowOf("system")
+    override val readerFont: Flow<String> = flowOf("sans")
+    override val lineScale: Flow<Float> = flowOf(1f)
+    override val paraScale: Flow<Float> = flowOf(1f)
+    override val paperEnabled: Flow<Boolean> = flowOf(false)
     override val lastUpdateCheck: Flow<Long> = flowOf(0L)
     override val skippedVersion: Flow<String?> = flowOf(null)
     override val updateDownloadRecord: Flow<UpdateDownloadRecord?> = flowOf(null)
@@ -68,6 +72,10 @@ class FakePrefs : PrefsApi {
     override suspend fun setSimplified(v: Boolean) = Unit
     override suspend fun setFontScale(v: Float) = Unit
     override suspend fun setTheme(v: String) = Unit
+    override suspend fun setReaderFont(v: String) = Unit
+    override suspend fun setLineScale(v: Float) = Unit
+    override suspend fun setParaScale(v: Float) = Unit
+    override suspend fun setPaperEnabled(v: Boolean) = Unit
     override suspend fun setLastUpdateCheck(now: Long) = Unit
     override suspend fun setSkippedVersion(v: String?) = Unit
     override suspend fun setUpdateDownloadRecord(record: UpdateDownloadRecord?) = Unit

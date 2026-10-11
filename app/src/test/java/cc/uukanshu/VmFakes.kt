@@ -138,6 +138,14 @@ class MutableFakePrefs(
     // so the fake must persist + clamp too or font tests pass on fake, fail on real.
     private val _fontScale = MutableStateFlow(Prefs.FONT_DEFAULT)
     override val fontScale: Flow<Float> = _fontScale
+    private val _readerFont = MutableStateFlow(Prefs.READER_FONT_SANS)
+    override val readerFont: Flow<String> = _readerFont
+    private val _lineScale = MutableStateFlow(Prefs.LINE_DEFAULT)
+    override val lineScale: Flow<Float> = _lineScale
+    private val _paraScale = MutableStateFlow(Prefs.PARA_DEFAULT)
+    override val paraScale: Flow<Float> = _paraScale
+    private val _paperEnabled = MutableStateFlow(false)
+    override val paperEnabled: Flow<Boolean> = _paperEnabled
     override val lastUpdateCheck: Flow<Long> = flowOf(lastCheck)
     override val skippedVersion: Flow<String?> = flowOf(null)
     private val _updateDownloadRecord = MutableStateFlow<UpdateDownloadRecord?>(null)
@@ -159,6 +167,18 @@ class MutableFakePrefs(
     }
     override suspend fun setFontScale(v: Float) {
         _fontScale.value = Prefs.coerceFontScale(v)
+    }
+    override suspend fun setReaderFont(v: String) {
+        _readerFont.value = Prefs.normalizeReaderFont(v)
+    }
+    override suspend fun setLineScale(v: Float) {
+        _lineScale.value = Prefs.coerceLineScale(v)
+    }
+    override suspend fun setParaScale(v: Float) {
+        _paraScale.value = Prefs.coerceParaScale(v)
+    }
+    override suspend fun setPaperEnabled(v: Boolean) {
+        _paperEnabled.value = v
     }
     override suspend fun setTheme(v: String) {
         // Mirror production write-normalization so tests cannot pass on the

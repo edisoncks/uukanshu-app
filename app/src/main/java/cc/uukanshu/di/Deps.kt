@@ -48,6 +48,10 @@ interface PrefsApi {
     val simplified: Flow<Boolean>
     val fontScale: Flow<Float>
     val theme: Flow<String>
+    val readerFont: Flow<String>
+    val lineScale: Flow<Float>
+    val paraScale: Flow<Float>
+    val paperEnabled: Flow<Boolean>
     val lastUpdateCheck: Flow<Long>
     val skippedVersion: Flow<String?>
     val updateDownloadRecord: Flow<UpdateDownloadRecord?>
@@ -56,6 +60,10 @@ interface PrefsApi {
     suspend fun setSimplified(v: Boolean)
     suspend fun setFontScale(v: Float)
     suspend fun setTheme(v: String)
+    suspend fun setReaderFont(v: String)
+    suspend fun setLineScale(v: Float)
+    suspend fun setParaScale(v: Float)
+    suspend fun setPaperEnabled(v: Boolean)
     suspend fun setLastUpdateCheck(now: Long)
     suspend fun setSkippedVersion(v: String?)
     suspend fun setUpdateDownloadRecord(record: UpdateDownloadRecord?)
