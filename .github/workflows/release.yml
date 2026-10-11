@@ -92,9 +92,13 @@ jobs:
             | grep -i 'SHA-256 digest' | head -n 1)"
           echo "$FP" | grep -qi "f8e0e346ce994463c85313d22e471b5b5377f06ac4db84e4b89fed331d0273c0" \
             || { echo "signer is NOT the official production key"; exit 1; }
-          # Tag message is the user-facing changelog (Traditional Chinese).
+          # The tag must be annotated: its message is the user-facing
+          # changelog (Traditional Chinese). A lightweight tag would leak
+          # the bump commit message into the release notes instead.
+          test "$(git cat-file -t "$TAG")" = tag \
+            || { echo "tag $TAG is lightweight; re-tag annotated (-a) with the changelog"; exit 1; }
           NOTES="$(git tag -l --format='%(contents)' "$TAG")"
-          test -n "$NOTES" || { echo "tag $TAG has no message; re-tag annotated with the changelog"; exit 1; }
+          test -n "$NOTES" || { echo "tag $TAG has an empty message; re-tag annotated with the changelog"; exit 1; }
           printf '%s' "$NOTES" > "$RUNNER_TEMP/notes.md"
           echo "APK=$APK" >> "$GITHUB_ENV"
 
