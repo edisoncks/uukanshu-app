@@ -5,12 +5,12 @@ name: release
 # Flow: bump versionName -> push an ANNOTATED final tag whose message is the
 # Traditional Chinese changelog -> this workflow tests, builds, verifies the
 # updater contract + the official signature, and publishes the release.
-# Prerelease tags (vX.Y.Z-*) are ignored on purpose: betas ship by hand
-# (see docs/RELEASING.md). A published asset is never overwritten.
+# Only numeric vX.Y.Z tags wake CI; prerelease tags (vX.Y.Z-*) match but are
+# skipped by the job guard below and ship by hand (see docs/RELEASING.md).
 on:
   push:
     tags:
-      - "v*"
+      - "v[0-9]*.[0-9]*.[0-9]*"
 
 permissions:
   contents: write
