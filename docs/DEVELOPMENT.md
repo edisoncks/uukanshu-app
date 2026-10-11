@@ -86,10 +86,14 @@ Resolution order in `app/build.gradle.kts` (`signingConfigs.release`):
 
 1. `UUKANSHU_KEYSTORE_FILE` (env var or Gradle property) + companion
    `UUKANSHU_KEYSTORE_PASSWORD` / `UUKANSHU_KEY_ALIAS` / `UUKANSHU_KEY_PASSWORD`.
-   This is the path used for **official releases** so the signature matches
-   previous releases.
-2. Otherwise the local dev key `release.keystore` at the repo root
-   (password/alias `uukanshu`).
+   This is the path for local manual signing (e.g. hand-built betas) —
+   official finals are built on CI from the `production` environment
+   secrets instead (see [RELEASING.md](RELEASING.md)).
+2. Otherwise the repo-root `release.keystore` dev key (password/alias
+   `uukanshu`, from `mise run setup-signing`) — local builds only.
+   Official finals are built on CI from the `production` environment
+   secrets instead (see [RELEASING.md](RELEASING.md)). `setup-signing`
+   refuses to overwrite an existing file.
 3. If neither exists the build **fails fast** with a message suggesting
    `mise run setup-signing` or the official vars. A debug-signed release
    would require uninstall to update, so it needs explicit opt-in:
@@ -97,14 +101,14 @@ Resolution order in `app/build.gradle.kts` (`signingConfigs.release`):
    local builds only, never official releases). A bare `-PallowDebugSigning`
    does **not** work: Gradle sets a valueless property to the empty string.
 
-Generate the local dev key:
+Generate a dev key on a fresh checkout:
 
 ```sh
 mise run setup-signing   # creates gitignored release.keystore (password/alias uukanshu)
 ```
 
-Back up the official keystore: updates signed with a **different key**
-require users to uninstall first (data loss). Verify before publishing:
+Updates signed with a **different key** require users to uninstall first
+(data loss). When signing by hand (betas), verify before publishing:
 
 ```sh
 export ANDROID_SDK_ROOT=$PWD/.android-sdk

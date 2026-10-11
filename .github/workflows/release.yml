@@ -1,0 +1,165 @@
+name: release
+
+# Official releases ONLY, built on CI — never from a laptop.
+#
+# Flow: bump versionName -> push an ANNOTATED final tag whose message is the
+# Traditional Chinese changelog -> this workflow tests, builds, verifies the
+# updater contract + the official signature, and publishes the release.
+# Only numeric vX.Y.Z tags wake CI; prerelease tags (vX.Y.Z-*) match but are
+# skipped by the job guard below and ship by hand (see docs/RELEASING.md).
+on:
+  push:
+    # NOTE: tag filters are globs, not regexes — `.` is a literal dot here.
+    tags:
+      - "v[0-9]*.[0-9]*.[0-9]*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # Finals only (vX.Y.Z). Anything with a suffix is a beta, handled manually.
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    # A hung run should fail in minutes, not burn 6h of bills by default.
+    timeout-minutes: 45
+    # Holds KEYSTORE_BASE64 + key passwords. Give it required reviewers so
+    # every official release needs a human tap before anything is signed.
+    environment: production
+    env:
+      # Official production-key SHA-256 cert fingerprint (public value).
+      # Rotate here when the production key rotates.
+      EXPECTED_FINGERPRINT: f8e0e346ce994463c85313d22e471b5b5377f06ac4db84e4b89fed331d0273c0
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: jdx/mise-action@v5
+
+      - name: Install Android SDK (project-local)
+        run: mise run setup-android
+
+      - name: Restore production keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.UUKANSHU_KEYSTORE_BASE64 }}
+        run: |
+          set -e
+          test -n "$KEYSTORE_BASE64" || { echo "UUKANSHU_KEYSTORE_BASE64 secret is empty"; exit 1; }
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$GITHUB_WORKSPACE/prod.keystore"
+          chmod 600 "$GITHUB_WORKSPACE/prod.keystore"
+
+      - name: Unit tests
+        run: mise run test
+
+      - name: Unit tests green
+        run: |
+          set -e
+          python3 - <<'EOF'
+          import glob, xml.etree.ElementTree as ET
+          files = glob.glob('app/build/test-results/testDebugUnitTest/*.xml')
+          assert files, 'no test result XML found'
+          t = f = e = 0
+          for x in files:
+              r = ET.parse(x).getroot()
+              t += int(r.get('tests', 0)); f += int(r.get('failures', 0)); e += int(r.get('errors', 0))
+          print(f'tests={t} failures={f} errors={e}')
+          assert t > 0 and f == 0 and e == 0, 'unit tests are not green'
+          EOF
+
+      - name: Build release APK
+        env:
+          UUKANSHU_KEYSTORE_FILE: ${{ github.workspace }}/prod.keystore
+          UUKANSHU_KEYSTORE_PASSWORD: ${{ secrets.UUKANSHU_KEYSTORE_PASSWORD }}
+          UUKANSHU_KEY_ALIAS: uukanshu
+          UUKANSHU_KEY_PASSWORD: ${{ secrets.UUKANSHU_KEY_PASSWORD }}
+        run: mise run build
+
+      - name: Verify updater contract + official signature
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -e
+          VER="${TAG#v}"
+          # Tag must equal versionName (updater contract: tag vX.Y.Z == X.Y.Z).
+          NAME="$(sed -n 's/^[[:space:]]*versionName = "\(.*\)".*/\1/p' app/build.gradle.kts | head -n 1)"
+          test "$NAME" = "$VER" || { echo "versionName $NAME != tag $VER"; exit 1; }
+          # Exactly one asset with the exact updater-mandated name.
+          APK="app/build/outputs/apk/release/uukanshu-$VER.apk"
+          test -f "$APK" || { echo "missing $APK"; exit 1; }
+          export ANDROID_SDK_ROOT="$PWD/.android-sdk"
+          APKSIGNER="$(ls "$ANDROID_SDK_ROOT"/build-tools/*/apksigner | sort -V | tail -n 1)"
+          test -x "$APKSIGNER" || { echo "apksigner not found under $ANDROID_SDK_ROOT/build-tools"; exit 1; }
+          "$APKSIGNER" verify "$APK"
+          # Signer must be the official production key — a dev-key build
+          # can never slip into a release, even if secrets get miswired.
+          # Exactly one signer: --print-certs prints one SHA-256 digest
+          # line per signer, so a second stacked signature fails closed.
+          CERTS="$("$APKSIGNER" verify --print-certs "$APK")"
+          test "$(printf '%s' "$CERTS" | grep -c -i 'SHA-256 digest')" = 1 \
+            || { echo "expected exactly 1 signer"; exit 1; }
+          FP="$(printf '%s' "$CERTS" | grep -i 'SHA-256 digest' | head -n 1)"
+          echo "$FP" | grep -qi "$EXPECTED_FINGERPRINT" \
+            || { echo "signer is NOT the official production key"; exit 1; }
+          # The tag must be annotated: its message is the user-facing
+          # changelog (Traditional Chinese). A lightweight tag would leak
+          # the bump commit message into the release notes instead.
+          test "$(git cat-file -t "$TAG")" = tag \
+            || { echo "tag $TAG is lightweight; re-tag annotated (-a) with the changelog"; exit 1; }
+          # Tag message as release notes, minus any GPG armor. Uses git's
+          # own subject/body split, so nothing matches literal `-----`
+          # that could rot if the armor header ever varies.
+          SUBJECT="$(git tag -l --format='%(subject)' "$TAG")"
+          BODY="$(git tag -l --format='%(body)' "$TAG")"
+          if [ -n "$BODY" ]; then
+            printf -v NOTES '%s\n\n%s' "$SUBJECT" "$BODY"
+          else
+            NOTES="$SUBJECT"
+          fi
+          printf '%s' "$NOTES" | grep -q '[^[:space:]]' \
+            || { echo "tag $TAG has an empty message; re-tag annotated with the changelog"; exit 1; }
+          printf '%s' "$NOTES" > "$RUNNER_TEMP/notes.md"
+          echo "APK=$APK" >> "$GITHUB_ENV"
+
+      - name: Publish GitHub release
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        # Fails if the release already exists — by design, assets are
+        # never overwritten (see docs/RELEASING.md updater contract).
+        # No explicit --latest: gh picks it automatically by date+version,
+        # so backport tags can never steal "latest" from a newer release.
+        run: gh release create "$TAG" "$APK" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
+
+      - name: Confirm digest exposure
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          VER="${TAG#v}"
+          EXPECTED_APK="uukanshu-$VER.apk"
+          for i in 1 2 3 4 5 6; do
+            if gh api "repos/${{ github.repository }}/releases/tags/$TAG" \
+                --jq '.assets' > "$RUNNER_TEMP/assets.json"; then
+              if python3 - "$RUNNER_TEMP/assets.json" "$EXPECTED_APK" <<'EOF'; then
+          import json, sys
+          assets_path, expected = sys.argv[1], sys.argv[2]
+          assets = json.load(open(assets_path))
+          assert len(assets) == 1, f'expected exactly 1 asset, got {assets}'
+          a = assets[0]
+          assert a.get('name') == expected, f'name mismatch: {a}'
+          assert (a.get('digest') or '').startswith('sha256:'), f'digest missing: {a}'
+          print(a['name'], a['digest'])
+          EOF
+                exit 0
+              fi
+            fi
+            echo "digest not ready (attempt $i/6), retrying..."
+            sleep 10
+          done
+          echo "digest never appeared for $TAG/$EXPECTED_APK"; exit 1
