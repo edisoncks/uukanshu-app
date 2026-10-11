@@ -44,8 +44,10 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -58,7 +60,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -70,7 +74,17 @@ import kotlinx.coroutines.launch
  * Reading screen: static Scaffold chrome (top bar + bottom bar), sticky
  * chapter header, selectable paragraphs. No tap-to-hide: it fights with
  * text selection long-press, and ships untested without Compose UI tests.
+ *
+ * Paper mode is reader-only (never touches global AppTheme): a fixed sepia
+ * palette that forces light paper even in dark mode, like Kindle sepia.
+ * Intentional exception to the dynamic-color-only rule in the settings sheet.
  */
+private val PaperBackground = Color(0xFFF6F0DC)
+private val PaperOnBackground = Color(0xFF3E3525)
+private val PaperOnVariant = Color(0xFF6B5F45)
+
+private fun readerFontFamily(name: String): FontFamily =
+    if (name == Prefs.READER_FONT_SERIF) FontFamily.Serif else FontFamily.Default
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () -> Unit) {
@@ -88,12 +102,17 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
     val simplified by vm.simplified.collectAsState()
     val fontScale by vm.fontScale.collectAsState()
     val theme by vm.theme.collectAsState()
+    val readerFont by vm.readerFont.collectAsState()
+    val lineScale by vm.lineScale.collectAsState()
+    val paraScale by vm.paraScale.collectAsState()
+    val paperEnabled by vm.paperEnabled.collectAsState()
     val bookTitleRaw by vm.bookTitle.collectAsState()
     val snacks = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var showSheet by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
+        containerColor = if (paperEnabled) PaperBackground else MaterialTheme.colorScheme.background,
         topBar = {
             val (pos, total, title) = when (val s = ui) {
                 is ReaderViewModel.Ui.Content -> Triple(s.position, s.total, s.title)
@@ -107,6 +126,7 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
                     if (title.isEmpty()) "${pos} / ${total}" else ReaderHeader.line2(pos, total, title)
                 } else "…",
                 backLabel = vm.display("返回"),
+                paperEnabled = paperEnabled,
                 onBack = onBack,
             )
         },
@@ -114,6 +134,7 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
             ReaderBottomBar(
                 ui = ui,
                 display = vm::display,
+                paperEnabled = paperEnabled,
                 onSettings = { showSheet = true },
                 onPrev = { vm.prev(); Unit },
                 onNext = {
@@ -149,6 +170,10 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
                     // Text already converted in the VM — never display() twice.
                     paragraphs = ReaderParagraphs.split(s.text),
                     fontScale = fontScale,
+                    lineScale = lineScale,
+                    paraScale = paraScale,
+                    readerFont = readerFont,
+                    paperEnabled = paperEnabled,
                 )
             }
         }
@@ -164,10 +189,18 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
                 simplified = simplified,
                 fontScale = fontScale,
                 theme = theme,
+                readerFont = readerFont,
+                lineScale = lineScale,
+                paraScale = paraScale,
+                paperEnabled = paperEnabled,
                 display = vm::display,
                 onSetSimplified = vm::setSimplified,
                 onSetFontScale = vm::setFontScale,
                 onSetTheme = vm::setTheme,
+                onSetReaderFont = vm::setReaderFont,
+                onSetLineScale = vm::setLineScale,
+                onSetParaScale = vm::setParaScale,
+                onSetPaperEnabled = vm::setPaperEnabled,
             )
         }
     }
@@ -175,7 +208,7 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ReaderTopBar(book: String, line2: String, backLabel: String, onBack: () -> Unit) {
+private fun ReaderTopBar(book: String, line2: String, backLabel: String, paperEnabled: Boolean, onBack: () -> Unit) {
     // Static divider under the bar (replaces the one lost with the sticky
     // header; mirrors the bottom bar). Not scroll-linked: hoisting scroll
     // state for elevation costs recomposes for zero gain on a static bar.
@@ -183,6 +216,14 @@ private fun ReaderTopBar(book: String, line2: String, backLabel: String, onBack:
     TopAppBar(
         // Outer NavHost padding owns status height once; Detail + Reader both zero.
         windowInsets = WindowInsets(0),
+        colors = if (paperEnabled) {
+            TopAppBarDefaults.topAppBarColors(
+                containerColor = PaperBackground,
+                navigationIconContentColor = PaperOnBackground,
+                titleContentColor = PaperOnBackground,
+                actionIconContentColor = PaperOnBackground,
+            )
+        } else TopAppBarDefaults.topAppBarColors(),
         navigationIcon = {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = backLabel)
@@ -198,7 +239,7 @@ private fun ReaderTopBar(book: String, line2: String, backLabel: String, onBack:
                 Text(
                     line2,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (paperEnabled) PaperOnVariant else MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                 )
             }
@@ -216,6 +257,10 @@ private fun ReaderContent(
     position: Int,
     paragraphs: List<String>,
     fontScale: Float,
+    lineScale: Float,
+    paraScale: Float,
+    readerFont: String,
+    paperEnabled: Boolean,
 ) {
     val scroll = rememberScrollState()
     // Paging chapters reuses this composition: jump to top on chapter change.
@@ -227,9 +272,11 @@ private fun ReaderContent(
             paragraphs.forEach { p ->
                 Text(
                     p,
-                    fontSize = (17 * fontScale).sp,
-                    lineHeight = (28 * fontScale).sp,
-                    modifier = Modifier.padding(bottom = 12.dp),
+                    fontSize = ReaderTypography.fontSizeSp(fontScale).sp,
+                    lineHeight = ReaderTypography.lineHeightSp(fontScale, lineScale).sp,
+                    fontFamily = readerFontFamily(readerFont),
+                    color = if (paperEnabled) PaperOnBackground else Color.Unspecified,
+                    modifier = Modifier.padding(bottom = ReaderTypography.paragraphSpacingDp(paraScale).dp),
                 )
             }
         }
@@ -263,14 +310,20 @@ private fun ReaderError(
 private fun ReaderBottomBar(
     ui: ReaderViewModel.Ui,
     display: (String) -> String,
+    paperEnabled: Boolean,
     onSettings: () -> Unit,
     onPrev: () -> Unit,
     onNext: () -> Unit,
 ) {
     // Match TopBar: surface + single divider (no tonal slab), tonal nav
     // keeps focus on text. Settings in IconButton (left, out of thumb way),
-    // prev/next dominate the thumb zone.
-    Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
+    // prev/next dominate the thumb zone. Paper tints the surface only;
+    // buttons stay dynamic so contrast never breaks.
+    Surface(
+        color = if (paperEnabled) PaperBackground else MaterialTheme.colorScheme.surface,
+        contentColor = if (paperEnabled) PaperOnBackground else MaterialTheme.colorScheme.onSurface,
+        tonalElevation = 0.dp,
+    ) {
         Column {
             HorizontalDivider()
             Row(
@@ -321,10 +374,18 @@ private fun ReaderSettingsSheet(
     simplified: Boolean,
     fontScale: Float,
     theme: String,
+    readerFont: String,
+    lineScale: Float,
+    paraScale: Float,
+    paperEnabled: Boolean,
     display: (String) -> String,
     onSetSimplified: (Boolean) -> Unit,
     onSetFontScale: (Float) -> Unit,
     onSetTheme: (String) -> Unit,
+    onSetReaderFont: (String) -> Unit,
+    onSetLineScale: (Float) -> Unit,
+    onSetParaScale: (Float) -> Unit,
+    onSetPaperEnabled: (Boolean) -> Unit,
 ) {
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -360,7 +421,7 @@ private fun ReaderSettingsSheet(
         }
         // Font size: stepper + slider share one absolute setter (VM coerces),
         // bound-disable at ends (not silent clamp) + live preview using the
-        // same 17/28sp formula as ReaderContent.
+        // same ReaderTypography formula + paper ink as ReaderContent.
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 display("文字大小"),
@@ -404,8 +465,161 @@ private fun ReaderSettingsSheet(
                     )
                     Text(
                         display("永夜微涼，燈火未熄。"),
-                        fontSize = (17 * fontScale).sp,
-                        lineHeight = (28 * fontScale).sp,
+                        fontSize = ReaderTypography.fontSizeSp(fontScale).sp,
+                        lineHeight = ReaderTypography.lineHeightSp(fontScale, lineScale).sp,
+                        fontFamily = readerFontFamily(readerFont),
+                        color = if (paperEnabled) PaperOnBackground else Color.Unspecified,
+                        modifier = Modifier.padding(bottom = ReaderTypography.paragraphSpacingDp(paraScale).dp),
+                    )
+                    Text(
+                        display("孤燈不滅，書頁溫熱。"),
+                        fontSize = ReaderTypography.fontSizeSp(fontScale).sp,
+                        lineHeight = ReaderTypography.lineHeightSp(fontScale, lineScale).sp,
+                        fontFamily = readerFontFamily(readerFont),
+                        color = if (paperEnabled) PaperOnBackground else Color.Unspecified,
+                    )
+                }
+            }
+        }
+        // Font family: segmented so both options stay visible.
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                display("字體"),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Card(Modifier.fillMaxWidth()) {
+                SingleChoiceSegmentedButtonRow(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                ) {
+                    SegmentedButton(
+                        selected = readerFont != Prefs.READER_FONT_SERIF,
+                        onClick = { onSetReaderFont(Prefs.READER_FONT_SANS) },
+                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                        label = { Text(display("黑體")) },
+                    )
+                    SegmentedButton(
+                        selected = readerFont == Prefs.READER_FONT_SERIF,
+                        onClick = { onSetReaderFont(Prefs.READER_FONT_SERIF) },
+                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                        label = { Text(display("宋體")) },
+                    )
+                }
+            }
+        }
+        // Line height: stepper + slider share one absolute setter (VM coerces).
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                display("行距"),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Card(Modifier.fillMaxWidth()) {
+                Column(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(
+                            onClick = { onSetLineScale(lineScale - 0.05f) },
+                            enabled = lineScale > Prefs.LINE_MIN,
+                        ) {
+                            Icon(Icons.Filled.Remove, contentDescription = display("減小行距"))
+                        }
+                        Slider(
+                            value = lineScale,
+                            onValueChange = onSetLineScale,
+                            valueRange = Prefs.LINE_MIN..Prefs.LINE_MAX,
+                            // Match the ±0.05 stepper: 0.45 range = 9 intervals.
+                            steps = 8,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(
+                            onClick = { onSetLineScale(lineScale + 0.05f) },
+                            enabled = lineScale < Prefs.LINE_MAX,
+                        ) {
+                            Icon(Icons.Filled.Add, contentDescription = display("增大行距"))
+                        }
+                    }
+                    Text(
+                        "${(lineScale * 100).toInt()}%",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        // Paragraph spacing: same slider pattern, live via ReaderTypography.
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                display("段距"),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Card(Modifier.fillMaxWidth()) {
+                Column(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(
+                            onClick = { onSetParaScale(paraScale - 0.1f) },
+                            enabled = paraScale > Prefs.PARA_MIN,
+                        ) {
+                            Icon(Icons.Filled.Remove, contentDescription = display("減小段距"))
+                        }
+                        Slider(
+                            value = paraScale,
+                            onValueChange = onSetParaScale,
+                            valueRange = Prefs.PARA_MIN..Prefs.PARA_MAX,
+                            // Match the ±0.1 stepper: 1.5 range = 15 intervals.
+                            steps = 14,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(
+                            onClick = { onSetParaScale(paraScale + 0.1f) },
+                            enabled = paraScale < Prefs.PARA_MAX,
+                        ) {
+                            Icon(Icons.Filled.Add, contentDescription = display("增大段距"))
+                        }
+                    }
+                    Text(
+                        "${(paraScale * 100).toInt()}%",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        // Paper mode: reader-only sepia override (see PaperBackground).
+        // Forces light paper even in dark mode; buttons stay dynamic.
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                display("紙色護眼"),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Card(Modifier.fillMaxWidth()) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        display("米紙色"),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Switch(
+                        checked = paperEnabled,
+                        onCheckedChange = onSetPaperEnabled,
                     )
                 }
             }

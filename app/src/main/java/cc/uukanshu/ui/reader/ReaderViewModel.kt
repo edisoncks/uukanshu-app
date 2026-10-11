@@ -82,6 +82,14 @@ class ReaderViewModel(
     val fontScale: StateFlow<Float> = _fontScale
     private val _theme = MutableStateFlow(Prefs.SYSTEM)
     val theme: StateFlow<String> = _theme
+    private val _readerFont = MutableStateFlow(Prefs.READER_FONT_SANS)
+    val readerFont: StateFlow<String> = _readerFont
+    private val _lineScale = MutableStateFlow(Prefs.LINE_DEFAULT)
+    val lineScale: StateFlow<Float> = _lineScale
+    private val _paraScale = MutableStateFlow(Prefs.PARA_DEFAULT)
+    val paraScale: StateFlow<Float> = _paraScale
+    private val _paperEnabled = MutableStateFlow(false)
+    val paperEnabled: StateFlow<Boolean> = _paperEnabled
     // Last known book title (TOC meta) for chrome: Ui.Loading carries no book,
     // so the top bar would flicker blank on every chapter turn without this.
     private val _bookTitle = MutableStateFlow("")
@@ -130,6 +138,10 @@ class ReaderViewModel(
             _simplified.value = prefs.simplified.first()
             _fontScale.value = prefs.fontScale.first()
             _theme.value = prefs.theme.first()
+            _readerFont.value = prefs.readerFont.first()
+            _lineScale.value = prefs.lineScale.first()
+            _paraScale.value = prefs.paraScale.first()
+            _paperEnabled.value = prefs.paperEnabled.first()
             // Single collector + tocGen invalidation: a late emit from the
             // cancelled run is dropped by generation check, so it can only
             // touch totals/book title via the current run, never stale content.
@@ -457,5 +469,35 @@ class ReaderViewModel(
         if (next == _theme.value) return
         _theme.value = next
         viewModelScope.launch { prefs.setTheme(next) }
+    }
+
+    /** Idempotent set for font segmented buttons. */
+    fun setReaderFont(v: String) {
+        val next = Prefs.normalizeReaderFont(v)
+        if (next == _readerFont.value) return
+        _readerFont.value = next
+        viewModelScope.launch { prefs.setReaderFont(next) }
+    }
+
+    /** Absolute set for the line-height Slider: coerced, idempotent. Main read-modify-write like setFontScale. */
+    fun setLineScale(v: Float) {
+        val next = Prefs.coerceLineScale(v)
+        if (next == _lineScale.value) return
+        _lineScale.value = next
+        viewModelScope.launch { prefs.setLineScale(next) }
+    }
+
+    /** Absolute set for the paragraph-spacing Slider: coerced, idempotent. Main read-modify-write like setFontScale. */
+    fun setParaScale(v: Float) {
+        val next = Prefs.coerceParaScale(v)
+        if (next == _paraScale.value) return
+        _paraScale.value = next
+        viewModelScope.launch { prefs.setParaScale(next) }
+    }
+
+    fun setPaperEnabled(v: Boolean) {
+        if (v == _paperEnabled.value) return
+        _paperEnabled.value = v
+        viewModelScope.launch { prefs.setPaperEnabled(v) }
     }
 }
