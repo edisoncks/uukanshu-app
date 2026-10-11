@@ -65,6 +65,6 @@ Common scopes in this repo: `home`, `search`, `detail`, `reader`, `library`,
 ## Releases
 
 Cutting a release is a maintainer task — see [RELEASING.md](RELEASING.md).
-In short: bump `versionName`, `mise run test && mise run build`, verify the
-signature, push tag `vX.Y.Z`, publish via `gh release create` with exactly
-one `uukanshu-X.Y.Z.apk` asset, then smoke-test install + in-app update.
+In short: bump `versionName`, push an annotated tag `vX.Y.Z` (message =
+Traditional Chinese changelog), approve the CI run, then smoke-test
+install + in-app update. Official APKs are built on CI only.
