@@ -12,7 +12,7 @@ End users never need this — they install and update from the
 
 - Push access to `main`.
 - The `production` environment on GitHub holds the official signing key
-  (`KEYSTORE_BASE64`) plus `UUKANSHU_KEYSTORE_PASSWORD` /
+  (`UUKANSHU_KEYSTORE_BASE64`) plus `UUKANSHU_KEYSTORE_PASSWORD` /
   `UUKANSHU_KEY_PASSWORD` secrets, with required reviewers so every
   release needs a human tap. Only maintainers who can approve that
   environment can ship. Secrets are entered in the GitHub UI (or via
