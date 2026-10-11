@@ -479,7 +479,7 @@ class ReaderViewModel(
         viewModelScope.launch { prefs.setReaderFont(next) }
     }
 
-    /** Absolute set for the line-height Slider: coerced, idempotent. */
+    /** Absolute set for the line-height Slider: coerced, idempotent. Main read-modify-write like setFontScale. */
     fun setLineScale(v: Float) {
         val next = Prefs.coerceLineScale(v)
         if (next == _lineScale.value) return
@@ -487,7 +487,7 @@ class ReaderViewModel(
         viewModelScope.launch { prefs.setLineScale(next) }
     }
 
-    /** Absolute set for the paragraph-spacing Slider: coerced, idempotent. */
+    /** Absolute set for the paragraph-spacing Slider: coerced, idempotent. Main read-modify-write like setFontScale. */
     fun setParaScale(v: Float) {
         val next = Prefs.coerceParaScale(v)
         if (next == _paraScale.value) return

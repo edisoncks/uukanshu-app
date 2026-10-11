@@ -421,7 +421,7 @@ private fun ReaderSettingsSheet(
         }
         // Font size: stepper + slider share one absolute setter (VM coerces),
         // bound-disable at ends (not silent clamp) + live preview using the
-        // same 17/28sp formula as ReaderContent.
+        // same ReaderTypography formula + paper ink as ReaderContent.
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 display("文字大小"),
@@ -468,6 +468,15 @@ private fun ReaderSettingsSheet(
                         fontSize = ReaderTypography.fontSizeSp(fontScale).sp,
                         lineHeight = ReaderTypography.lineHeightSp(fontScale, lineScale).sp,
                         fontFamily = readerFontFamily(readerFont),
+                        color = if (paperEnabled) PaperOnBackground else Color.Unspecified,
+                        modifier = Modifier.padding(bottom = ReaderTypography.paragraphSpacingDp(paraScale).dp),
+                    )
+                    Text(
+                        display("孤燈不滅，書頁溫熱。"),
+                        fontSize = ReaderTypography.fontSizeSp(fontScale).sp,
+                        lineHeight = ReaderTypography.lineHeightSp(fontScale, lineScale).sp,
+                        fontFamily = readerFontFamily(readerFont),
+                        color = if (paperEnabled) PaperOnBackground else Color.Unspecified,
                     )
                 }
             }
@@ -525,6 +534,8 @@ private fun ReaderSettingsSheet(
                             value = lineScale,
                             onValueChange = onSetLineScale,
                             valueRange = Prefs.LINE_MIN..Prefs.LINE_MAX,
+                            // Match the ±0.05 stepper: 0.45 range = 9 intervals.
+                            steps = 8,
                             modifier = Modifier.weight(1f),
                         )
                         IconButton(
@@ -569,6 +580,8 @@ private fun ReaderSettingsSheet(
                             value = paraScale,
                             onValueChange = onSetParaScale,
                             valueRange = Prefs.PARA_MIN..Prefs.PARA_MAX,
+                            // Match the ±0.1 stepper: 1.5 range = 15 intervals.
+                            steps = 14,
                             modifier = Modifier.weight(1f),
                         )
                         IconButton(
