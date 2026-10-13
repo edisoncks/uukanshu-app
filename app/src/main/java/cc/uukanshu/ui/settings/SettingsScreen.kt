@@ -31,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -121,7 +122,11 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
                             selected = theme == value,
                             onClick = { scope.launch { prefs.setTheme(value) } },
                             shape = SegmentedButtonDefaults.itemShape(index = index, count = THEME_OPTIONS.size),
-                            label = { Text(display(name), maxLines = 1) },
+                            // The segment reserves the check icon's width
+                            // (18dp + 8dp spacing) whether or not it is drawn, so
+                            // a label that outgrows its segment at a large font
+                            // scale ellipsizes instead of being cut mid-glyph.
+                            label = { Text(display(name), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         )
                     }
                 }
