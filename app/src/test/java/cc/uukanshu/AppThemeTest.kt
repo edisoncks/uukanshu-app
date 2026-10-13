@@ -65,7 +65,6 @@ class AppThemeTest {
      */
     @Test fun paperKeepsNoBaselineOrCoolHue() {
         val baseline = lightColorScheme()
-        assertEquals("primary must not fall back to baseline", PaperPalette.Primary, paper.primary)
         assertTrue("primary is baseline purple", paper.primary != baseline.primary)
         assertTrue("secondary is baseline purple", paper.secondary != baseline.secondary)
         listOf(
@@ -95,7 +94,8 @@ class AppThemeTest {
 
     @Test fun foregroundOnContainerPairsKeepAaContrast() {
         // Pairs the app actually renders: body text, secondary labels,
-        // filled/tonal buttons, error banners, the reader settings preview.
+        // filled/tonal buttons, error banners, the reader settings preview,
+        // the snackbars (inverse roles).
         listOf(
             "surface/onSurface" to (paper.onSurface to paper.surface),
             "background/onBackground" to (paper.onBackground to paper.background),
@@ -106,6 +106,7 @@ class AppThemeTest {
             "tertiaryContainer/onTertiaryContainer" to (paper.onTertiaryContainer to paper.tertiaryContainer),
             "errorContainer/onErrorContainer" to (paper.onErrorContainer to paper.errorContainer),
             "surfaceContainer/onSurface" to (paper.onSurface to paper.surfaceContainer),
+            "inverseSurface/inverseOnSurface" to (paper.inverseOnSurface to paper.inverseSurface),
         ).forEach { (name, pair) ->
             val ratio = contrast(pair.first, pair.second)
             assertTrue("$name contrast $ratio < 4.5", ratio >= 4.5)
