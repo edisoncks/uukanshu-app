@@ -8,15 +8,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -31,7 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -49,6 +49,18 @@ import cc.uukanshu.ui.update.UpdateViewModel
 import kotlinx.coroutines.launch
 
 /**
+ * The four modes of `Prefs.theme`, in the order the appearance row shows them
+ * (see the theme contract in docs/ARCHITECTURE.md). A mode missing here has no
+ * way to be selected, so this list is the UI half of that contract.
+ */
+internal val THEME_OPTIONS: List<Pair<String, String>> = listOf(
+    Prefs.SYSTEM to "自動",
+    Prefs.LIGHT to "淺色",
+    Prefs.PAPER to "紙色",
+    Prefs.DARK to "深色",
+)
+
+/**
  * Settings tab: appearance, Traditional/Simplified, 追更 auto-check, app update.
  * Living here instead of the Home top bar keeps that bar a plain title and
  * keeps the update flow testable in one place. Controls write to [Prefs] so
@@ -57,7 +69,12 @@ import kotlinx.coroutines.launch
  *
  * Layout: four cards (appearance / language / 追更 / update), each a
  * fillMaxWidth Card under a SectionHeader, so sections share one rhythm
- * instead of floating loose in a flat column.
+ * instead of floating loose in a flat column. Controls stay one row tall:
+ * the themes are a segmented row (see [THEME_OPTIONS]) rather than four radio
+ * rows, and the 追更 card keeps its state and its last-check stamp on one line.
+ *
+ * The 追更 switch is named for the bookshelf so it cannot be read as the app
+ * update check in the card below it.
  */
 @Composable
 fun SettingsScreen(updateVm: UpdateViewModel) {
@@ -93,47 +110,30 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
     ) {
         Text("uukanshu", style = MaterialTheme.typography.titleMedium)
 
-        // Appearance card: three compact radio rows, dividers between.
+        // Appearance card: one segmented row, all four themes visible at once.
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionHeader(display("外觀"))
             Card(Modifier.fillMaxWidth()) {
-                Column {
-                    val options = listOf(
-                        Prefs.SYSTEM to "自動",
-                        Prefs.LIGHT to "淺色",
-                        Prefs.PAPER to "紙色",
-                        Prefs.DARK to "深色",
-                    )
-                    options.forEachIndexed { index, (value, name) ->
-                        Row(
-                            Modifier.fillMaxWidth()
-                                .selectable(
-                                    selected = theme == value,
-                                    onClick = { scope.launch { prefs.setTheme(value) } },
-                                    role = Role.RadioButton,
-                                )
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            RadioButton(
-                                selected = theme == value,
-                                onClick = { scope.launch { prefs.setTheme(value) } },
-                            )
-                            Text(
-                                display(name),
-                                style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier.padding(start = 8.dp),
-                            )
-                        }
-                        if (index < options.lastIndex) {
-                            HorizontalDivider()
-                        }
+                SingleChoiceSegmentedButtonRow(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                ) {
+                    THEME_OPTIONS.forEachIndexed { index, (value, name) ->
+                        SegmentedButton(
+                            selected = theme == value,
+                            onClick = { scope.launch { prefs.setTheme(value) } },
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = THEME_OPTIONS.size),
+                            // The segment reserves the check icon's width
+                            // (18dp + 8dp spacing) whether or not it is drawn, so
+                            // a label that outgrows its segment at a large font
+                            // scale ellipsizes instead of being cut mid-glyph.
+                            label = { Text(display(name), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        )
                     }
                 }
             }
         }
 
-        // Language card: single row, same density as theme rows.
+        // Language card: single row, same density as the appearance row.
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionHeader(display("語言"))
             Card(Modifier.fillMaxWidth()) {
@@ -164,7 +164,7 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(display("自動檢查更新"), style = MaterialTheme.typography.bodyLarge)
+                        Text(display("自動檢查書架更新"), style = MaterialTheme.typography.bodyLarge)
                         Switch(
                             checked = autoBookEnabled,
                             onCheckedChange = { on ->
@@ -186,22 +186,35 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
                             },
                         )
                     }
-                    Text(
-                        if (autoBookEnabled) display("自動檢查更新，有更新時通知。")
-                        else display("已關閉自動檢查，可在書架手動檢查。"),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        display(UpdateChecker.formatLastCheck(lastBookCheck)),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (autoBookEnabled && notifGrantedState == false) {
+                    // State and last-check share one line: stacked they said the
+                    // same thing in twice the height. A denied notification
+                    // permission replaces the state text rather than adding a
+                    // third line, because it is the more specific statement.
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Text(
-                            display("通知已關閉，仍會在書架顯示徽章。"),
+                            display(
+                                when {
+                                    !autoBookEnabled -> "已關閉，可在書架手動檢查"
+                                    notifGrantedState == false -> "通知已關閉，改在書架顯示徽章"
+                                    else -> "有更新時通知"
+                                }
+                            ),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            // formatLastCheck owns the "no check yet" wording; the
+                            // prefix must not produce "上次檢查 從未檢查".
+                            if (lastBookCheck > 0L) display("上次檢查 ${UpdateChecker.formatLastCheck(lastBookCheck)}")
+                            else display("尚未檢查"),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 8.dp),
                         )
                     }
                 }
