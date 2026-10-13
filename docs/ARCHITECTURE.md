@@ -27,14 +27,29 @@ UI text is Traditional Chinese by default, with a global Simplified toggle.
 - The shell owns the shared `UpdateViewModel` and overlays the update dialog on
   any tab; the library tab shows a dot while any book has unseen chapters.
 - `Site.kt`: base URL plus the fixed category catalogue (ids 1–10).
-- Theme is one pure decision (`isDark`) driven by `Prefs.theme` (system/light/paper/dark), wrapping
-  dynamic color where the platform offers it with a plain-scheme fallback.
-- `paper` is a **fixed** scheme (`AppTheme.paperScheme()`, palette in `PaperPalette`): the only theme
-  that ignores Material You, so it renders identically on every device. It takes no `Context`, which
-  makes dynamic color structurally impossible there. Every role is set explicitly; `error` stays the
-  baseline red because it is semantic, and the neutral roles are the reader's original sepia values.
-  No screen styles paper itself — the reader had `if (isPaper)` branches until paper became global;
-  `foreground/container` contrast pairs are pinned by `AppThemeTest`.
+
+## Theme
+
+Four modes (`Prefs.theme`): `system`, `light`, `paper`, `dark`. `system` follows the device;
+everything but `paper` resolves to the platform's dynamic color scheme, with a plain-scheme fallback.
+`AppTheme.isDark()` is the pure, JVM-testable half of that decision, and it also drives system-bar
+icon appearance (the window theme is static light, so the bars need the in-app answer).
+
+`paper` is the exception in every sense:
+
+- **Fixed.** `AppTheme.paperScheme()` builds it from `PaperPalette` and takes no `Context`, so dynamic
+  color is structurally unreachable. It is the only theme that ignores Material You and the only one
+  that looks the same on every device. All 36 roles are set explicitly: a role left unset would fall
+  back to the baseline scheme (lavender) inside sepia chrome.
+- **Semantic roles stay semantic.** `error` keeps the Material baseline red; a failure must not read
+  as decoration. `surfaceTint` is warm, so elevation shading cannot drag a sepia surface toward a
+  hue the rest of the scheme does not use.
+- **Validated, not eyeballed.** `AppThemeTest` pins every role to the palette, pins the warm/light
+  properties, and enforces a 4.5 contrast floor on the foreground/container pairs the app renders.
+  Editing a hex here means passing that test.
+- **Global, never reader-local.** No screen styles paper itself; the reader had three hardcoded
+  colors and `if (isPaper)` branches until paper became a scheme, and now reads
+  `surface`/`onSurface`/`onBackground` like any other screen.
 
 ## Permissions
 

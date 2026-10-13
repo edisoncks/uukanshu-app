@@ -119,7 +119,8 @@ class Prefs(private val context: Context) : cc.uukanshu.di.PrefsApi {
         context.store.data.map { coerceParaScale(it[PrefsKeys.READER_PARA_SCALE] ?: PARA_DEFAULT) }
 
     /** Theme mode: [SYSTEM] (follow system), [LIGHT], [PAPER], or [DARK].
-     *  PAPER is a warm-light theme: global chrome renders light, reader renders sepia.
+     *  PAPER is a fixed warm-light scheme applied app-wide, not a reader-only skin
+     *  (docs/ARCHITECTURE.md § Theme).
      *  Legacy installs with reader_paper=true read as PAPER until they next write theme. */
     override val theme: Flow<String> =
         context.store.data.map {
