@@ -70,7 +70,10 @@ internal val THEME_OPTIONS: List<Pair<String, String>> = listOf(
  * fillMaxWidth Card under a SectionHeader, so sections share one rhythm
  * instead of floating loose in a flat column. Controls stay one row tall:
  * the themes are a segmented row (see [THEME_OPTIONS]) rather than four radio
- * rows.
+ * rows, and the 追更 card keeps its state and its last-check stamp on one line.
+ *
+ * The 追更 switch is named for the bookshelf so it cannot be read as the app
+ * update check in the card below it.
  */
 @Composable
 fun SettingsScreen(updateVm: UpdateViewModel) {
@@ -156,7 +159,7 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(display("自動檢查更新"), style = MaterialTheme.typography.bodyLarge)
+                        Text(display("自動檢查書架更新"), style = MaterialTheme.typography.bodyLarge)
                         Switch(
                             checked = autoBookEnabled,
                             onCheckedChange = { on ->
@@ -178,22 +181,35 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
                             },
                         )
                     }
-                    Text(
-                        if (autoBookEnabled) display("自動檢查更新，有更新時通知。")
-                        else display("已關閉自動檢查，可在書架手動檢查。"),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        display(UpdateChecker.formatLastCheck(lastBookCheck)),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (autoBookEnabled && notifGrantedState == false) {
+                    // State and last-check share one line: stacked they said the
+                    // same thing in twice the height. A denied notification
+                    // permission replaces the state text rather than adding a
+                    // third line, because it is the more specific statement.
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Text(
-                            display("通知已關閉，仍會在書架顯示徽章。"),
+                            display(
+                                when {
+                                    !autoBookEnabled -> "已關閉，可在書架手動檢查"
+                                    notifGrantedState == false -> "通知已關閉，改在書架顯示徽章"
+                                    else -> "有更新時通知"
+                                }
+                            ),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            // formatLastCheck owns the "no check yet" wording; the
+                            // prefix must not produce "上次檢查 從未檢查".
+                            if (lastBookCheck > 0L) display("上次檢查 ${UpdateChecker.formatLastCheck(lastBookCheck)}")
+                            else display("尚未檢查"),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 8.dp),
                         )
                     }
                 }
