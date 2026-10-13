@@ -48,7 +48,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -61,7 +60,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -76,14 +74,9 @@ import kotlinx.coroutines.launch
  * chapter header, selectable paragraphs. No tap-to-hide: it fights with
  * text selection long-press, and ships untested without Compose UI tests.
  *
- * Paper is the fourth theme value (see Prefs.PAPER): a fixed sepia palette
- * that renders light paper even in dark mode, like Kindle sepia.
- * Intentional exception to the dynamic-color-only rule in the settings sheet.
+ * Colors come from the app theme only (docs/ARCHITECTURE.md § Theme): the
+ * reader has no palette of its own — paper is a global scheme like light/dark.
  */
-private val PaperBackground = Color(0xFFF6F0DC)
-private val PaperOnBackground = Color(0xFF3E3525)
-private val PaperOnVariant = Color(0xFF6B5F45)
-
 private fun readerFontFamily(name: String): FontFamily =
     if (name == Prefs.READER_FONT_SERIF) FontFamily.Serif else FontFamily.Default
 @OptIn(ExperimentalMaterial3Api::class)
@@ -107,13 +100,11 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
     val lineScale by vm.lineScale.collectAsState()
     val paraScale by vm.paraScale.collectAsState()
     val bookTitleRaw by vm.bookTitle.collectAsState()
-    val isPaper = theme == Prefs.PAPER
     val snacks = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var showSheet by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
-        containerColor = if (isPaper) PaperBackground else MaterialTheme.colorScheme.background,
         topBar = {
             val (pos, total, title) = when (val s = ui) {
                 is ReaderViewModel.Ui.Content -> Triple(s.position, s.total, s.title)
@@ -127,7 +118,6 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
                     if (title.isEmpty()) "${pos} / ${total}" else ReaderHeader.line2(pos, total, title)
                 } else "…",
                 backLabel = vm.display("返回"),
-                isPaper = isPaper,
                 onBack = onBack,
             )
         },
@@ -135,7 +125,6 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
             ReaderBottomBar(
                 ui = ui,
                 display = vm::display,
-                isPaper = isPaper,
                 onSettings = { showSheet = true },
                 onPrev = { vm.prev(); Unit },
                 onNext = {
@@ -174,7 +163,6 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
                     lineScale = lineScale,
                     paraScale = paraScale,
                     readerFont = readerFont,
-                    isPaper = isPaper,
                 )
             }
         }
@@ -207,7 +195,7 @@ fun ReaderScreen(bookId: String, position: Int, pageId: Long = 0L, onBack: () ->
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ReaderTopBar(book: String, line2: String, backLabel: String, isPaper: Boolean, onBack: () -> Unit) {
+private fun ReaderTopBar(book: String, line2: String, backLabel: String, onBack: () -> Unit) {
     // Static divider under the bar (replaces the one lost with the sticky
     // header; mirrors the bottom bar). Not scroll-linked: hoisting scroll
     // state for elevation costs recomposes for zero gain on a static bar.
@@ -215,14 +203,6 @@ private fun ReaderTopBar(book: String, line2: String, backLabel: String, isPaper
     TopAppBar(
         // Outer NavHost padding owns status height once; Detail + Reader both zero.
         windowInsets = WindowInsets(0),
-        colors = if (isPaper) {
-            TopAppBarDefaults.topAppBarColors(
-                containerColor = PaperBackground,
-                navigationIconContentColor = PaperOnBackground,
-                titleContentColor = PaperOnBackground,
-                actionIconContentColor = PaperOnBackground,
-            )
-        } else TopAppBarDefaults.topAppBarColors(),
         navigationIcon = {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = backLabel)
@@ -238,7 +218,7 @@ private fun ReaderTopBar(book: String, line2: String, backLabel: String, isPaper
                 Text(
                     line2,
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (isPaper) PaperOnVariant else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                 )
             }
@@ -259,7 +239,6 @@ private fun ReaderContent(
     lineScale: Float,
     paraScale: Float,
     readerFont: String,
-    isPaper: Boolean,
 ) {
     val scroll = rememberScrollState()
     // Paging chapters reuses this composition: jump to top on chapter change.
@@ -274,7 +253,6 @@ private fun ReaderContent(
                     fontSize = ReaderTypography.fontSizeSp(fontScale).sp,
                     lineHeight = ReaderTypography.lineHeightSp(fontScale, lineScale).sp,
                     fontFamily = readerFontFamily(readerFont),
-                    color = if (isPaper) PaperOnBackground else Color.Unspecified,
                     modifier = Modifier.padding(bottom = ReaderTypography.paragraphSpacingDp(paraScale).dp),
                 )
             }
@@ -309,20 +287,15 @@ private fun ReaderError(
 private fun ReaderBottomBar(
     ui: ReaderViewModel.Ui,
     display: (String) -> String,
-    isPaper: Boolean,
     onSettings: () -> Unit,
     onPrev: () -> Unit,
     onNext: () -> Unit,
 ) {
     // Match TopBar: surface + single divider (no tonal slab), tonal nav
     // keeps focus on text. Settings in IconButton (left, out of thumb way),
-    // prev/next dominate the thumb zone. Paper tints the surface only;
-    // buttons stay dynamic so contrast never breaks.
-    Surface(
-        color = if (isPaper) PaperBackground else MaterialTheme.colorScheme.surface,
-        contentColor = if (isPaper) PaperOnBackground else MaterialTheme.colorScheme.onSurface,
-        tonalElevation = 0.dp,
-    ) {
+    // prev/next dominate the thumb zone. Surface roles already carry the
+    // active theme, paper included.
+    Surface(tonalElevation = 0.dp) {
         Column {
             HorizontalDivider()
             Row(
@@ -365,7 +338,8 @@ private fun ReaderBottomBar(
  *
  * Visual contract (matches ReaderTopBar/BottomBar): surface cards, 16dp/8dp
  * rhythm, titleMedium sheet title, titleSmall + onSurfaceVariant section
- * headers, dynamic colorScheme tokens only (no hardcoded day/night colors).
+ * headers, colorScheme tokens only (no hardcoded day/night colors — paper is
+ * a scheme of its own, not a special case here).
  * Sheet content scrolls (small screens + large fonts overflow) with
  * navigationBarsPadding + 32dp bottom inset so the last section clears
  * the gesture bar.
@@ -469,7 +443,6 @@ private fun ReaderSettingsSheet(
                         fontSize = ReaderTypography.fontSizeSp(fontScale).sp,
                         lineHeight = ReaderTypography.lineHeightSp(fontScale, lineScale).sp,
                         fontFamily = readerFontFamily(readerFont),
-                        color = if (theme == Prefs.PAPER) PaperOnBackground else Color.Unspecified,
                         modifier = Modifier.padding(bottom = ReaderTypography.paragraphSpacingDp(paraScale).dp),
                     )
                     Text(
@@ -477,7 +450,6 @@ private fun ReaderSettingsSheet(
                         fontSize = ReaderTypography.fontSizeSp(fontScale).sp,
                         lineHeight = ReaderTypography.lineHeightSp(fontScale, lineScale).sp,
                         fontFamily = readerFontFamily(readerFont),
-                        color = if (theme == Prefs.PAPER) PaperOnBackground else Color.Unspecified,
                     )
                 }
             }
@@ -601,10 +573,8 @@ private fun ReaderSettingsSheet(
             }
         }
         // Appearance: 2x2 tonal tiles (same 12dp rhythm as the bottom bar
-        // actions). Tonal surfaces follow dynamic color + dark mode;
-        // hardcoded white/black previews would lie under Material You.
-        // Paper sits with the themes (not a separate switch): a warm-light
-        // theme that paints sepia in the reader, light elsewhere.
+        // actions). Tonal surfaces follow the active scheme (dynamic light/dark
+        // or the fixed paper palette); hardcoded previews would lie.
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 display("外觀"),
