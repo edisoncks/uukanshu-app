@@ -29,7 +29,12 @@ UI text is Traditional Chinese by default, with a global Simplified toggle.
 - `Site.kt`: base URL plus the fixed category catalogue (ids 1–10).
 - Theme is one pure decision (`isDark`) driven by `Prefs.theme` (system/light/paper/dark), wrapping
   dynamic color where the platform offers it with a plain-scheme fallback.
-  Paper renders light globally and sepia in the reader.
+- `paper` is a **fixed** scheme (`AppTheme.paperScheme()`, palette in `PaperPalette`): the only theme
+  that ignores Material You, so it renders identically on every device. It takes no `Context`, which
+  makes dynamic color structurally impossible there. Every role is set explicitly; `error` stays the
+  baseline red because it is semantic, and the neutral roles are the reader's original sepia values.
+  No screen styles paper itself — the reader had `if (isPaper)` branches until paper became global;
+  `foreground/container` contrast pairs are pinned by `AppThemeTest`.
 
 ## Permissions
 
