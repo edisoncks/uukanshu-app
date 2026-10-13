@@ -98,7 +98,7 @@ Rules every screen follows:
 | Detail | The chapter list is stale-while-revalidate: the cached list paints immediately and one refresh either confirms it or leaves it visibly stale with the reason; offline and refreshing are derived from that phase rather than tracked, so they cannot disagree with it. Download progress, cached-chapter badges and the bookmark are separate live overlays, so they can never invalidate the loaded book. Shrink handling and its escape hatch are invariants — see below. |
 | Reader | One chapter load owns one TOC generation and gets at most one bounded restart (two fetch attempts in total, never a loop), so a TOC shift mid-load cannot open the wrong chapter, and a failure cannot retry forever. Text is cache-first, network second, always keyed by the stable chapter id. Prev/next are last-tap-wins. A chapter the site deleted is reported as deleted instead of being retried forever. |
 | Library | The shelf is a single reactive read (never a one-shot query racing its own flow), stale-while-revalidate, with per-book download rows taken from the app-scoped manager. Deleting a book also drops the manager's retained state for that book. |
-| Settings | Four cards — appearance, language, 追更, update — all writing `Prefs`, so every screen follows live. |
+| Settings | Four cards — appearance, language, 追更, update — all writing `Prefs`, so every screen follows live. The appearance card shows the four themes as one segmented row (`THEME_OPTIONS`): a theme is one tap out of four, not a list of rows to scroll, and the four two-character labels fit a phone width. |
 | Update | A dialog over the updater state machine; the decisions behind it are pure functions (see [In-app update](#in-app-update)). |
 
 ## Invariants (do not break)

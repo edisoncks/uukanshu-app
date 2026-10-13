@@ -8,15 +8,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -31,7 +31,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -49,6 +48,18 @@ import cc.uukanshu.ui.update.UpdateViewModel
 import kotlinx.coroutines.launch
 
 /**
+ * The four modes of `Prefs.theme`, in the order the appearance row shows them
+ * (see the theme contract in docs/ARCHITECTURE.md). A mode missing here has no
+ * way to be selected, so this list is the UI half of that contract.
+ */
+internal val THEME_OPTIONS: List<Pair<String, String>> = listOf(
+    Prefs.SYSTEM to "自動",
+    Prefs.LIGHT to "淺色",
+    Prefs.PAPER to "紙色",
+    Prefs.DARK to "深色",
+)
+
+/**
  * Settings tab: appearance, Traditional/Simplified, 追更 auto-check, app update.
  * Living here instead of the Home top bar keeps that bar a plain title and
  * keeps the update flow testable in one place. Controls write to [Prefs] so
@@ -57,7 +68,9 @@ import kotlinx.coroutines.launch
  *
  * Layout: four cards (appearance / language / 追更 / update), each a
  * fillMaxWidth Card under a SectionHeader, so sections share one rhythm
- * instead of floating loose in a flat column.
+ * instead of floating loose in a flat column. Controls stay one row tall:
+ * the themes are a segmented row (see [THEME_OPTIONS]) rather than four radio
+ * rows.
  */
 @Composable
 fun SettingsScreen(updateVm: UpdateViewModel) {
@@ -93,47 +106,26 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
     ) {
         Text("uukanshu", style = MaterialTheme.typography.titleMedium)
 
-        // Appearance card: three compact radio rows, dividers between.
+        // Appearance card: one segmented row, all four themes visible at once.
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionHeader(display("外觀"))
             Card(Modifier.fillMaxWidth()) {
-                Column {
-                    val options = listOf(
-                        Prefs.SYSTEM to "自動",
-                        Prefs.LIGHT to "淺色",
-                        Prefs.PAPER to "紙色",
-                        Prefs.DARK to "深色",
-                    )
-                    options.forEachIndexed { index, (value, name) ->
-                        Row(
-                            Modifier.fillMaxWidth()
-                                .selectable(
-                                    selected = theme == value,
-                                    onClick = { scope.launch { prefs.setTheme(value) } },
-                                    role = Role.RadioButton,
-                                )
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            RadioButton(
-                                selected = theme == value,
-                                onClick = { scope.launch { prefs.setTheme(value) } },
-                            )
-                            Text(
-                                display(name),
-                                style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier.padding(start = 8.dp),
-                            )
-                        }
-                        if (index < options.lastIndex) {
-                            HorizontalDivider()
-                        }
+                SingleChoiceSegmentedButtonRow(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                ) {
+                    THEME_OPTIONS.forEachIndexed { index, (value, name) ->
+                        SegmentedButton(
+                            selected = theme == value,
+                            onClick = { scope.launch { prefs.setTheme(value) } },
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = THEME_OPTIONS.size),
+                            label = { Text(display(name), maxLines = 1) },
+                        )
                     }
                 }
             }
         }
 
-        // Language card: single row, same density as theme rows.
+        // Language card: single row, same density as the appearance row.
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionHeader(display("語言"))
             Card(Modifier.fillMaxWidth()) {
