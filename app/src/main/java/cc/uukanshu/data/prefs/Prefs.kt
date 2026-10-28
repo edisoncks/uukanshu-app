@@ -88,14 +88,6 @@ class Prefs(private val context: Context) : cc.uukanshu.di.PrefsApi {
             LIGHT, PAPER, DARK -> v
             else -> SYSTEM
         }
-
-        /** Cycle order for the theme toggle. Unknown input restarts at SYSTEM. */
-        fun next(current: String): String = when (normalizeTheme(current)) {
-            SYSTEM -> LIGHT
-            LIGHT -> PAPER
-            PAPER -> DARK
-            else -> SYSTEM
-        }
     }
 
     override val simplified: Flow<Boolean> =

@@ -11,9 +11,8 @@ import org.junit.Test
  * picked on both screens that show a picker — the app settings screen and the
  * reader settings sheet — so its option list is the UI half of the theme
  * contract (docs/ARCHITECTURE.md § Theme): a mode added to `Prefs`/`AppTheme`
- * but not here is silently unreachable. (The reader's own theme toggle cycles
- * `Prefs.next`, so a mode can also be reached without this row; these tests
- * keep the row and that cycle from disagreeing.)
+ * but not here is silently unreachable. `ThemeOptionsRow` renders this order,
+ * and `system` comes first because it is the default a fresh install runs.
  *
  * These pin the list, not the rendering: the repo has no Compose UI tests, so
  * neither the row's click wiring nor its layout is covered here.
@@ -23,13 +22,6 @@ class ThemeOptionsTest {
 
     @Test fun rowOffersEveryModeExactlyOnce() {
         assertEquals(modes, THEME_OPTIONS.map { it.first })
-    }
-
-    @Test fun rowOrderMatchesTheReaderToggleCycle() {
-        var cursor = Prefs.SYSTEM
-        val walked = modes.map { cursor.also { cursor = Prefs.next(cursor) } }
-        assertEquals(THEME_OPTIONS.map { it.first }, walked)
-        assertEquals("cycle does not close back on SYSTEM", Prefs.SYSTEM, cursor)
     }
 
     @Test fun everyOptionCarriesItsOwnNormalizedValueAndALabel() {

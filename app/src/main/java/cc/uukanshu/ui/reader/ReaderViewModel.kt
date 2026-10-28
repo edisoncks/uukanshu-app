@@ -448,19 +448,6 @@ class ReaderViewModel(
     fun display(raw: String): String =
         Display.text(t2s, raw, _simplified.value)
 
-    /** Converted theme-mode label for the settings menu. */
-    fun themeLabel(): String = display(when (_theme.value) {
-        Prefs.LIGHT -> "主題：淺色"
-        Prefs.PAPER -> "主題：紙色"
-        Prefs.DARK -> "主題：深色"
-        else -> "主題：自動"
-    })
-
-    /** Cycle system → light → paper → dark theme. Applied app-wide via prefs. */
-    fun cycleTheme() {
-        setTheme(Prefs.next(_theme.value))
-    }
-
     /** Idempotent set for radio rows: tapping the active mode is a no-op. */
     fun setTheme(mode: String) {
         val next = Prefs.normalizeTheme(mode)
