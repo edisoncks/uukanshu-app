@@ -53,12 +53,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cc.uukanshu.data.prefs.Prefs
-import cc.uukanshu.ui.settings.THEME_OPTIONS
+import cc.uukanshu.ui.ThemeOptionsRow
 import cc.uukanshu.ui.vmFactory
 import kotlinx.coroutines.launch
 
@@ -326,10 +325,10 @@ private fun ReaderBottomBar(
  * Settings sheet: reader-optimized variants of the same Prefs/VM source used
  * by SettingsScreen (same keys, same VM). Widgets differ on purpose for
  * in-reading use: segmented language (both options visible), slider + stepper
- * with WYSIWYG preview. The appearance picker is the one row both screens
- * share (`THEME_OPTIONS`), so a theme sits in the same place wherever it is
- * changed. All labels via display() so 簡體 mode converts. Dumb: all state
- * lives in the VM.
+ * with WYSIWYG preview. The appearance picker is [ThemeOptionsRow], the very
+ * composable the app settings screen renders, so a theme sits in the same
+ * place wherever it is changed. All labels via display() so 簡體 mode converts.
+ * Dumb: all state lives in the VM.
  *
  * Visual contract (matches ReaderTopBar/BottomBar): surface cards, 16dp/8dp
  * rhythm, titleMedium sheet title, titleSmall + onSurfaceVariant section
@@ -567,11 +566,9 @@ private fun ReaderSettingsSheet(
                 }
             }
         }
-        // Appearance: the same compact segmented row as the app settings
-        // screen (`THEME_OPTIONS`): all four themes visible, one tap to pick
-        // one, and one row tall instead of the four tiles' 2x2 height. The
-        // tonal surfaces the tiles used followed the active scheme, so they
-        // said nothing the label does not.
+        // Appearance: [ThemeOptionsRow], the same picker the app settings
+        // screen renders, so a theme is one tap out of four in the same order
+        // here and there.
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 display("外觀"),
@@ -579,22 +576,11 @@ private fun ReaderSettingsSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Card(Modifier.fillMaxWidth()) {
-                SingleChoiceSegmentedButtonRow(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                ) {
-                    THEME_OPTIONS.forEachIndexed { index, (value, name) ->
-                        SegmentedButton(
-                            selected = theme == value,
-                            onClick = { onSetTheme(value) },
-                            shape = SegmentedButtonDefaults.itemShape(index = index, count = THEME_OPTIONS.size),
-                            // The segment reserves the check icon's width
-                            // (18dp + 8dp spacing) whether or not it is drawn,
-                            // so a label outgrown by a large font scale
-                            // ellipsizes instead of being cut mid-glyph.
-                            label = { Text(display(name), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        )
-                    }
-                }
+                ThemeOptionsRow(
+                    selected = theme,
+                    display = display,
+                    onSelect = onSetTheme,
+                )
             }
         }
     }
