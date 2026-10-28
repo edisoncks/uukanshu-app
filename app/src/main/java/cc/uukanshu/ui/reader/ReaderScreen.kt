@@ -57,7 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cc.uukanshu.data.prefs.Prefs
-import cc.uukanshu.ui.ThemeOptionsRow
+import cc.uukanshu.ui.ThemeOptionsCard
 import cc.uukanshu.ui.vmFactory
 import kotlinx.coroutines.launch
 
@@ -325,7 +325,7 @@ private fun ReaderBottomBar(
  * Settings sheet: reader-optimized variants of the same Prefs/VM source used
  * by SettingsScreen (same keys, same VM). Widgets differ on purpose for
  * in-reading use: segmented language (both options visible), slider + stepper
- * with WYSIWYG preview. The appearance picker is [ThemeOptionsRow], the very
+ * with WYSIWYG preview. The appearance picker is [ThemeOptionsCard], the very
  * composable the app settings screen renders, so a theme sits in the same
  * place wherever it is changed. All labels via display() so 簡體 mode converts.
  * Dumb: all state lives in the VM.
@@ -566,22 +566,20 @@ private fun ReaderSettingsSheet(
                 }
             }
         }
-        // Appearance: [ThemeOptionsRow], the same picker the app settings
-        // screen renders, so a theme is one tap out of four in the same order
-        // here and there.
+        // Appearance: [ThemeOptionsCard], the very card the app settings
+        // screen shows, so a theme is one tap out of four in the same order
+        // and the same shape here and there.
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 display("外觀"),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Card(Modifier.fillMaxWidth()) {
-                ThemeOptionsRow(
-                    selected = theme,
-                    display = display,
-                    onSelect = onSetTheme,
-                )
-            }
+            ThemeOptionsCard(
+                selected = theme,
+                display = display,
+                onSelect = onSetTheme,
+            )
         }
     }
 }

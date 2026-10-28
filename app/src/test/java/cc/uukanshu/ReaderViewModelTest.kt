@@ -373,5 +373,4 @@ class ReaderViewModelTest {
         vm.setFontScale(1.3f)
         assertEquals(1.3f, vm.fontScale.value!!)
     }
-
 }

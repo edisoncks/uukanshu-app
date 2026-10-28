@@ -138,7 +138,7 @@ app/src/main/java/cc/uukanshu/
     paging/BookPagingSource.kt       # Home Paging 3 source, per-list seen-id dedup
     download/BookDownloadManager.kt  # app-scoped, monitor-serialized ownership/state, slot-queued
   ui/
-    AppTheme.kt (pure isDark + fixed paper palette/scheme) + ThemeOptions.kt (THEME_OPTIONS + ThemeOptionsRow, shared by Settings and the reader sheet) + AppNavHost.kt (tabs/nav/update overlay) + Nav.kt (Routes) + VmFactory.kt (single VM factory)
+    AppTheme.kt (pure isDark + fixed paper palette/scheme) + ThemeOptions.kt (THEME_OPTIONS + ThemeOptionsCard, shared by Settings and the reader sheet) + AppNavHost.kt (tabs/nav/update overlay) + Nav.kt (Routes) + VmFactory.kt (single VM factory)
     home/ detail/ search/ reader/ library/
       # each: *Screen.kt (composable) + *ViewModel.kt (StateFlow UI state)
       # reader splits helpers: ReaderErrors/ReaderHeader/ReaderParagraphs/ReaderTitle (+ Screen/ViewModel)

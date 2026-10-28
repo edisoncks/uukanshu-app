@@ -69,7 +69,6 @@ class PrefsStoreTest {
         assertEquals(Prefs.PAPER, p.theme.first())
     }
 
-
     @Test fun themeWriteNormalizesUnknown() = runTest {
         val p = prefs()
         p.setTheme("dark-mode")

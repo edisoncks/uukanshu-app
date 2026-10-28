@@ -41,7 +41,7 @@ import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.data.updatecheck.BookUpdateScheduler
 import cc.uukanshu.data.updatecheck.UpdateChecker
 import cc.uukanshu.data.update.UpdateDownloader
-import cc.uukanshu.ui.ThemeOptionsRow
+import cc.uukanshu.ui.ThemeOptionsCard
 import cc.uukanshu.ui.update.UpdateViewModel
 import kotlinx.coroutines.launch
 
@@ -55,7 +55,7 @@ import kotlinx.coroutines.launch
  * Layout: four cards (appearance / language / 追更 / update), each a
  * fillMaxWidth Card under a SectionHeader, so sections share one rhythm
  * instead of floating loose in a flat column. Controls stay one row tall:
- * the themes are [ThemeOptionsRow] rather than four radio
+ * the themes are [ThemeOptionsCard] rather than four radio
  * rows, and the 追更 card keeps its state and its last-check stamp on one line.
  *
  * The 追更 switch is named for the bookshelf so it cannot be read as the app
@@ -95,17 +95,14 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
     ) {
         Text("uukanshu", style = MaterialTheme.typography.titleMedium)
 
-        // Appearance card: one segmented row (shared with the reader sheet,
-        // see ThemeOptionsRow), all four themes visible at once.
+        // Appearance: ThemeOptionsCard, the very card the reader sheet shows.
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionHeader(display("外觀"))
-            Card(Modifier.fillMaxWidth()) {
-                ThemeOptionsRow(
-                    selected = theme,
-                    display = ::display,
-                    onSelect = { scope.launch { prefs.setTheme(it) } },
-                )
-            }
+            ThemeOptionsCard(
+                selected = theme,
+                display = ::display,
+                onSelect = { scope.launch { prefs.setTheme(it) } },
+            )
         }
 
         // Language card: single row, same density as the appearance row.
