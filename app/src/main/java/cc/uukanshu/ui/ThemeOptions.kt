@@ -1,9 +1,7 @@
 package cc.uukanshu.ui
 
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Card
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -31,37 +29,28 @@ internal val THEME_OPTIONS: List<Pair<String, String>> = listOf(
 )
 
 /**
- * What Material3 reserves beside a segmented button's label: the check icon's
- * box plus its spacing. `SegmentedButtonContentMeasurePolicy` adds
- * `maxOf(IconSize, iconWidth) + IconSpacing` to the label's width whatever the
- * icon slot draws, so an empty `icon` only shifts the label — it reclaims
- * nothing. The 12dp content padding per side is not a parameter in material3
- * 1.3.0 either, so the label slot has to pay for both.
- */
-private val IconReserve = 18.dp + 8.dp
-
-/**
  * The appearance card: one segmented row over [THEME_OPTIONS], rendered by the
  * app settings screen and the reader settings sheet alike. The card, the row
  * and the padding live here together so the two screens share the whole
  * control and not just its labels.
  *
- * Width, measured rather than hoped for: the label slot is capped at
- * `segment - 24dp content padding - [IconReserve]`, so however narrow the
- * device is the label ellipsizes inside its segment instead of overflowing it.
- * That cap is the fix for a real defect: `SegmentedButton` measures the label
- * with the full inner width and *then* adds the icon box and spacing, so an
- * unconstrained `Text` reports its full intrinsic width (`自動` at default
- * scale ≈ 28dp), the row lays out wider than the segment, and `Surface` clips
- * the glyph edges — the ellipsis never fires because the label was never
- * measured against the width it actually had.
+ * What the label has to work with: on a 360dp phone the card leaves 296dp for
+ * four segments, so 74dp each, less 12dp of content padding per side
+ * (material3 1.3.0 hardcodes it — `SegmentedButton` has no `contentPadding`
+ * parameter) = 49dp of inner width. `SegmentedButtonContentMeasurePolicy`
+ * measures the label against that inner width and *then* adds the check icon's
+ * box and spacing (`maxOf(18dp, iconWidth) + 8dp`), so the label may render
+ * past its segment by up to those 26dp even though it was never measured
+ * against the width it really had; two 14sp glyphs (≈28dp) plus the 26dp is
+ * 54dp against 49dp, and `Surface` clips the overrun. 393dp and up fit.
  *
- * What is left for text on a 360dp phone: 360 − 32 screen padding − 32 card
- * padding = 296dp over four segments = 74dp each, minus 24dp padding and 26dp
- * icon reserve = 24dp, which is short of a two-glyph 14sp label (≈28dp). So a
- * 360dp device ellipsizes one glyph at default font scale, 393dp and up show
- * both. `ThemeOptionsTest.labelsStayTwoGlyphs` keeps labels short enough that
- * this is the worst case; it cannot see layout, and a device check is owed.
+ * The label is deliberately not capped here. Capping it needs the segment's
+ * real width, and the obvious way to ask for it — `BoxWithConstraints` — is a
+ * `SubcomposeLayout`, which throws `NoIntrinsicsMessage` because this row
+ * measures intrinsics (`width(IntrinsicSize.Min)` in the row, `height(
+ * IntrinsicSize.Min)` around this content). That was v1.2.26: both settings
+ * screens crashed on open. A width cap has to come from arithmetic or from a
+ * row of our own, never from a subcomposing child.
  */
 @Composable
 internal fun ThemeOptionsCard(
@@ -79,16 +68,7 @@ internal fun ThemeOptionsCard(
                     onClick = { onSelect(value) },
                     shape = SegmentedButtonDefaults.itemShape(index = index, count = THEME_OPTIONS.size),
                     label = {
-                        BoxWithConstraints {
-                            Text(
-                                display(name),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.widthIn(
-                                    max = (maxWidth - IconReserve).coerceAtLeast(1.dp),
-                                ),
-                            )
-                        }
+                        Text(display(name), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     },
                 )
             }
