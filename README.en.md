@@ -62,10 +62,10 @@ Body text…
 (selectable)
 
 -------------------------------
-[⋯] [Prev] [Next]
+[⚙] [Prev] [Next]
 ```
 
-- Scroll to read, switch chapters at the bottom. The **⋯** sheet holds language (繁體/簡體), font size (remembered), theme (auto/light/paper/dark), font family (sans/serif), and line/paragraph spacing (all remembered).
+- Scroll to read, switch chapters at the bottom. The **⚙** sheet holds language (繁體/簡體), font size (remembered), theme (auto/light/paper/dark), font family (sans/serif), and line/paragraph spacing (all remembered).
 
 ### Four tabs
 
@@ -73,7 +73,7 @@ Body text…
 - **搜索 Search**: search by title.
 - **書架 Library**: saved books. New chapters show a badge; **Check for updates** refreshes all anytime, or wait for the automatic check (needs 追更 auto-check on in Settings: daily in background, plus once when opening Library after 6h). The badge clears after Detail successfully refreshes the chapter list, or after a full download completes; it stays when offline or when refresh fails.
 - **設定 Settings**: appearance, language, follow-updates, update (current version lives here).
-- **Appearance** (Settings, or the reader's **⋯** sheet): **auto / light / paper / dark** — the choice applies to the whole app. **Paper** is a fixed warm-sepia palette that ignores the wallpaper-derived theme colors, so it looks the same on every device and Android version.
+- **Appearance** (Settings, or the reader settings sheet behind the **⚙** icon at the reader's top left): **auto / light / paper / dark** — the choice applies to the whole app. **Paper** is a fixed warm-sepia palette that ignores the wallpaper-derived theme colors, so it looks the same on every device and Android version.
 
 ## Offline
 
@@ -89,8 +89,8 @@ Body text…
 | Can't install              | Android 12+, allow “Install unknown apps”, retry.       |
 | Downloaded file won't open | Incomplete download — delete and re-download.           |
 | Update/book fails to load  | Check connection, tap Retry. Saved chapters still work. |
-| Wrong script               | Switch in Settings → Language or the reader **⋯** menu. |
-| Text size                  | Reader **⋯** → A- / A+ (remembered).                    |
+| Wrong script               | Settings → Language, or the reader's **⚙** sheet.       |
+| Text size                  | Reader **⚙** → slider or − / + (remembered).            |
 
 ## Privacy
 

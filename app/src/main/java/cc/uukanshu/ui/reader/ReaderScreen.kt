@@ -1,31 +1,23 @@
 package cc.uukanshu.ui.reader
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
@@ -60,12 +52,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import cc.uukanshu.data.prefs.Prefs
+import cc.uukanshu.ui.ThemeOptionsCard
 import cc.uukanshu.ui.vmFactory
 import kotlinx.coroutines.launch
 
@@ -333,8 +325,10 @@ private fun ReaderBottomBar(
  * Settings sheet: reader-optimized variants of the same Prefs/VM source used
  * by SettingsScreen (same keys, same VM). Widgets differ on purpose for
  * in-reading use: segmented language (both options visible), slider + stepper
- * with WYSIWYG preview, tonal theme tiles in a 2x2 grid. All labels via
- * display() so 簡體 mode converts. Dumb: all state lives in the VM.
+ * with WYSIWYG preview. The appearance picker is [ThemeOptionsCard], the very
+ * composable the app settings screen renders, so a theme sits in the same
+ * place wherever it is changed. All labels via display() so 簡體 mode converts.
+ * Dumb: all state lives in the VM.
  *
  * Visual contract (matches ReaderTopBar/BottomBar): surface cards, 16dp/8dp
  * rhythm, titleMedium sheet title, titleSmall + onSurfaceVariant section
@@ -572,121 +566,20 @@ private fun ReaderSettingsSheet(
                 }
             }
         }
-        // Appearance: 2x2 tonal tiles (same 12dp rhythm as the bottom bar
-        // actions). Tonal surfaces follow the active scheme (dynamic light/dark
-        // or the fixed paper palette); hardcoded previews would lie.
+        // Appearance: [ThemeOptionsCard], the very card the app settings
+        // screen shows, so a theme is one tap out of four in the same order
+        // and the same shape here and there.
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 display("外觀"),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Card(Modifier.fillMaxWidth()) {
-                Column(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    // IntrinsicSize.Max + fillMaxHeight: the 自動 tile carries an
-                    // extra 跟隨系統 subtitle, so without stretching the tiles
-                    // render at different heights.
-                    Row(
-                        Modifier.fillMaxWidth().height(IntrinsicSize.Max),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        ReaderThemeTile(
-                            value = Prefs.SYSTEM,
-                            name = "自動",
-                            sub = "跟隨系統",
-                            theme = theme,
-                            display = display,
-                            onSetTheme = onSetTheme,
-                        )
-                        ReaderThemeTile(
-                            value = Prefs.LIGHT,
-                            name = "淺色",
-                            sub = null,
-                            theme = theme,
-                            display = display,
-                            onSetTheme = onSetTheme,
-                        )
-                    }
-                    Row(
-                        Modifier.fillMaxWidth().height(IntrinsicSize.Max),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        ReaderThemeTile(
-                            value = Prefs.PAPER,
-                            name = "紙色",
-                            sub = null,
-                            theme = theme,
-                            display = display,
-                            onSetTheme = onSetTheme,
-                        )
-                        ReaderThemeTile(
-                            value = Prefs.DARK,
-                            name = "深色",
-                            sub = null,
-                            theme = theme,
-                            display = display,
-                            onSetTheme = onSetTheme,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun RowScope.ReaderThemeTile(
-    value: String,
-    name: String,
-    sub: String?,
-    theme: String,
-    display: (String) -> String,
-    onSetTheme: (String) -> Unit,
-) {
-    val selected = theme == value
-    Surface(
-        shape = MaterialTheme.shapes.medium,
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer
-        else MaterialTheme.colorScheme.surfaceVariant,
-        contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-        else MaterialTheme.colorScheme.onSurfaceVariant,
-        border = if (selected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
-        modifier = Modifier.weight(1f).fillMaxHeight()
-            .selectable(
-                selected = selected,
-                onClick = { onSetTheme(value) },
-                role = Role.RadioButton,
-            ),
-    ) {
-        Column(
-            Modifier.fillMaxHeight().padding(vertical = 12.dp, horizontal = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text("Aa", style = MaterialTheme.typography.titleLarge)
-                // Reserve icon space when unselected so tiles
-                // never jitter width on selection change.
-                if (selected) {
-                    Icon(
-                        Icons.Filled.Check,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                    )
-                } else {
-                    Spacer(Modifier.size(16.dp))
-                }
-            }
-            Text(display(name), style = MaterialTheme.typography.bodyLarge)
-            if (sub != null) {
-                Text(display(sub), style = MaterialTheme.typography.bodySmall)
-            }
+            ThemeOptionsCard(
+                selected = theme,
+                display = display,
+                onSelect = onSetTheme,
+            )
         }
     }
 }

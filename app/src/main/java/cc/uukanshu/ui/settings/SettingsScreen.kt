@@ -14,9 +14,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -31,7 +28,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -45,20 +41,9 @@ import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.data.updatecheck.BookUpdateScheduler
 import cc.uukanshu.data.updatecheck.UpdateChecker
 import cc.uukanshu.data.update.UpdateDownloader
+import cc.uukanshu.ui.ThemeOptionsCard
 import cc.uukanshu.ui.update.UpdateViewModel
 import kotlinx.coroutines.launch
-
-/**
- * The four modes of `Prefs.theme`, in the order the appearance row shows them
- * (see the theme contract in docs/ARCHITECTURE.md). A mode missing here has no
- * way to be selected, so this list is the UI half of that contract.
- */
-internal val THEME_OPTIONS: List<Pair<String, String>> = listOf(
-    Prefs.SYSTEM to "自動",
-    Prefs.LIGHT to "淺色",
-    Prefs.PAPER to "紙色",
-    Prefs.DARK to "深色",
-)
 
 /**
  * Settings tab: appearance, Traditional/Simplified, 追更 auto-check, app update.
@@ -70,7 +55,7 @@ internal val THEME_OPTIONS: List<Pair<String, String>> = listOf(
  * Layout: four cards (appearance / language / 追更 / update), each a
  * fillMaxWidth Card under a SectionHeader, so sections share one rhythm
  * instead of floating loose in a flat column. Controls stay one row tall:
- * the themes are a segmented row (see [THEME_OPTIONS]) rather than four radio
+ * the themes are [ThemeOptionsCard] rather than four radio
  * rows, and the 追更 card keeps its state and its last-check stamp on one line.
  *
  * The 追更 switch is named for the bookshelf so it cannot be read as the app
@@ -110,27 +95,14 @@ fun SettingsScreen(updateVm: UpdateViewModel) {
     ) {
         Text("uukanshu", style = MaterialTheme.typography.titleMedium)
 
-        // Appearance card: one segmented row, all four themes visible at once.
+        // Appearance: ThemeOptionsCard, the very card the reader sheet shows.
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SectionHeader(display("外觀"))
-            Card(Modifier.fillMaxWidth()) {
-                SingleChoiceSegmentedButtonRow(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                ) {
-                    THEME_OPTIONS.forEachIndexed { index, (value, name) ->
-                        SegmentedButton(
-                            selected = theme == value,
-                            onClick = { scope.launch { prefs.setTheme(value) } },
-                            shape = SegmentedButtonDefaults.itemShape(index = index, count = THEME_OPTIONS.size),
-                            // The segment reserves the check icon's width
-                            // (18dp + 8dp spacing) whether or not it is drawn, so
-                            // a label that outgrows its segment at a large font
-                            // scale ellipsizes instead of being cut mid-glyph.
-                            label = { Text(display(name), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        )
-                    }
-                }
-            }
+            ThemeOptionsCard(
+                selected = theme,
+                display = ::display,
+                onSelect = { scope.launch { prefs.setTheme(it) } },
+            )
         }
 
         // Language card: single row, same density as the appearance row.

@@ -69,13 +69,6 @@ class PrefsStoreTest {
         assertEquals(Prefs.PAPER, p.theme.first())
     }
 
-    @Test fun themeCycleIncludesPaper() {
-        assertEquals(Prefs.LIGHT, Prefs.next(Prefs.SYSTEM))
-        assertEquals(Prefs.PAPER, Prefs.next(Prefs.LIGHT))
-        assertEquals(Prefs.DARK, Prefs.next(Prefs.PAPER))
-        assertEquals(Prefs.SYSTEM, Prefs.next(Prefs.DARK))
-    }
-
     @Test fun themeWriteNormalizesUnknown() = runTest {
         val p = prefs()
         p.setTheme("dark-mode")

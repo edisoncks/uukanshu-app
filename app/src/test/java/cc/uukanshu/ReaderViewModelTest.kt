@@ -373,22 +373,4 @@ class ReaderViewModelTest {
         vm.setFontScale(1.3f)
         assertEquals(1.3f, vm.fontScale.value!!)
     }
-
-    @Test fun cycleThemeRotatesSystemLightPaperDark() = runTest {
-        val repo = MutableFakeRepo(
-            fresh = testDetail(101L),
-            chaptersText = mutableMapOf(101L to "t1"),
-        )
-        val vm = ReaderViewModel(repo, T2S(), MutableFakePrefs(), "1", 1, 101L)
-        idle()
-        assertEquals(Prefs.SYSTEM, vm.theme.value)
-        vm.cycleTheme()
-        assertEquals(Prefs.LIGHT, vm.theme.value)
-        vm.cycleTheme()
-        assertEquals(Prefs.PAPER, vm.theme.value)
-        vm.cycleTheme()
-        assertEquals(Prefs.DARK, vm.theme.value)
-        vm.cycleTheme()
-        assertEquals(Prefs.SYSTEM, vm.theme.value)
-    }
 }

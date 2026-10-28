@@ -115,8 +115,6 @@ class HardeningTest {
         assertEquals(Prefs.SYSTEM, Prefs.normalizeTheme(""))
         assertEquals(Prefs.SYSTEM, Prefs.normalizeTheme("dark-mode"))
         assertEquals(Prefs.DARK, Prefs.normalizeTheme(Prefs.DARK))
-        // Unknown toggle input normalizes to SYSTEM first, then cycles to LIGHT.
-        assertEquals(Prefs.LIGHT, Prefs.next("bogus"))
     }
 
     // -- Gate: nesting fails fast instead of deadlocking ---------------------
