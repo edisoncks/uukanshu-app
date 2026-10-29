@@ -78,6 +78,15 @@ class ParserTest {
         assertEquals("A&lt;B", once.text)
     }
 
+    @Test fun chapterTitleIsDecodedExactlyOnce() {
+        // Jsoup decodes while parsing the <h1>, so unescaping its output again
+        // turned the literal text `&lt;` (written `&amp;lt;`) into `<`, making a
+        // heading disagree with the body of the same page.
+        val html = "<h1>A&amp;lt;B</h1><div class=\"readcotent\">body</div>"
+        val c = Parser.parseChapter(html, "https://uukanshu.cc/book/18957/1.html")
+        assertEquals("A&lt;B", c.title)
+    }
+
     @Test fun chapterCutsAtMuluBoxAndNavRow() {
         val html = """
             <html><body>
