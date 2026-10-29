@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -249,5 +250,56 @@ class UpdateViewModelTest {
         vm.autoCheck()
         main.dispatcher.scheduler.advanceUntilIdle()
         assertEquals(0, calls.get())
+    }
+
+    @Test fun skipSurvivesAFailedPreferenceWrite() = runTest(main.dispatcher) {
+        // A DataStore write can fail (full disk, unwritable file). The skip must
+        // not escape to the crash handler, and the offer must stay on screen —
+        // hiding it would claim a skip that never reached the disk.
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val prefs = object : PrefsApi by MutableFakePrefs() {
+            override suspend fun setSkippedVersion(v: String?) {
+                throw java.io.IOException("disk full")
+            }
+        }
+        val vm = UpdateViewModel(
+            app,
+            prefs,
+            CountingFetcher(AtomicInteger(0), info()),
+            FakeApkDownloader(),
+            ioDispatcher = main.dispatcher,
+        )
+        vm.manualCheck()
+        main.dispatcher.scheduler.advanceUntilIdle()
+        assertNotNull("precondition: the offer is up", vm.ui.value.info)
+
+        vm.skipVersion()
+        main.dispatcher.scheduler.advanceUntilIdle()
+
+        assertNotNull("a failed skip must be reported", vm.ui.value.error)
+        assertTrue("the offer must stay up", vm.ui.value.visible)
+        assertNotNull("the skipped version must not be dropped", vm.ui.value.info)
+    }
+
+    @Test fun skipHidesTheOfferOnlyOncePersisted() = runTest(main.dispatcher) {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val prefs = MutableFakePrefs()
+        val vm = UpdateViewModel(
+            app,
+            prefs,
+            CountingFetcher(AtomicInteger(0), info()),
+            FakeApkDownloader(),
+            ioDispatcher = main.dispatcher,
+        )
+        vm.manualCheck()
+        main.dispatcher.scheduler.advanceUntilIdle()
+
+        vm.skipVersion()
+        main.dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("9.9.9"), prefs.skipped)
+        assertFalse(vm.ui.value.visible)
+        assertNull(vm.ui.value.info)
+        assertNull(vm.ui.value.error)
     }
 }

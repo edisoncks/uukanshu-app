@@ -307,13 +307,32 @@ class UpdateViewModel(
         val info = _ui.value.info ?: return
         val v = info.version
         viewModelScope.launch {
-            prefs.setSkippedVersion(v)
-            clearDownloadRecord(UpdateDownloadRecord(info))
+            try {
+                prefs.setSkippedVersion(v)
+                clearDownloadRecord(UpdateDownloadRecord(info))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Same discipline as every other write in this VM: a failed
+                // DataStore write must not reach the crash handler, and the
+                // offer must stay up because the skip did not stick.
+                Log.w(TAG, "Could not persist skipped version", e)
+                _ui.update { it.copy(error = Errors.friendly(e), installing = false) }
+                return@launch
+            }
+            // Hiding the offer is the visible half of a skip, so it happens only
+            // after the version is actually persisted.
+            _ui.update {
+                it.copy(
+                    visible = false,
+                    upToDate = false,
+                    error = null,
+                    info = null,
+                    downloadSucceeded = false,
+                    installing = false,
+                )
+            }
         }
-        // Skipping means go away: clear the pending update so the Settings
-        // banner and dialog don't come straight back. Next manual check
-        // re-fetches (manual ignores skipped); auto stays suppressed.
-        _ui.update { it.copy(visible = false, upToDate = false, error = null, info = null, downloadSucceeded = false, installing = false) }
     }
 
     private fun observeDownload(id: Long, info: UpdateInfo) {
