@@ -61,6 +61,32 @@ class VersionContractTest {
         )
     }
 
+    @Test fun tagMustCarryTheVPrefixAndThreeNumericParts() {
+        // The contract says `vX.Y.Z`. `normalize` strips an optional `v`, so
+        // without an explicit shape check the updater silently accepted tags the
+        // docs forbid — widening the release shape it exists to enforce.
+        val noPrefix =
+            """{"tag_name":"1.0.34","assets":[{"name":"uukanshu-1.0.34.apk","browser_download_url":"https://example.com/u.apk"}]}"""
+        assertNull("a tag without the v prefix is outside the contract", UpdateApi.parse(noPrefix))
+        val fourParts =
+            """{"tag_name":"v1.0.34.1","assets":[{"name":"uukanshu-1.0.34.1.apk","browser_download_url":"https://example.com/u.apk"}]}"""
+        assertNull("a four-part tag is outside the contract", UpdateApi.parse(fourParts))
+        val padded =
+            """{"tag_name":"v1.0.34 ","assets":[{"name":"uukanshu-1.0.34.apk","browser_download_url":"https://example.com/u.apk"}]}"""
+        assertNotNull("surrounding whitespace is still trimmed", UpdateApi.parse(padded))
+    }
+
+    @Test fun secondUnrelatedApkFailsClosed() {
+        // "Never attach a second APK" (RELEASING.md): counting only
+        // `uukanshu-*.apk` let an `app.apk` ride along unnoticed and the release
+        // still parsed, so the rule was unenforceable.
+        val json =
+            """{"tag_name":"v1.0.34","assets":[""" +
+                """{"name":"uukanshu-1.0.34.apk","browser_download_url":"https://example.com/u.apk"},""" +
+                """{"name":"app.apk","browser_download_url":"https://example.com/a.apk"}]}"""
+        assertNull("a second APK makes the release unusable", UpdateApi.parse(json))
+    }
+
     @Test fun currentReleaseParses() {
         val info = UpdateApi.parse(
             """{"tag_name":"v1.0.34","body":"hardening","html_url":"https://github.com/edisoncks/uukanshu-app/releases/tag/v1.0.34","assets":[{"name":"uukanshu-1.0.34.apk","browser_download_url":"https://example.com/u.apk","size":12345}]}""",

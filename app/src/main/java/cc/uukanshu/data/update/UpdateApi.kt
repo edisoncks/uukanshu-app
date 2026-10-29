@@ -12,9 +12,9 @@ import java.util.concurrent.TimeUnit
  * Release contract (see RELEASING.md): tag `vX.Y.Z` matches
  * `versionName X.Y.Z`, exactly one `uukanshu-*.apk` asset, body = changelog.
  *
- * The channel is **stable-only**: a prerelease (`v1.2.19-beta`) is never
- * offered, so a beta published without GitHub's prerelease flag still cannot
- * reach a stable user (see [VersionCompare.isPrerelease]).
+ * The channel is **stable-only**: a payload whose tag is not exactly
+ * `vX.Y.Z` is never offered, so a beta published without GitHub's prerelease
+ * flag still cannot reach a stable user (see [stableTagRe]).
  */
 data class UpdateInfo(
     /** Raw tag, e.g. `v1.0.15`. */
@@ -147,6 +147,17 @@ class UpdateApi(
         private val digestRe = Regex("sha256:([0-9a-f]{64})")
 
         /**
+         * The only tag shape the stable channel accepts (`RELEASING.md` §
+         * Updater contract). A leading `v` is required, not merely tolerated:
+         * `VersionCompare.normalize` strips one when present, so without this
+         * check a tag like `1.2.28` or `v1.2.28.1` would be accepted and the
+         * updater would silently widen the release shape the docs promise.
+         * A prerelease tag (`v1.2.28-beta`) fails here too, which is the
+         * stable-only rule; [VersionCompare.isPrerelease] states it for readers.
+         */
+        private val stableTagRe = Regex("""^v\d+\.\d+\.\d+$""")
+
+        /**
          * Normalize a GitHub asset `digest` (`sha256:<64 hex>`) to 64 lowercase
          * hex chars. Anything else (other algorithm, wrong length, trailing
          * junk, null) is null: fail closed to size-only, never crash a check.
@@ -165,24 +176,22 @@ class UpdateApi(
         fun parse(json: String): UpdateInfo? = runCatching {
             val root = JsonMini.parse(json) as? Map<*, *> ?: return null
             val tag = (root["tag_name"] as? String)?.trim().orEmpty()
-            if (tag.isEmpty()) return null
-            if (VersionCompare.isPrerelease(tag)) return null
+            if (!stableTagRe.matches(tag)) return null
             if (root["prerelease"] as? Boolean == true) return null
             val assets = root["assets"] as? List<*> ?: return null
-            // Fail closed: exactly one uukanshu-*.apk asset is ever offered for
-            // install. A stray .apk, a version-mismatched asset, or a second
-            // APK alongside the exact match all yield null — never the wrong
-            // binary, never the first of two.
-            val matches = mutableListOf<Map<*, *>>()
+            // Fail closed: exactly one APK asset is ever offered for install, and
+            // it must carry the contract's exact name. Counting every `.apk`
+            // (not just `uukanshu-*`) is what makes "never attach a second APK"
+            // enforceable: a stray `app.apk` alongside the right one is a
+            // release mistake, so the release yields no update at all.
+            val apks = mutableListOf<Map<*, *>>()
             for (entry in assets) {
                 val a = entry as? Map<*, *> ?: continue
                 val name = (a["name"] as? String).orEmpty()
-                if (name.startsWith("uukanshu-") && name.endsWith(".apk")) {
-                    matches += a
-                }
+                if (name.endsWith(".apk", ignoreCase = true)) apks += a
             }
-            if (matches.size != 1) return null
-            val asset = matches[0]
+            if (apks.size != 1) return null
+            val asset = apks[0]
             val url = ((asset["browser_download_url"] as? String) ?: "").trim()
             val name = ((asset["name"] as? String) ?: "").trim()
             if (url.isEmpty() || name.isEmpty()) return null
