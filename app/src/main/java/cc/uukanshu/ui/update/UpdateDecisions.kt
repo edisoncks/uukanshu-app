@@ -47,6 +47,13 @@ fun canStartCheck(checking: Boolean): Boolean = !checking
 /** Backs the Main-thread `getAndUpdate` test-and-set in [UpdateViewModel]. */
 fun canStartInstall(installing: Boolean): Boolean = !installing
 
+/**
+ * Backs the Main-thread `getAndUpdate` test-and-set in [UpdateViewModel.skipVersion].
+ * A skip owns the dialog from the claim until its write returns, so a second
+ * skip or a download tap cannot interleave with it.
+ */
+fun canStartSkip(skipping: Boolean): Boolean = !skipping
+
 /** Pure terminal verdict for a `DownloadStatus.Success`. */
 sealed interface DownloadSuccess {
     /** The dialog moved on mid-flight; clear terminal state, mint nothing. */
