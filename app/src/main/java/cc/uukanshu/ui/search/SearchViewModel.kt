@@ -9,14 +9,12 @@ import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.di.RepoApi
 import cc.uukanshu.core.Errors
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -84,58 +82,62 @@ class SearchViewModel(
             prefs.simplified.collect { v -> _ui.update { it.withSimplified(v) } }
         }
         viewModelScope.launch {
-            @OptIn(FlowPreview::class)
-            queries.debounce(400).flatMapLatest { (_, raw) ->
-                val q = raw.trim()
-                if (q.isEmpty()) {
-                    flowOf<Ui>(Ui.Idle(simplified = _ui.value.simplified))
-                } else {
-                    flow<Ui> {
-                        val s = _ui.value
-                        // Keep stale rows across Error → new query (Error carries
-                        // last books, same as Loading/Success) instead of flashing empty.
-                        val stale = (s as? Ui.Success)?.books
-                            ?: (s as? Ui.Loading)?.books
-                            ?: (s as? Ui.Error)?.books
-                            ?: emptyList()
+            queries.flatMapLatest { (_, raw) ->
+                flow<Ui> {
+                    // The debounce sits INSIDE the swapped-in flow, not upstream of
+                    // flatMapLatest. Upstream, a keystroke only reached the swap
+                    // after the window elapsed, so the superseded request stayed
+                    // live and could paint its results under the new (or cleared)
+                    // input. Here the keystroke cancels it at once and the delay
+                    // only postpones starting the replacement.
+                    delay(SEARCH_DEBOUNCE_MS)
+                    val q = raw.trim()
+                    if (q.isEmpty()) {
+                        emit(Ui.Idle(simplified = _ui.value.simplified))
+                        return@flow
+                    }
+                    val s = _ui.value
+                    // Keep stale rows across Error → new query (Error carries
+                    // last books, same as Loading/Success) instead of flashing empty.
+                    val stale = (s as? Ui.Success)?.books
+                        ?: (s as? Ui.Loading)?.books
+                        ?: (s as? Ui.Error)?.books
+                        ?: emptyList()
+                    emit(
+                        Ui.Loading(
+                            simplified = s.simplified,
+                            totalOrNull = s.totalOrNull,
+                            books = stale,
+                        ),
+                    )
+                    try {
+                        val res = repo.search(q)
+                        // No stale-check needed: flatMapLatest cancels the
+                        // previous flow at the input event, so a superseded
+                        // result is never collected.
                         emit(
-                            Ui.Loading(
-                                simplified = s.simplified,
-                                totalOrNull = s.totalOrNull,
-                                books = stale,
+                            Ui.Success(
+                                books = dedupBooks(res.books), total = res.total,
+                                simplified = _ui.value.simplified,
                             ),
                         )
-                        try {
-                            val res = repo.search(q)
-                            // No stale-check needed: flatMapLatest cancels the
-                            // previous flow, so a superseded result is never
-                            // collected (the old code needed activeQuery because
-                            // cancellation only bites at suspend points and
-                            // nothing suspended past this point).
-                            emit(
-                                Ui.Success(
-                                    books = dedupBooks(res.books), total = res.total,
-                                    simplified = _ui.value.simplified,
-                                ),
-                            )
-                        } catch (e: Exception) {
-                            if (e is CancellationException) throw e
-                            // Preserve rows on Error so the next query stays
-                            // stale-while-revalidate instead of empty spinner.
-                            val prev = _ui.value
-                            val prevBooks = (prev as? Ui.Success)?.books
-                                ?: (prev as? Ui.Loading)?.books
-                                ?: (prev as? Ui.Error)?.books
-                                ?: emptyList()
-                            emit(
-                                Ui.Error(
-                                    message = Errors.friendly(e),
-                                    totalOrNull = _ui.value.totalOrNull,
-                                    simplified = _ui.value.simplified,
-                                    books = prevBooks,
-                                ),
-                            )
-                        }
+                    } catch (e: Exception) {
+                        if (e is CancellationException) throw e
+                        // Preserve rows on Error so the next query stays
+                        // stale-while-revalidate instead of empty spinner.
+                        val prev = _ui.value
+                        val prevBooks = (prev as? Ui.Success)?.books
+                            ?: (prev as? Ui.Loading)?.books
+                            ?: (prev as? Ui.Error)?.books
+                            ?: emptyList()
+                        emit(
+                            Ui.Error(
+                                message = Errors.friendly(e),
+                                totalOrNull = _ui.value.totalOrNull,
+                                simplified = _ui.value.simplified,
+                                books = prevBooks,
+                            ),
+                        )
                     }
                 }
             }.collect { _ui.value = it }
@@ -146,6 +148,9 @@ class SearchViewModel(
         Display.text(t2s, raw, _ui.value.simplified)
 
     companion object {
+        /** Quiet window before a keystroke becomes a request (see the pipeline above). */
+        const val SEARCH_DEBOUNCE_MS = 400L
+
         /** Drop duplicate cards by stable book id (same live-shift dup source as Home). */
         fun dedupBooks(books: List<Parser.BookItem>): List<Parser.BookItem> =
             books.distinctBy { it.id }
