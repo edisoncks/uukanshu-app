@@ -590,6 +590,26 @@ class BookRepo(
         }
     }
 
+    override suspend fun markSeenIfCovered(bookId: String) = withContext(ioDispatcher) {
+        dbWrite.withLock {
+            val cur = db.books().book(bookId) ?: return@withLock
+            val counts = try {
+                db.chapters().countByBook(bookId) to db.chapters().cachedCount(bookId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "markSeenIfCovered count failed for $bookId", e)
+                return@withLock
+            }
+            val (total, cached) = counts
+            // Not covered → the badge stays up: that is the whole point of this
+            // variant (see RepoApi.markSeenIfCovered).
+            if (total == 0 || cached < total) return@withLock
+            if (cur.seenTotal == total && cur.newCount == 0) return@withLock
+            db.books().updateCheckState(bookId, total, 0, cur.lastCheckedAt)
+        }
+    }
+
     override suspend fun deleteBook(bookId: String) = withContext(ioDispatcher) {
         dbWrite.withLock {
             db.deleteBookFull(bookId)

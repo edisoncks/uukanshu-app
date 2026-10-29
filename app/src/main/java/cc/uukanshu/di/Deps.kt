@@ -38,6 +38,19 @@ interface RepoApi {
     suspend fun checkUpdate(bookId: String): BookRepo.UpdateCheck
     suspend fun checkAllUpdates(limit: Int = 20): BookRepo.CheckAllResult
     suspend fun markSeen(bookId: String)
+
+    /**
+     * Post-download variant of [markSeen]: advances the baseline to the current
+     * TOC **only when every chapter in it has cached text**, read atomically with
+     * the update under the repo's write lock.
+     *
+     * A successful download cannot promise coverage by itself: a background 追更
+     * check can merge a new chapter after `downloadAll`'s last coverage read and
+     * before the download's terminal state is handled here, and the old count
+     * check could not see it. Never use this on a Fresh TOC paint — there,
+     * *seeing* the list is what clears the badge, which is [markSeen]'s job.
+     */
+    suspend fun markSeenIfCovered(bookId: String)
     suspend fun deleteBook(bookId: String)
     suspend fun clearAll()
     suspend fun crawlDelay()
