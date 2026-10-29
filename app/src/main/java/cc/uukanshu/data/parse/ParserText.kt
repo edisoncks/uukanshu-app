@@ -15,6 +15,9 @@ package cc.uukanshu.data.parse
  * and the parser's `\s`-based nav cut do not treat NBSP as whitespace; leaving
  * U+00A0 in place would let footer nav rows slip past the cut. Called on
  * already tag-stripped text, so this is a text decode, never an HTML parse.
+ *
+ * Callers pass *raw* (tag-stripped) text. Never pass Jsoup `.text()` output:
+ * that is already decoded, and a second pass would decode `&amp;lt;` twice.
  */
 internal object ParserText {
     fun unescape(s: String): String =
