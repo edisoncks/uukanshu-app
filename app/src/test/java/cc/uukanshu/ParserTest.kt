@@ -63,6 +63,21 @@ class ParserTest {
         assertEquals(listOf("001", "002", "003"), toc.map { it.title })
     }
 
+    @Test fun chapterDecodesEveryCharacterReference() {
+        // Numeric references and typographic quotes are common in the site's
+        // chapter bodies; the old six-entry replace chain left them as literal
+        // markup in the user's text (`&#x4E2D;`, `&ldquo;`).
+        val html = "<div class=\"readcotent\">甲&#x4E2D;乙&#20013;丙&ldquo;丁&rdquo;&nbsp;戊</div>"
+        val c = Parser.parseChapter(html, "https://uukanshu.cc/book/18957/10921502.html")
+        assertEquals("甲中乙中丙\u201C丁\u201D 戊", c.text)
+        // `&amp;lt;` is the literal text "&lt;": one decode, never two.
+        val once = Parser.parseChapter(
+            "<div class=\"readcotent\">A&amp;lt;B</div>",
+            "https://uukanshu.cc/book/18957/10921502.html",
+        )
+        assertEquals("A&lt;B", once.text)
+    }
+
     @Test fun chapterCutsAtMuluBoxAndNavRow() {
         val html = """
             <html><body>
