@@ -34,15 +34,17 @@ internal val THEME_OPTIONS: List<Pair<String, String>> = listOf(
  * and the padding live here together so the two screens share the whole
  * control and not just its labels.
  *
- * What the label has to work with: on a 360dp phone the card leaves 296dp for
- * four segments, so 74dp each, less 12dp of content padding per side
- * (material3 1.3.0 hardcodes it — `SegmentedButton` has no `contentPadding`
- * parameter) = 49dp of inner width. `SegmentedButtonContentMeasurePolicy`
- * measures the label against that inner width and *then* adds the check icon's
- * box and spacing (`maxOf(18dp, iconWidth) + 8dp`), so the label may render
- * past its segment by up to those 26dp even though it was never measured
- * against the width it really had; two 14sp glyphs (≈28dp) plus the 26dp is
- * 54dp against 49dp, and `Surface` clips the overrun. 393dp and up fit.
+ * What the label has to work with, measured rather than argued: on a 360dp
+ * phone the card gives each of the four segments 74.5dp. Inside a segment,
+ * material3 hardcodes 12dp of content padding per side (`SegmentedButton` has
+ * no `contentPadding` parameter) and measures the label against the whole
+ * inner width before adding the check icon's box and spacing
+ * (`maxOf(18dp, iconWidth) + 8dp`). Overrun therefore eats into the 12dp
+ * padding first: `ThemeOptionsCardTest` bounds-locks every label inside its
+ * segment at 320/360/393dp and font scale 1.0/1.3, and the only case it
+ * excludes is a 2.0x font scale at 360dp, where the selected label is shaved
+ * by about 1dp and the labels ellipsize (material's own behaviour, not
+ * something this row adds).
  *
  * The label is deliberately not capped here. Capping it needs the segment's
  * real width, and the obvious way to ask for it — `BoxWithConstraints` — is a
