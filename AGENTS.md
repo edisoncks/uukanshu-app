@@ -3,6 +3,7 @@
 ## Git
 
 - Atomic conventional commits
+- A PR body stands on its own: a reviewer with no chat history and no linked issue can still tell what changed, what it deliberately does not do, and how it was verified (command plus result). No "as discussed", no relying on the conversation that produced it.
 
 ## Docs
 
