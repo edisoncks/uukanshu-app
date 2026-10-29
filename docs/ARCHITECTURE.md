@@ -273,8 +273,9 @@ behind `ApkDownloader`, `VersionCompare`, `JsonMini`) and `ui/update/`
   already on disk skips straight to install. The system "install unknown apps"
   grant is required once and is prompted for.
 - A skipped version stops auto-prompts but stays re-openable from Settings; a
-  failed check always offers the browser download as a fallback; the release
-  body is shown verbatim as the changelog.
+  failed check always offers the browser download as a fallback (including when
+  no release could be parsed at all); the release body is shown in full as the
+  changelog — the dialog scrolls, nothing is truncated.
 - **Release-shape dependency:** tag `vX.Y.Z` == `versionName X.Y.Z`, exactly one
   asset named `uukanshu-X.Y.Z.apk`, whose server-side sha256 `digest` is
   verified in-app before install. Full contract in

@@ -60,7 +60,15 @@ fun UpdateDialog(
                 TextButton(onClick = onRetry) { Text(display("重試")) }
             },
             dismissButton = {
-                TextButton(onClick = onDismiss) { Text(display("關閉")) }
+                Column {
+                    TextButton(onClick = onDismiss) { Text(display("關閉")) }
+                    // A failed check is exactly when the browser matters (no
+                    // parsed release to download from), and the contract
+                    // promises that fallback (ARCHITECTURE.md § In-app update).
+                    TextButton(onClick = onBrowser) {
+                        Text(display("改用瀏覽器下載"))
+                    }
+                }
             },
             title = { Text(display("檢查更新失敗")) },
             text = { Text(display(ui.error ?: "")) },
@@ -136,9 +144,12 @@ fun UpdateDialog(
                         } else {
                             // Changelog stays visible next to the install prompt:
                             // hiding it at fileReady robbed the user of what is new.
+                            // The release body is shown in full: the dialog
+                            // already scrolls, and the updater contract
+                            // promises nothing is cut (RELEASING.md).
                             if (info.changelog.isNotEmpty()) {
                                 Text(
-                                    display(info.changelog.take(2000)),
+                                    display(info.changelog),
                                     style = MaterialTheme.typography.bodyMedium,
                                     modifier = Modifier
                                         .heightIn(max = 220.dp)
