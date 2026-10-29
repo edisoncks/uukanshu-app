@@ -33,6 +33,15 @@ class TocShrunkException(val cached: Int, val fresh: Int) :
 class BookDeletedDuringDownloadException :
     java.io.IOException("book was deleted during download")
 
+/**
+ * The live TOC still had uncached chapters after the download's tail passes:
+ * the chapter list kept moving under the run, so "downloaded the whole book"
+ * would be a lie. Fails closed rather than letting Detail clear the badge for
+ * rows that were never fetched (see ARCHITECTURE.md § 追更).
+ */
+class DownloadIncompleteException(val missing: Int) :
+    java.io.IOException("download incomplete: $missing chapters still uncached")
+
 /** HTTP failure with a machine-readable status code (see [Errors.friendly]). */
 class HttpStatusException(val code: Int, label: String) :
     java.io.IOException("HTTP $code for $label")
@@ -67,6 +76,7 @@ object Errors {
             is CloudflareBlockedException -> return "暫時被網站阻擋，請稍後再試或切換網路"
             is TocShrunkException, is EmptyChapterListException -> return "章節列表為空，請稍後再試"
             is BookDeletedDuringDownloadException -> return "下載中書籍已被刪除"
+            is DownloadIncompleteException -> return "章節列表在下載中變動，請再點一次下載整本"
             is HttpStatusException -> return httpMessage(e.code)
             is UnknownHostException, is SocketTimeoutException, is ConnectException,
             is TimeoutCancellationException -> return "網路連線失敗，請檢查網路後重試"

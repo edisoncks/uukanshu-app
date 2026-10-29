@@ -1,6 +1,7 @@
 package cc.uukanshu.data.repo
 
 import cc.uukanshu.core.BookDeletedDuringDownloadException
+import cc.uukanshu.core.DownloadIncompleteException
 import cc.uukanshu.core.EmptyChapterListException
 import cc.uukanshu.core.Errors
 import cc.uukanshu.core.TocShrunkException
@@ -79,6 +80,13 @@ class BookRepo(
         /** Polite crawl delay bounds (ms): random 1-3s between chapter fetches. */
         const val CRAWL_DELAY_MIN_MS = 1000L
         const val CRAWL_DELAY_MAX_MS = 3000L
+
+        /**
+         * Bounded re-reads of the live TOC after the main download loop (see
+         * [downloadAll]): one pass catches a mid-run shift, the second confirms
+         * nothing moved again. Not a retry loop — a list that keeps moving fails.
+         */
+        const val MAX_TAIL_PASSES = 2
 
         /** Pure helper for [crawlDelay], testable without sleeping. */
         fun nextCrawlDelayMs(random: Random = Random): Long =
@@ -364,18 +372,28 @@ class BookRepo(
                 }
                 onProgress(idx + 1, chapters.size)
             }
-            // TOC may have grown while downloading (concurrent revalidate merged new
-            // pageIds). Claiming 800/800 success then would lie, and Detail's
-            // markSeen-after-download would clear badges for never-downloaded rows.
-            // Re-read the cached TOC (DB state, no extra network) and fetch the delta.
-            val endChapters = withContext(ioDispatcher) { cachedDetail(bookId)?.chapters }
-                ?.takeIf { it.isNotEmpty() } ?: chapters
-            if (endChapters.size > chapters.size) {
-                val endCachedIds = withContext(ioDispatcher) {
+            // The TOC can move under the run (a concurrent revalidate merges it),
+            // so "finished the list I started with" is not "downloaded the book".
+            // Re-read the live TOC from the DB and fetch whatever is still
+            // uncached — matched by pageId, never by count: a same-size swap (the
+            // site drops one chapter and adds another) leaves the counts equal, so
+            // a size compare skips the new chapter and reports a finished download
+            // that Detail then clears the badge for. Bounded so a TOC that keeps
+            // moving ends in an honest failure instead of looping forever.
+            var tailPass = 0
+            var coveredByTailPass = false
+            while (tailPass < MAX_TAIL_PASSES) {
+                val liveChapters = withContext(ioDispatcher) { cachedDetail(bookId)?.chapters }
+                    ?.takeIf { it.isNotEmpty() } ?: break
+                val liveCachedIds = withContext(ioDispatcher) {
                     Errors.runCatchingExceptCancel { db.chapters().cachedPageIds(bookId).toSet() }
                         .getOrDefault(emptySet())
                 }
-                val delta = missing(endChapters, endCachedIds)
+                val delta = missing(liveChapters, liveCachedIds)
+                if (delta.isEmpty()) {
+                    coveredByTailPass = true
+                    break
+                }
                 delta.forEachIndexed { di, ref ->
                     if (!withContext(ioDispatcher) { db.books().exists(bookId) }) {
                         throw BookDeletedDuringDownloadException()
@@ -384,8 +402,21 @@ class BookRepo(
                     val text = withContext(ioDispatcher + BulkFetch) { chapter(ref.url).text }
                     saveChapterContent(bookId, ref.pageId, text)
                     fetchedAny = true
-                    onProgress(endChapters.size - delta.size + di + 1, endChapters.size)
+                    onProgress(liveChapters.size - delta.size + di + 1, liveChapters.size)
                 }
+                tailPass++
+            }
+            // Fail closed if the list kept moving: a success here would clear the
+            // 追更 badge for chapters that were never downloaded.
+            if (!coveredByTailPass) {
+                val stillMissing = withContext(ioDispatcher) {
+                    val live = cachedDetail(bookId)?.chapters?.takeIf { it.isNotEmpty() }
+                    val cachedIds = Errors.runCatchingExceptCancel {
+                        db.chapters().cachedPageIds(bookId).toSet()
+                    }.getOrDefault(emptySet())
+                    if (live == null) 0 else missing(live, cachedIds).size
+                }
+                if (stillMissing > 0) throw DownloadIncompleteException(stillMissing)
             }
         } finally {
             runCatching {
