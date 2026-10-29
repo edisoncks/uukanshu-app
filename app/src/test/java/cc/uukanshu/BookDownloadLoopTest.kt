@@ -364,4 +364,37 @@ class BookDownloadLoopTest {
         if (thrown == null) fail("expected abort on deleted book")
         assertTrue("expected delete-abort, got $thrown", thrown!!.message?.contains("deleted") == true)
     }
+
+    @Test fun deleteAtTheTailAbortsInsteadOfReportingSuccess() = runBlocking {
+        // The book is deleted while its last planned chapter is being fetched: the
+        // loop's exists() probe has already passed and the content write is a
+        // no-op, so the tail finds no chapter rows at all. "No rows" must not read
+        // as "nothing left to fetch" — that reports a finished download for a book
+        // that no longer exists, which is the state this exception exists for.
+        db.books().upsert(BookEntity("1", "T", "A", "", "", ""))
+        db.chapters().upsertAll(
+            listOf(
+                ChapterEntity("1", 1, 101L, "c1", chapterUrl(101L), content = "saved-1"),
+                ChapterEntity("1", 2, 102L, "c2", chapterUrl(102L), content = ""),
+            ),
+        )
+        val site = object : SiteGateway {
+            override suspend fun get(url: String): String {
+                if (url.endsWith("/book/1/")) return tocHtml
+                if (url == chapterUrl(102L)) db.deleteBookFull("1")
+                val id = Regex("/(\\d+)\\.html").find(url)?.groupValues?.get(1) ?: "x"
+                return chapterHtml("fresh-$id")
+            }
+            override suspend fun search(keyword: String) = ""
+        }
+        val repo = BookRepo(site, db)
+        var thrown: Throwable? = null
+        try {
+            repo.downloadAll("1") { _, _ -> }
+        } catch (e: Throwable) {
+            thrown = e
+        }
+        if (thrown == null) fail("a book deleted at the tail must abort, not report success")
+        assertTrue("expected delete-abort, got $thrown", thrown!!.message?.contains("deleted") == true)
+    }
 }

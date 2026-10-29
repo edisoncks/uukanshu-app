@@ -331,6 +331,25 @@ class BookRepo(
         kotlinx.coroutines.delay(nextCrawlDelayMs())
     }
 
+    /**
+     * Live TOC for the download's coverage passes, or null when there is nothing
+     * to compare against (book row present, no chapter rows).
+     *
+     * A book deleted mid-run must fail here, not read as "nothing left to
+     * download": [downloadAll]'s own `exists()` probe runs *before* each fetch,
+     * so a deletion during the last fetch would otherwise leave the tail with no
+     * rows, no missing ids, and a success verdict for a book that is gone.
+     */
+    private suspend fun liveTocForCoverage(bookId: String): List<Parser.ChapterRef>? {
+        val live = withContext(ioDispatcher) { cachedDetail(bookId)?.chapters }
+            ?.takeIf { it.isNotEmpty() }
+        if (live != null) return live
+        if (!withContext(ioDispatcher) { db.books().exists(bookId) }) {
+            throw BookDeletedDuringDownloadException()
+        }
+        return null
+    }
+
     /** Sequential full download; throwing aborts. See SCRAPING.md politeness. */
     override suspend fun downloadAll(bookId: String, onProgress: (Int, Int) -> Unit) {
         // Empty fresh TOC = block page, fall back to cache; fail loudly on neither.
@@ -383,8 +402,7 @@ class BookRepo(
             var tailPass = 0
             var coveredByTailPass = false
             while (tailPass < MAX_TAIL_PASSES) {
-                val liveChapters = withContext(ioDispatcher) { cachedDetail(bookId)?.chapters }
-                    ?.takeIf { it.isNotEmpty() } ?: break
+                val liveChapters = liveTocForCoverage(bookId) ?: break
                 val liveCachedIds = withContext(ioDispatcher) {
                     Errors.runCatchingExceptCancel { db.chapters().cachedPageIds(bookId).toSet() }
                         .getOrDefault(emptySet())
@@ -409,14 +427,16 @@ class BookRepo(
             // Fail closed if the list kept moving: a success here would clear the
             // 追更 badge for chapters that were never downloaded.
             if (!coveredByTailPass) {
-                val stillMissing = withContext(ioDispatcher) {
-                    val live = cachedDetail(bookId)?.chapters?.takeIf { it.isNotEmpty() }
-                    val cachedIds = Errors.runCatchingExceptCancel {
-                        db.chapters().cachedPageIds(bookId).toSet()
-                    }.getOrDefault(emptySet())
-                    if (live == null) 0 else missing(live, cachedIds).size
+                val live = liveTocForCoverage(bookId)
+                if (live != null) {
+                    val cachedIds = withContext(ioDispatcher) {
+                        Errors.runCatchingExceptCancel {
+                            db.chapters().cachedPageIds(bookId).toSet()
+                        }.getOrDefault(emptySet())
+                    }
+                    val stillMissing = missing(live, cachedIds).size
+                    if (stillMissing > 0) throw DownloadIncompleteException(stillMissing)
                 }
-                if (stillMissing > 0) throw DownloadIncompleteException(stillMissing)
             }
         } finally {
             runCatching {
