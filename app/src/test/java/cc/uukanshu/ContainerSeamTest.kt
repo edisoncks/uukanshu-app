@@ -47,6 +47,7 @@ class FakeRepo(
     override suspend fun checkUpdate(bookId: String): BookRepo.UpdateCheck = BookRepo.UpdateCheck.Ok(0)
     override suspend fun checkAllUpdates(limit: Int): BookRepo.CheckAllResult = BookRepo.CheckAllResult(0, 0, 0)
     override suspend fun markSeen(bookId: String) = Unit
+    override suspend fun markSeenIfCovered(bookId: String) = Unit
     override suspend fun library() = emptyList<BookRepo.CachedBook>()
     override fun libraryFlow(): Flow<List<BookRepo.CachedBook>> = flowOf(emptyList())
     override suspend fun crawlDelay() = Unit

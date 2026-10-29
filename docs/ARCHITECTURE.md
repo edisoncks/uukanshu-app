@@ -162,12 +162,15 @@ expensive to notice.
 - Notifications are one summary per run, never one per book, and a denied
   permission degrades to silent badges instead of failing the run.
 - A finished download clears the badge only when it covered the live chapter
-  list: the run re-reads the list at the end and fetches whatever it still has
-  uncached, compared by pageId rather than by count — a same-size list under a
-  mid-run shift (one chapter dropped, one added) would otherwise look finished.
-  If the list keeps moving across the bounded tail passes the run fails instead
-  of claiming success, so a badge can never be cleared for rows that were never
-  downloaded.
+  list, and it is checked twice against different risks. The run re-reads the
+  list at the end and fetches whatever it still has uncached, compared by pageId
+  rather than by count — a same-size list under a mid-run shift (one chapter
+  dropped, one added) would otherwise look finished; if the list keeps moving
+  across the bounded tail passes the run fails instead of claiming success. Then
+  the badge clear itself (`markSeenIfCovered`) re-checks coverage under the repo
+  write lock, because a background check can merge a chapter between the
+  download's last read and the clear. A badge can therefore never be cleared for
+  a row that was never downloaded.
 
 ## Data layers
 
