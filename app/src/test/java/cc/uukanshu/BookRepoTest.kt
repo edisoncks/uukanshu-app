@@ -9,15 +9,9 @@ import org.junit.Test
 import kotlin.random.Random
 
 class BookRepoTest {
-    @Test fun shelfShowsOnlyBooksWithCachedChapters() {
-        val books = listOf(
-            BookRepo.CachedBook("a", "A", "Au", total = 10, cached = 0, bytes = 0),
-            BookRepo.CachedBook("b", "B", "Au", total = 10, cached = 1, bytes = 100),
-            BookRepo.CachedBook("c", "C", "Au", total = 5, cached = 5, bytes = 500),
-        )
-        val visible = books.filter { it.cached > 0 }
-        assertEquals(listOf("b", "c"), visible.map { it.id })
-    }
+    // A zero-cached book staying off the shelf is asserted against the real
+    // assembly rule in LibraryAssembleTest, not re-implemented here: the old
+    // test filtered a local list and could pass with ShelfOrder broken.
 
     private fun shelf(id: String) =
         BookRepo.CachedBook(id, id.uppercase(), "Au", total = 10, cached = 1, bytes = 100)
