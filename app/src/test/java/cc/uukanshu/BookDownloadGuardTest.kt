@@ -135,14 +135,18 @@ class BookDownloadGuardTest {
             var guard = 0
             while ((m.states.value["b3"]?.downloading != false || m.states.value["b3"]?.done == 0) && guard++ < 500) delay(10)
         }
+        assertEquals("first start must run the download", 1, runs)
         m.forget("b3")
         assertNull(m.states.value["b3"])
         m.start("b3")
+        // Second start re-creates state instead of replaying stale progress.
         withTimeout(5000) {
             var guard = 0
-            while (m.states.value["b3"] == null && guard++ < 500) delay(10)
+            while ((m.states.value["b3"]?.downloading != false || runs < 2) && guard++ < 500) delay(10)
         }
-        // Second start re-creates state instead of replaying stale progress.
-        assertFalse(m.states.value["b3"] == null)
+        // Waiting only for non-null state would pass on the state that start()
+        // publishes synchronously, before the job ever runs: assert the work.
+        assertEquals("second start must run the download again", 2, runs)
+        assertEquals(2, m.states.value["b3"]?.done)
     }
 }
