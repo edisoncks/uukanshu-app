@@ -8,6 +8,7 @@ import cc.uukanshu.data.update.ReleaseFetcher
 import cc.uukanshu.data.update.UpdateInfo
 import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.ui.update.UpdateViewModel
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
@@ -301,5 +302,53 @@ class UpdateViewModelTest {
         assertFalse(vm.ui.value.visible)
         assertNull(vm.ui.value.info)
         assertNull(vm.ui.value.error)
+    }
+
+    @Test fun downloadTapDuringSkipCannotStart() = runTest(main.dispatcher) {
+        // The skip holds a suspended preference write while the dialog still shows
+        // 立即更新. A download started in that window would be hidden when the skip
+        // hides the dialog, and the skip's record clear would take its durable
+        // record with it (UpdateDownloadRecord.sameRequestAs matches by release
+        // identity when either side has no id).
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val gate = CompletableDeferred<Unit>()
+        val prefs = object : PrefsApi by MutableFakePrefs() {
+            override suspend fun setSkippedVersion(v: String?) {
+                gate.await()
+            }
+        }
+        val enqueued = AtomicInteger(0)
+        val downloader = object : ApkDownloader {
+            override fun apkFile(info: UpdateInfo) = java.io.File.createTempFile("uukanshu-skip", ".apk")
+            override fun findDownload(info: UpdateInfo): Long? = null
+            override fun enqueue(info: UpdateInfo): Long {
+                enqueued.incrementAndGet()
+                return 7L
+            }
+            override fun cancel(downloadId: Long) = Unit
+            override fun observe(downloadId: Long): Flow<DownloadStatus> = flow { }
+        }
+        val vm = UpdateViewModel(
+            app, prefs, CountingFetcher(AtomicInteger(0), info()), downloader,
+            ioDispatcher = main.dispatcher,
+        )
+        // Without the unknown-sources grant startDownload() would bail before
+        // enqueue() for a reason unrelated to the skip, hiding a real regression.
+        org.robolectric.Shadows.shadowOf(app.packageManager).setCanRequestPackageInstalls(true)
+        vm.manualCheck()
+        main.dispatcher.scheduler.advanceUntilIdle()
+        assertNotNull("precondition: the offer is up", vm.ui.value.info)
+
+        vm.skipVersion()
+        assertTrue("the skip must be claimed before its write suspends", vm.ui.value.skipping)
+
+        vm.startDownload()
+        main.dispatcher.scheduler.advanceUntilIdle()
+        assertEquals("no download may start under a pending skip", 0, enqueued.get())
+
+        gate.complete(Unit)
+        main.dispatcher.scheduler.advanceUntilIdle()
+        assertFalse(vm.ui.value.visible)
+        assertEquals(0, enqueued.get())
     }
 }

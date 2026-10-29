@@ -82,7 +82,7 @@ fun UpdateDialog(
                 else -> display("發現新版本 ${info.tag}")
             }
             AlertDialog(
-                onDismissRequest = { if (!ui.downloading && !ui.installing) onDismiss() },
+                onDismissRequest = { if (!ui.downloading && !ui.installing && !ui.skipping) onDismiss() },
                 confirmButton = {
                     when {
                         ui.fileReady && ui.installing -> Text(display("正在驗證…"))
@@ -92,7 +92,7 @@ fun UpdateDialog(
                         ui.downloading -> TextButton(onClick = onCancelDownload) {
                             Text(display("取消"))
                         }
-                        else -> TextButton(onClick = onDownload) {
+                        else -> TextButton(onClick = onDownload, enabled = !ui.skipping) {
                             Text(display("立即更新"))
                         }
                     }
@@ -183,6 +183,7 @@ fun UpdateDialog(
                         if (!ui.downloading && !ui.fileReady && !ui.installing) {
                             TextButton(
                                 onClick = onSkip,
+                                enabled = !ui.skipping,
                                 modifier = Modifier.padding(top = 4.dp),
                             ) { Text(display("跳過此版本")) }
                         }
