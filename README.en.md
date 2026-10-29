@@ -73,7 +73,7 @@ Body text…
 - **搜索 Search**: search by title.
 - **書架 Library**: saved books. New chapters show a badge; **Check for updates** refreshes all anytime, or wait for the automatic check (needs 追更 auto-check on in Settings: daily in background, plus once when opening Library after 6h). The badge clears after Detail successfully refreshes the chapter list, or after a full download completes; it stays when offline or when refresh fails.
 - **設定 Settings**: appearance, language, follow-updates, update (current version lives here).
-- **Appearance** (Settings, or the reader settings sheet behind the **⚙** icon at the reader's top left): **auto / light / paper / dark** — the choice applies to the whole app. **Paper** is a fixed warm-sepia palette that ignores the wallpaper-derived theme colors, so it looks the same on every device and Android version.
+- **Appearance** (Settings, or the reader settings sheet behind the **⚙** icon at the reader's bottom left): **auto / light / paper / dark** — the choice applies to the whole app. **Paper** is a fixed warm-sepia palette that ignores the wallpaper-derived theme colors, so it looks the same on every device and Android version.
 
 ## Offline
 
@@ -94,7 +94,7 @@ Body text…
 
 ## Privacy
 
-- No account, no ads. Progress, downloads and settings stay on your phone.
+- No account, no ads. Progress and downloads live only on your phone and are excluded from Android backup. Settings are stored on your phone too; if you have Android backup enabled, the system may include them in that backup. The app itself uploads nothing.
 - Network is only used for novel text (uukanshu.cc) and update checks (GitHub Releases).
 
 ## Need help?
