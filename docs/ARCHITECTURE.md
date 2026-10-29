@@ -59,16 +59,27 @@ icon appearance (the window theme is static light, so the bars need the in-app a
 ## Permissions
 
 [`AndroidManifest.xml`](../app/src/main/AndroidManifest.xml) is the source of
-truth — every entry carries its own why-comment there. This is the inventory of
-what is declared and which behaviour owns it: every permission must appear here,
-and nothing may be declared without an owner (the app is text-only; there is no
-analytics/ad SDK surface).
+truth for what the app declares itself — every entry there carries its own
+why-comment. This is the inventory of what the shipped APK requests and which
+behaviour owns it: every permission must appear here, and nothing may be
+declared without an owner (the app is text-only; there is no analytics/ad SDK
+surface).
 
 | Permission | Why | Owner |
 |---|---|---|
-| `INTERNET` | Fetch uukanshu.cc HTML and check GitHub Releases. Android 12+ has no separate network-state permission. | [Data layers](#data-layers), [Offline cache model](#offline-cache-model) |
+| `INTERNET` | Fetch uukanshu.cc HTML and check GitHub Releases. | [Data layers](#data-layers), [Offline cache model](#offline-cache-model) |
 | `POST_NOTIFICATIONS` | One summary notification per 追更 run (channel `book_updates`). Denied permission = silent badges, never a crash. | [追更](#追更-library-update-check) |
 | `REQUEST_INSTALL_PACKAGES` | Hand the downloaded APK to the system package installer. The grant itself is a system Settings toggle ("install unknown apps"), not a runtime dialog. | [In-app update](#in-app-update) |
+
+WorkManager merges four more into the shipped manifest from its own —
+`WAKE_LOCK`, `ACCESS_NETWORK_STATE`, `RECEIVE_BOOT_COMPLETED` and
+`FOREGROUND_SERVICE`. They belong to [追更](#追更-library-update-check), not to
+any app code: the periodic 24h job has to wake the device, check its
+`NetworkType.CONNECTED` constraint when the job starts, and survive a reboot (the
+OS re-schedules it after `BOOT_COMPLETED`). No app code reads connectivity — that
+is why offline stays a failing fetch plus a cache fallback even though the APK
+carries `ACCESS_NETWORK_STATE`. A new dependency that merges a permission puts it
+on this inventory too.
 
 Build targets (`minSdk`/`targetSdk`/`compileSdk`) live in
 [DEVELOPMENT.md](DEVELOPMENT.md#requirements). Fetch/parse consequences of the
@@ -224,7 +235,14 @@ UI (ViewModels)
   interrupt reading, and the bulk paths are sequential with a politeness delay.
 - The database domain is excluded from cloud backup and device transfer: it is
   re-downloadable site content that would dominate the backup quota, and the
-  shelf deliberately does not follow a user to a new device.
+  shelf deliberately does not follow a user to a new device. Settings (the main
+  DataStore) are *not* excluded — they follow the platform defaults, which is why
+  the user-facing privacy wording separates progress/downloads from settings.
+- A full-book download is an app-scoped coroutine job, not persistent work:
+  process death stops it and nothing auto-resumes. Tapping 下載整本 again is safe
+  and cheap — it skips every chapter id already cached. This is deliberately
+  different from the updater's `DownloadManager` request, which *is* durable and
+  reattached after process death (see [In-app update](#in-app-update)).
 
 ## In-app update
 

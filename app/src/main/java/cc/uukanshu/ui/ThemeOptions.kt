@@ -34,25 +34,13 @@ internal val THEME_OPTIONS: List<Pair<String, String>> = listOf(
  * and the padding live here together so the two screens share the whole
  * control and not just its labels.
  *
- * What the label has to work with, measured rather than argued: on a 360dp
- * phone the card gives each of the four segments 74.5dp. Inside a segment,
- * material3 hardcodes 12dp of content padding per side (`SegmentedButton` has
- * no `contentPadding` parameter) and measures the label against the whole
- * inner width before adding the check icon's box and spacing
- * (`maxOf(18dp, iconWidth) + 8dp`). Overrun therefore eats into the 12dp
- * padding first: `ThemeOptionsCardTest` bounds-locks every label inside its
- * segment at 320/360/393dp and font scale 1.0/1.3, and the only case it
- * excludes is a 2.0x font scale at 360dp, where the selected label is shaved
- * by about 1dp and the labels ellipsize (material's own behaviour, not
- * something this row adds).
- *
- * The label is deliberately not capped here. Capping it needs the segment's
- * real width, and the obvious way to ask for it — `BoxWithConstraints` — is a
- * `SubcomposeLayout`, which throws `NoIntrinsicsMessage` because this row
- * measures intrinsics (`width(IntrinsicSize.Min)` in the row, `height(
- * IntrinsicSize.Min)` around this content). That was v1.2.26: both settings
- * screens crashed on open. A width cap has to come from arithmetic or from a
- * row of our own, never from a subcomposing child.
+ * Constraint: the label stays a plain `Text`. Capping its width needs the
+ * segment's real width, and the natural way to ask (`BoxWithConstraints`) is a
+ * `SubcomposeLayout`, which throws inside `SegmentedButton`'s intrinsic
+ * measurement and takes both settings surfaces down on open. A width cap has to
+ * come from arithmetic or a hand-rolled row, never from a subcomposing child.
+ * `ThemeOptionsCardTest` bounds-locks the labels; see docs/ARCHITECTURE.md
+ * § Screens (Settings) for the measured budget and the one excluded case.
  */
 @Composable
 internal fun ThemeOptionsCard(
