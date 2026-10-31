@@ -142,7 +142,9 @@ class BookDownloadGuardTest {
         // Second start re-creates state instead of replaying stale progress.
         withTimeout(5000) {
             var guard = 0
-            while ((m.states.value["b3"]?.downloading != false || runs < 2) && guard++ < 500) delay(10)
+            // 100 x 10ms keeps the poll inside the budget above, so a regression
+            // reaches the assertion below instead of a bare timeout exception.
+            while ((m.states.value["b3"]?.downloading != false || runs < 2) && guard++ < 100) delay(10)
         }
         // Waiting only for non-null state would pass on the state that start()
         // publishes synchronously, before the job ever runs: assert the work.
