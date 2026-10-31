@@ -34,10 +34,13 @@ class ReaderTitleTest {
         assertEquals("書名-prev", ReaderTitle.resolve("", "", "書名-prev"))
     }
 
-    @Test fun neverUsesChapterTitle() {
-        // The resolver takes no chapter title at all (see ReaderTitle): with
-        // nothing to fall back to it returns empty rather than inventing one.
-        assertEquals("書名", ReaderTitle.resolve("書名", "", "舊書名"))
+    @Test fun emptyInputsResolveToEmpty() {
+        // The resolver takes no chapter title at all (see ReaderTitle), so the
+        // chapter-title property is enforced by the signature, not here. What
+        // is left to pin is the boundary: no TOC meta, no network title and no
+        // previous book resolve to empty, never to an invented title.
         assertEquals("", ReaderTitle.resolve("", "", ""))
+        // A stale previous book must still lose to the TOC meta title.
+        assertEquals("書名", ReaderTitle.resolve("書名", "", "舊書名"))
     }
 }
