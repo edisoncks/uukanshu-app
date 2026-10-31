@@ -31,7 +31,11 @@ object ChapterParser {
     fun parseChapter(page: String, pageUrl: String): Parser.ChapterContent {
         val h1 = h1Re.find(page)?.groupValues?.getOrNull(1)
         val title = if (h1 != null) {
-            ParserText.unescape(Jsoup.parse(h1).text().trim()).ifEmpty { pageUrl }
+            // Jsoup already decodes character references while parsing, so this
+            // must NOT go through ParserText.unescape: a title containing the
+            // literal text `&lt;` (written `&amp;lt;`) would decode a second time
+            // and disagree with the body, which is decoded exactly once.
+            Jsoup.parse(h1).text().trim().ifEmpty { pageUrl }
         } else pageUrl
 
         var book = ""
