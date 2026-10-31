@@ -232,6 +232,38 @@ class DetailViewModelTest {
         idle()
     }
 
+    @Test fun completedDownloadClearsTheBadgeThroughTheCoverageVariant() = runTest {
+        // The post-download clear must use markSeenIfCovered, never markSeen: a
+        // background 追更 check can merge a chapter between the download's last
+        // read and this point, and the Fresh-TOC variant would clear the badge
+        // for a chapter nobody downloaded or saw.
+        val repo = MutableFakeRepo(fresh = testDetail(101L, 102L))
+        val downloads = manager(this)
+        downloads.seedForTest(
+            "1",
+            BookDownloadManager.State(downloading = true, done = 0, total = 2),
+        )
+        val vm = vm(repo, downloads)
+        idle()
+        // The Fresh-TOC paint has its own markSeen call; only this one exists so far.
+        val freshMarkSeen = repo.markSeenCalls.size
+
+        downloads.seedForTest(
+            "1",
+            BookDownloadManager.State(downloading = false, done = 2, total = 2),
+        )
+        idle()
+
+        assertEquals(listOf("1"), repo.markSeenIfCoveredCalls)
+        assertEquals(
+            "the post-download clear must not use the Fresh-TOC variant",
+            freshMarkSeen,
+            repo.markSeenCalls.size,
+        )
+        downloads.cancel("1")
+        idle()
+    }
+
     @Test fun vanishedBookmarkHidesContinue() = runTest {
         // Deleted chapter: no continue target, never the neighbor at position 1.
         val base = MutableFakeRepo(cached = testDetail(101L, 102L), fresh = testDetail(101L, 102L))
