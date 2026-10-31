@@ -210,4 +210,78 @@ class SearchViewModelTest {
         gate.complete(Unit)
         advanceSearch()
     }
+
+    @Test fun clearedQueryIsNotRepaintedByTheInFlightRequest() = runTest {
+        // A keystroke must invalidate the in-flight request at once. With the
+        // debounce upstream of flatMapLatest the old request stayed live for the
+        // whole window, so results for the previous text could be painted under
+        // an empty field (ARCHITECTURE.md § Search).
+        val gate = CompletableDeferred<Unit>()
+        val books = listOf(Parser.BookItem(id = "1", title = "A"))
+        val repo = object : RepoApi by MutableFakeRepo() {
+            override suspend fun search(keyword: String): Parser.SearchResult {
+                gate.await()
+                return Parser.SearchResult(1, books)
+            }
+        }
+        val vm = SearchViewModel(repo, MutableFakePrefs(), T2S())
+        main.dispatcher.scheduler.advanceUntilIdle()
+
+        vm.query("abc")
+        main.dispatcher.scheduler.advanceTimeBy(600)
+        main.dispatcher.scheduler.advanceUntilIdle()
+
+        vm.query("")
+        assertTrue(vm.ui.value is SearchViewModel.Ui.Idle)
+
+        gate.complete(Unit)
+        // Past the resume, not past the next debounce: the bug is the stale
+        // paint itself, which a later Idle emission would simply overwrite.
+        main.dispatcher.scheduler.advanceTimeBy(100)
+        assertTrue(
+            "results for 'abc' must not appear under an empty field, got ${vm.ui.value}",
+            vm.ui.value is SearchViewModel.Ui.Idle,
+        )
+    }
+
+    @Test fun retypedQueryCannotBeRepaintedByThePreviousRequest() = runTest {
+        // The retype path needs its own proof: with distinct payloads, the old
+        // request's result is identifiable. Asserting only "two calls happened,
+        // final result is the second" passes with the debounce upstream too,
+        // because the second request renders the same payload either way.
+        val firstGate = CompletableDeferred<Unit>()
+        val calls = java.util.concurrent.atomic.AtomicInteger(0)
+        val repo = object : RepoApi by MutableFakeRepo() {
+            override suspend fun search(keyword: String): Parser.SearchResult =
+                if (calls.incrementAndGet() == 1) {
+                    firstGate.await()
+                    Parser.SearchResult(1, listOf(Parser.BookItem(id = "old", title = "OLD")))
+                } else {
+                    Parser.SearchResult(1, listOf(Parser.BookItem(id = "new", title = "NEW")))
+                }
+        }
+        val vm = SearchViewModel(repo, MutableFakePrefs(), T2S())
+        main.dispatcher.scheduler.advanceUntilIdle()
+
+        vm.query("abc")
+        main.dispatcher.scheduler.advanceTimeBy(600)
+        main.dispatcher.scheduler.advanceUntilIdle() // request 1 parked on the gate
+
+        vm.query("abcd")
+        firstGate.complete(Unit) // request 1 answers AFTER the keystroke
+        // Past the resume, before the replacement's debounce has elapsed.
+        main.dispatcher.scheduler.advanceTimeBy(100)
+
+        val mid = vm.ui.value
+        assertTrue(
+            "the superseded query must not paint, got $mid",
+            mid !is SearchViewModel.Ui.Success || mid.books.none { it.id == "old" },
+        )
+
+        advanceSearch()
+        val ui = vm.ui.value
+        assertTrue("expected the second query's success, got $ui", ui is SearchViewModel.Ui.Success)
+        assertEquals(listOf("new"), (ui as SearchViewModel.Ui.Success).books.map { it.id })
+        assertEquals(2, calls.get())
+    }
 }
