@@ -46,13 +46,6 @@ object VersionCompare {
     fun normalize(v: String): String =
         v.trim().trimStart('v', 'V').substringBefore('+').trim()
 
-    /**
-     * True when [v] carries a prerelease suffix (`1.2.19-beta`). The updater
-     * refuses these: stable users must never be offered a beta, not even one
-     * published without GitHub's prerelease flag (see RELEASING.md).
-     */
-    fun isPrerelease(v: String): Boolean = normalize(v).contains('-')
-
     private fun coreParts(v: String): List<Int> =
         normalize(v).substringBefore('-').split('.')
             .map { it.filter(Char::isDigit).toIntOrNull() ?: 0 }
@@ -152,8 +145,11 @@ class UpdateApi(
          * `VersionCompare.normalize` strips one when present, so without this
          * check a tag like `1.2.28` or `v1.2.28.1` would be accepted and the
          * updater would silently widen the release shape the docs promise.
-         * A prerelease tag (`v1.2.28-beta`) fails here too, which is the
-         * stable-only rule; [VersionCompare.isPrerelease] states it for readers.
+         * A prerelease tag (`v1.2.28-beta`) and `+build` metadata
+         * (`v1.2.28+build7`) fail here too: the stable-only rule is enforced by
+         * the shape of the tag, not by a second check on its parts, so a beta
+         * published without GitHub's prerelease flag still cannot reach a
+         * stable user.
          */
         private val stableTagRe = Regex("""^v\d+\.\d+\.\d+$""")
 

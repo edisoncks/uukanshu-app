@@ -45,17 +45,6 @@ class VersionCompareTest {
         assertTrue(VersionCompare.isNewer("1.0.15-rc2", "1.0.15-beta10"))
         assertFalse(VersionCompare.isNewer("1.0.15-beta", "1.0.15-beta"))
     }
-
-    @Test
-    fun `prerelease detection`() {
-        // The updater's stable-only gate keys on this (see UpdateApi.parse).
-        assertTrue(VersionCompare.isPrerelease("v1.2.19-beta"))
-        assertTrue(VersionCompare.isPrerelease("1.2.19-rc.1"))
-        assertFalse(VersionCompare.isPrerelease("1.2.19"))
-        // `+build` metadata is cut by normalize, so it is not a prerelease:
-        // only a `-suffix` marks a build as not-for-stable-users.
-        assertFalse(VersionCompare.isPrerelease("1.2.19+build7"))
-    }
 }
 
 class UpdateApiParseTest {
