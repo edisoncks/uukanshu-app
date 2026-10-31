@@ -133,11 +133,15 @@ releases:
 - Tag is `vX.Y.Z` and **must equal** `versionName X.Y.Z` (numeric
   dot-separated compare; leading `v` stripped). Prerelease tags
   (`vX.Y.Z-suffix`) are outside this contract: the app refuses them, see
-  [Publishing a prerelease](#publishing-a-prerelease-beta).
-- Exactly one asset named `uukanshu-X.Y.Z.apk` (the updater enforces an exact
-  `uukanshu-{tag-version}.apk` match; any other `.apk`, including a
-  version-mismatched `uukanshu-*.apk`, is ignored and yields no update).
-  Never rename it and never attach a second APK.
+  [Publishing a prerelease](#publishing-a-prerelease-beta). Build metadata
+  (`vX.Y.Z+build`) is outside it too — the updater accepts exactly three
+  numeric parts.
+- Exactly one asset named `uukanshu-X.Y.Z.apk`. The updater counts every
+  `.apk` on the release and requires the single one to be named
+  `uukanshu-{tag-version}.apk`: a version-mismatched `uukanshu-*.apk`, a
+  renamed asset or any second `.apk` fails the release closed (no update is
+  offered at all) rather than the updater picking one of two binaries. Never
+  rename it and never attach a second APK.
 - The APK is integrity-checked in-app via the asset's server-side sha256
   (`digest` field, computed by GitHub at upload): the downloaded file must
   hash to it before it counts as ready or installable; a mismatch deletes
