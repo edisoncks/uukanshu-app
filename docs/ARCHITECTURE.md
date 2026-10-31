@@ -76,7 +76,9 @@ WorkManager merges four more into the shipped manifest from its own —
 `FOREGROUND_SERVICE`. They belong to [追更](#追更-library-update-check), not to
 any app code: the periodic 24h job has to wake the device, check its
 `NetworkType.CONNECTED` constraint when the job starts, and survive a reboot (the
-OS re-schedules it after `BOOT_COMPLETED`). No app code reads connectivity — that
+OS re-schedules it after `BOOT_COMPLETED`). `FOREGROUND_SERVICE` arrives with
+WorkManager 2.x for expedited and foreground workers; no worker here runs as
+either, so it stays granted and unused. No app code reads connectivity — that
 is why offline stays a failing fetch plus a cache fallback even though the APK
 carries `ACCESS_NETWORK_STATE`. A new dependency that merges a permission puts it
 on this inventory too.
