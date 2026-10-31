@@ -283,8 +283,18 @@ class UpdateViewModelTest {
     }
 
     @Test fun skipHidesTheOfferOnlyOncePersisted() = runTest(main.dispatcher) {
+        // The write is gated so the assertions can see the state *while* it is in
+        // flight: hiding the offer before the preference lands would claim a skip
+        // that never reached the disk.
         val app = ApplicationProvider.getApplicationContext<android.app.Application>()
-        val prefs = MutableFakePrefs()
+        val gate = CompletableDeferred<Unit>()
+        val backing = MutableFakePrefs()
+        val prefs = object : PrefsApi by backing {
+            override suspend fun setSkippedVersion(v: String?) {
+                gate.await()
+                backing.setSkippedVersion(v)
+            }
+        }
         val vm = UpdateViewModel(
             app,
             prefs,
@@ -297,8 +307,13 @@ class UpdateViewModelTest {
 
         vm.skipVersion()
         main.dispatcher.scheduler.advanceUntilIdle()
+        assertTrue("the offer must stay up while the write is in flight", vm.ui.value.visible)
+        assertNotNull("the release must not be dropped before the write lands", vm.ui.value.info)
+        assertTrue("nothing may be persisted yet", backing.skipped.isEmpty())
 
-        assertEquals(listOf("9.9.9"), prefs.skipped)
+        gate.complete(Unit)
+        main.dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("9.9.9"), backing.skipped)
         assertFalse(vm.ui.value.visible)
         assertNull(vm.ui.value.info)
         assertNull(vm.ui.value.error)
