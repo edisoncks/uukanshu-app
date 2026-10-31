@@ -107,10 +107,15 @@ class BookDownloadManagerTest {
             "untracked live download leaked",
             awaitCondition {
                 manager.forgetAll()
-                entered.get() == exited.get()
+                entered.get() == exited.get() && !manager.isDownloading("b")
             },
         )
-        assertEquals(0, manager.states.value.size)
+        // A start that registers after a wipe may legitimately keep its retained
+        // terminal state (see forgetAll's KDoc), so "the map is empty" is only
+        // true when nothing is left to race: no start is issued past the loop
+        // above, so one last wipe is definitive here.
+        manager.forgetAll()
+        assertEquals("a wipe with no start left to race must drop every state", 0, manager.states.value.size)
     }
 
     // Registration-before-run regression. Dispatchers.Unconfined runs the
