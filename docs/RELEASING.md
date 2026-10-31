@@ -155,8 +155,11 @@ releases:
   against a malicious GitHub or a compromised release key (the APK update
   signature check stays the anti-tamper anchor; out-of-band release signing
   would be the escalation).
-- Release body is shown verbatim as the update changelog (Traditional Chinese for non-technical users; keep it concise,
-  plain Markdown, no huge dumps, no jargon — the dialog scrolls at ~220dp).
+- Release body is shown in full as the update changelog (Traditional Chinese for non-technical users; keep it concise,
+  plain Markdown, no huge dumps, no jargon — the dialog scrolls at ~220dp). The
+  app trims surrounding whitespace and converts Traditional → Simplified when
+  that display mode is on; it truncates and restructures nothing, so what you
+  write is what the user reads.
 - Non-matching APK assets fail closed (no update offered, never a partial
   install) — see `UpdateViewModel` / `UpdateDownloader.apkState` /
   `apkStateIO` (byte-exact when size known; sha256-verified when the

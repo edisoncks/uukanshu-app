@@ -70,6 +70,12 @@ class UpdateViewModel(
         val needsUnknownSources: Boolean = false,
         /** Install-gate verification in flight (hashing on IO); blocks double-tap. */
         val installing: Boolean = false,
+        /**
+         * Skip claimed, preference write in flight. Blocks a concurrent
+         * [startDownload]: it would be hidden by the skip when it completes and
+         * lose its durable record to the skip's clear.
+         */
+        val skipping: Boolean = false,
         val error: String? = null,
     )
 
@@ -306,14 +312,43 @@ class UpdateViewModel(
     fun skipVersion() {
         val info = _ui.value.info ?: return
         val v = info.version
-        viewModelScope.launch {
-            prefs.setSkippedVersion(v)
-            clearDownloadRecord(UpdateDownloadRecord(info))
+        // Claim synchronously (Main), like [markChecking]/[install]: until the
+        // claim lands, the dialog still offers 立即更新, and a download started
+        // in that window would be hidden when the skip hides the dialog, with
+        // its record cleared by the clear below.
+        val prev = _ui.getAndUpdate { cur ->
+            if (canStartSkip(cur.skipping)) cur.copy(skipping = true) else cur
         }
-        // Skipping means go away: clear the pending update so the Settings
-        // banner and dialog don't come straight back. Next manual check
-        // re-fetches (manual ignores skipped); auto stays suppressed.
-        _ui.update { it.copy(visible = false, upToDate = false, error = null, info = null, downloadSucceeded = false, installing = false) }
+        if (!canStartSkip(prev.skipping)) return
+        viewModelScope.launch {
+            try {
+                prefs.setSkippedVersion(v)
+                clearDownloadRecord(UpdateDownloadRecord(info))
+            } catch (e: CancellationException) {
+                _ui.update { it.copy(skipping = false) }
+                throw e
+            } catch (e: Exception) {
+                // Same discipline as every other write in this VM: a failed
+                // DataStore write must not reach the crash handler, and the
+                // offer must stay up because the skip did not stick.
+                Log.w(TAG, "Could not persist skipped version", e)
+                _ui.update { it.copy(error = Errors.friendly(e), skipping = false) }
+                return@launch
+            }
+            // Hiding the offer is the visible half of a skip, so it happens only
+            // after the version is actually persisted.
+            _ui.update {
+                it.copy(
+                    visible = false,
+                    upToDate = false,
+                    error = null,
+                    info = null,
+                    downloadSucceeded = false,
+                    installing = false,
+                    skipping = false,
+                )
+            }
+        }
     }
 
     private fun observeDownload(id: Long, info: UpdateInfo) {
@@ -404,7 +439,10 @@ class UpdateViewModel(
 
     fun startDownload() {
         val info = _ui.value.info ?: return
-        if (_ui.value.downloading) return
+        // `skipping` is claimed synchronously before its write suspends; starting
+        // a download under it would be hidden and would lose its record (see
+        // skipVersion).
+        if (_ui.value.downloading || _ui.value.skipping) return
         _ui.update {
             it.copy(downloading = true, progress = null, error = null,
                 needsUnknownSources = false)

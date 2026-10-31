@@ -8,6 +8,7 @@ import cc.uukanshu.ui.update.UpdateViewModel
 import cc.uukanshu.ui.update.applyDownloadSuccess
 import cc.uukanshu.ui.update.canStartCheck
 import cc.uukanshu.ui.update.canStartInstall
+import cc.uukanshu.ui.update.canStartSkip
 import cc.uukanshu.ui.update.classifyDownloadSuccess
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -45,6 +46,11 @@ class UpdateDecisionsTest {
     @Test fun `install gate is open only when not installing`() {
         assertTrue(canStartInstall(installing = false))
         assertFalse(canStartInstall(installing = true))
+    }
+
+    @Test fun `skip gate is open only when not skipping`() {
+        assertTrue(canStartSkip(skipping = false))
+        assertFalse(canStartSkip(skipping = true))
     }
 
     // -- classifyDownloadSuccess -----------------------------------------
