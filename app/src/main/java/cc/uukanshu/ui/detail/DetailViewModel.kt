@@ -133,17 +133,17 @@ class DetailViewModel(
                     )
                 }
                 if (was && !st.downloading && st.error == null && st.total > 0 && st.done >= st.total) {
-                    val ready = _ui.value.load as? Load.Ready ?: return@collect
-                    // TOC may have grown mid-download (see BookRepo.downloadAll delta).
-                    // Manager total from the start snapshot must cover the live TOC,
-                    // else success would clear badges for never-downloaded rows.
-                    if (st.total < ready.chapters.size) return@collect
+                    // Coverage is decided against the live TOC under the repo's
+                    // write lock, not against this screen's snapshot: a background
+                    // 追更 check can merge a chapter after the download finished,
+                    // and a count comparison here would then clear the badge for a
+                    // chapter nobody downloaded or saw (see RepoApi.markSeenIfCovered).
                     try {
-                        repo.markSeen(bookId)
+                        repo.markSeenIfCovered(bookId)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        Log.w(TAG, "markSeen after download failed for $bookId", e)
+                        Log.w(TAG, "markSeenIfCovered after download failed for $bookId", e)
                     }
                 }
             }

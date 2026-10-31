@@ -1,6 +1,7 @@
 package cc.uukanshu.data.repo
 
 import cc.uukanshu.core.BookDeletedDuringDownloadException
+import cc.uukanshu.core.DownloadIncompleteException
 import cc.uukanshu.core.EmptyChapterListException
 import cc.uukanshu.core.Errors
 import cc.uukanshu.core.TocShrunkException
@@ -79,6 +80,13 @@ class BookRepo(
         /** Polite crawl delay bounds (ms): random 1-3s between chapter fetches. */
         const val CRAWL_DELAY_MIN_MS = 1000L
         const val CRAWL_DELAY_MAX_MS = 3000L
+
+        /**
+         * Bounded re-reads of the live TOC after the main download loop (see
+         * [downloadAll]): one pass catches a mid-run shift, the second confirms
+         * nothing moved again. Not a retry loop — a list that keeps moving fails.
+         */
+        const val MAX_TAIL_PASSES = 2
 
         /** Pure helper for [crawlDelay], testable without sleeping. */
         fun nextCrawlDelayMs(random: Random = Random): Long =
@@ -323,6 +331,25 @@ class BookRepo(
         kotlinx.coroutines.delay(nextCrawlDelayMs())
     }
 
+    /**
+     * Live TOC for the download's coverage passes, or null when there is nothing
+     * to compare against (book row present, no chapter rows).
+     *
+     * A book deleted mid-run must fail here, not read as "nothing left to
+     * download": [downloadAll]'s own `exists()` probe runs *before* each fetch,
+     * so a deletion during the last fetch would otherwise leave the tail with no
+     * rows, no missing ids, and a success verdict for a book that is gone.
+     */
+    private suspend fun liveTocForCoverage(bookId: String): List<Parser.ChapterRef>? {
+        val live = withContext(ioDispatcher) { cachedDetail(bookId)?.chapters }
+            ?.takeIf { it.isNotEmpty() }
+        if (live != null) return live
+        if (!withContext(ioDispatcher) { db.books().exists(bookId) }) {
+            throw BookDeletedDuringDownloadException()
+        }
+        return null
+    }
+
     /** Sequential full download; throwing aborts. See SCRAPING.md politeness. */
     override suspend fun downloadAll(bookId: String, onProgress: (Int, Int) -> Unit) {
         // Empty fresh TOC = block page, fall back to cache; fail loudly on neither.
@@ -364,18 +391,27 @@ class BookRepo(
                 }
                 onProgress(idx + 1, chapters.size)
             }
-            // TOC may have grown while downloading (concurrent revalidate merged new
-            // pageIds). Claiming 800/800 success then would lie, and Detail's
-            // markSeen-after-download would clear badges for never-downloaded rows.
-            // Re-read the cached TOC (DB state, no extra network) and fetch the delta.
-            val endChapters = withContext(ioDispatcher) { cachedDetail(bookId)?.chapters }
-                ?.takeIf { it.isNotEmpty() } ?: chapters
-            if (endChapters.size > chapters.size) {
-                val endCachedIds = withContext(ioDispatcher) {
+            // The TOC can move under the run (a concurrent revalidate merges it),
+            // so "finished the list I started with" is not "downloaded the book".
+            // Re-read the live TOC from the DB and fetch whatever is still
+            // uncached — matched by pageId, never by count: a same-size swap (the
+            // site drops one chapter and adds another) leaves the counts equal, so
+            // a size compare skips the new chapter and reports a finished download
+            // that Detail then clears the badge for. Bounded so a TOC that keeps
+            // moving ends in an honest failure instead of looping forever.
+            var tailPass = 0
+            var coveredByTailPass = false
+            while (tailPass < MAX_TAIL_PASSES) {
+                val liveChapters = liveTocForCoverage(bookId) ?: break
+                val liveCachedIds = withContext(ioDispatcher) {
                     Errors.runCatchingExceptCancel { db.chapters().cachedPageIds(bookId).toSet() }
                         .getOrDefault(emptySet())
                 }
-                val delta = missing(endChapters, endCachedIds)
+                val delta = missing(liveChapters, liveCachedIds)
+                if (delta.isEmpty()) {
+                    coveredByTailPass = true
+                    break
+                }
                 delta.forEachIndexed { di, ref ->
                     if (!withContext(ioDispatcher) { db.books().exists(bookId) }) {
                         throw BookDeletedDuringDownloadException()
@@ -384,7 +420,22 @@ class BookRepo(
                     val text = withContext(ioDispatcher + BulkFetch) { chapter(ref.url).text }
                     saveChapterContent(bookId, ref.pageId, text)
                     fetchedAny = true
-                    onProgress(endChapters.size - delta.size + di + 1, endChapters.size)
+                    onProgress(liveChapters.size - delta.size + di + 1, liveChapters.size)
+                }
+                tailPass++
+            }
+            // Fail closed if the list kept moving: a success here would clear the
+            // 追更 badge for chapters that were never downloaded.
+            if (!coveredByTailPass) {
+                val live = liveTocForCoverage(bookId)
+                if (live != null) {
+                    val cachedIds = withContext(ioDispatcher) {
+                        Errors.runCatchingExceptCancel {
+                            db.chapters().cachedPageIds(bookId).toSet()
+                        }.getOrDefault(emptySet())
+                    }
+                    val stillMissing = missing(live, cachedIds).size
+                    if (stillMissing > 0) throw DownloadIncompleteException(stillMissing)
                 }
             }
         } finally {
@@ -534,6 +585,26 @@ class BookRepo(
             val cur = db.books().book(bookId) ?: return@withLock
             // Idempotent: already at baseline with no badge → no UPDATE,
             // so repeat opens don't churn libraryFlow/bookFlow recompose.
+            if (cur.seenTotal == total && cur.newCount == 0) return@withLock
+            db.books().updateCheckState(bookId, total, 0, cur.lastCheckedAt)
+        }
+    }
+
+    override suspend fun markSeenIfCovered(bookId: String) = withContext(ioDispatcher) {
+        dbWrite.withLock {
+            val cur = db.books().book(bookId) ?: return@withLock
+            val counts = try {
+                db.chapters().countByBook(bookId) to db.chapters().cachedCount(bookId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "markSeenIfCovered count failed for $bookId", e)
+                return@withLock
+            }
+            val (total, cached) = counts
+            // Not covered → the badge stays up: that is the whole point of this
+            // variant (see RepoApi.markSeenIfCovered).
+            if (total == 0 || cached < total) return@withLock
             if (cur.seenTotal == total && cur.newCount == 0) return@withLock
             db.books().updateCheckState(bookId, total, 0, cur.lastCheckedAt)
         }

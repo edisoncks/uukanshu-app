@@ -293,6 +293,46 @@ class BookDownloadLoopTest {
         assertEquals("fresh-103", db.chapters().chapterContent("1", 103L))
     }
 
+    @Test fun tocSameSizeSwapMidDownloadFetchesTheReplacement() = runBlocking {
+        // The site drops 102 and adds 103 while 102 is fetching: the live TOC
+        // keeps its size, so a size compare sees "nothing changed". The write for
+        // 102 lands on a pruned row and is a documented no-op, so without a
+        // pageId-based tail pass the run reports 2/2 with 103 never fetched and
+        // Detail then clears the 追更 badge for a chapter that is not on disk.
+        db.books().upsert(BookEntity("1", "T", "A", "", "", ""))
+        db.chapters().upsertAll(
+            listOf(
+                ChapterEntity("1", 1, 101L, "c1", chapterUrl(101L), content = "saved-1"),
+                ChapterEntity("1", 2, 102L, "c2", chapterUrl(102L), content = ""),
+            ),
+        )
+        var swapped = false
+        val site = object : SiteGateway {
+            override suspend fun get(url: String): String {
+                if (url.endsWith("/book/1/")) return tocHtml
+                if (url == chapterUrl(102L) && !swapped) {
+                    swapped = true
+                    // Same row count: one pruned, one inserted.
+                    db.chapters().deleteByPageIds("1", listOf(102L))
+                    db.chapters().upsertAll(
+                        listOf(ChapterEntity("1", 2, 103L, "c3", chapterUrl(103L), content = "")),
+                    )
+                }
+                val id = Regex("/(\\d+)\\.html").find(url)?.groupValues?.get(1) ?: "x"
+                return chapterHtml("fresh-$id")
+            }
+            override suspend fun search(keyword: String) = ""
+        }
+        val repo = BookRepo(site, db)
+        var lastProgress = 0 to 0
+        repo.downloadAll("1") { done, total -> lastProgress = done to total }
+
+        assertEquals("precondition: both TOCs have two rows", 2L, db.chapters().countByBook("1").toLong())
+        assertEquals("fresh-103", db.chapters().chapterContent("1", 103L))
+        assertEquals("saved-1", db.chapters().chapterContent("1", 101L))
+        assertEquals(2 to 2, lastProgress)
+    }
+
     @Test fun deleteMidDownloadAbortsLoudly() = runBlocking {
         val chapterCalls = AtomicInteger(0)
         val fetchGate = CompletableDeferred<Unit>()
@@ -322,6 +362,39 @@ class BookDownloadLoopTest {
         fetchGate.complete(Unit)
         withTimeout(10000) { job.join() }
         if (thrown == null) fail("expected abort on deleted book")
+        assertTrue("expected delete-abort, got $thrown", thrown!!.message?.contains("deleted") == true)
+    }
+
+    @Test fun deleteAtTheTailAbortsInsteadOfReportingSuccess() = runBlocking {
+        // The book is deleted while its last planned chapter is being fetched: the
+        // loop's exists() probe has already passed and the content write is a
+        // no-op, so the tail finds no chapter rows at all. "No rows" must not read
+        // as "nothing left to fetch" — that reports a finished download for a book
+        // that no longer exists, which is the state this exception exists for.
+        db.books().upsert(BookEntity("1", "T", "A", "", "", ""))
+        db.chapters().upsertAll(
+            listOf(
+                ChapterEntity("1", 1, 101L, "c1", chapterUrl(101L), content = "saved-1"),
+                ChapterEntity("1", 2, 102L, "c2", chapterUrl(102L), content = ""),
+            ),
+        )
+        val site = object : SiteGateway {
+            override suspend fun get(url: String): String {
+                if (url.endsWith("/book/1/")) return tocHtml
+                if (url == chapterUrl(102L)) db.deleteBookFull("1")
+                val id = Regex("/(\\d+)\\.html").find(url)?.groupValues?.get(1) ?: "x"
+                return chapterHtml("fresh-$id")
+            }
+            override suspend fun search(keyword: String) = ""
+        }
+        val repo = BookRepo(site, db)
+        var thrown: Throwable? = null
+        try {
+            repo.downloadAll("1") { _, _ -> }
+        } catch (e: Throwable) {
+            thrown = e
+        }
+        if (thrown == null) fail("a book deleted at the tail must abort, not report success")
         assertTrue("expected delete-abort, got $thrown", thrown!!.message?.contains("deleted") == true)
     }
 }

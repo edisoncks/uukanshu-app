@@ -100,6 +100,12 @@ class MutableFakeRepo(
     override suspend fun markSeen(bookId: String) {
         markSeenCalls += bookId
     }
+
+    /** Records the post-download variant separately: it must not be interchangeable with [markSeen]. */
+    val markSeenIfCoveredCalls = mutableListOf<String>()
+    override suspend fun markSeenIfCovered(bookId: String) {
+        markSeenIfCoveredCalls += bookId
+    }
     override suspend fun library(): List<BookRepo.CachedBook> {
         libraryCalls++
         return libraryFailure?.let { throw it } ?: libraryRows

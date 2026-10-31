@@ -54,6 +54,37 @@ class BookRepoUpdateCheckTest {
         db.close()
     }
 
+    @Test fun markSeenIfCoveredKeepsTheBadgeForAnUncachedChapter() = runTest {
+        // A successful download cannot prove coverage on its own: a background
+        // check can merge a chapter after the download's last read. The badge
+        // clear therefore re-checks coverage against the live TOC.
+        repo.detail("1") // 10 chapters, seeded
+        for (id in 101..110) repo.saveChapterContent("1", id.toLong(), "text-$id")
+        repo.checkUpdate("1") // seeds seenTotal=10, no badge
+        assertEquals(0, db.books().book("1")!!.newCount)
+
+        html = tocHtml(12) // two new chapters
+        repo.checkUpdate("1")
+        assertEquals(2, db.books().book("1")!!.newCount)
+
+        // One live chapter lost its text: the list is not covered.
+        db.chapters().updateContent("1", 101L, "")
+        repo.markSeenIfCovered("1")
+        assertEquals(
+            "badge must survive a live chapter with no cached text",
+            2,
+            db.books().book("1")!!.newCount,
+        )
+
+        // Everything cached → the badge clears and the baseline advances.
+        repo.saveChapterContent("1", 101L, "text-101")
+        repo.saveChapterContent("1", 111L, "text-111")
+        repo.saveChapterContent("1", 112L, "text-112")
+        repo.markSeenIfCovered("1")
+        assertEquals(0, db.books().book("1")!!.newCount)
+        assertEquals(12, db.books().book("1")!!.seenTotal)
+    }
+
     @Test fun seedGrowsClears() = runTest {
         // Seed DB via first detail (10 chapters, seenTotal=0).
         repo.detail("1")
