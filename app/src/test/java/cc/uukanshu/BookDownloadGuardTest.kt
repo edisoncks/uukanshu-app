@@ -25,11 +25,10 @@ class BookDownloadGuardTest {
         val m = BookDownloadManager(downloadFn = { _, _ -> }, scope = this)
         m.start("b1")
         // Let the empty downloadFn complete.
-        withTimeout(5000) {
-            // Poll until terminal (downloading=false).
-            var guard = 0
-            while ((m.states.value["b1"]?.downloading == true) && guard++ < 500) delay(10)
-        }
+        assertTrue(
+            "empty download must reach a terminal state",
+            awaitCondition { m.states.value["b1"]?.downloading == false },
+        )
         m.forget("b1")
         assertNull(m.states.value["b1"])
     }
@@ -44,10 +43,10 @@ class BookDownloadGuardTest {
         )
         m.start("b2")
         // Wait until progress published.
-        withTimeout(5000) {
-            var guard = 0
-            while ((m.states.value["b2"]?.done ?: 0) == 0 && guard++ < 500) delay(10)
-        }
+        assertTrue(
+            "first progress must reach the state",
+            awaitCondition { (m.states.value["b2"]?.done ?: 0) != 0 },
+        )
         assertEquals(3, m.states.value["b2"]?.done)
         m.cancel("b2")
         assertEquals(false, m.states.value["b2"]?.downloading)
@@ -114,10 +113,10 @@ class BookDownloadGuardTest {
             m.states.value["b5"]?.downloading == true,
         )
         release2.complete(Unit)
-        withTimeout(5000) {
-            var guard = 0
-            while (m.states.value["b5"]?.downloading != false && guard++ < 500) delay(10)
-        }
+        assertTrue(
+            "replacement must reach a terminal state",
+            awaitCondition { m.states.value["b5"]?.downloading == false },
+        )
         assertFalse(m.isDownloading("b5"))
     }
 
@@ -131,21 +130,21 @@ class BookDownloadGuardTest {
             scope = this,
         )
         m.start("b3")
-        withTimeout(5000) {
-            var guard = 0
-            while ((m.states.value["b3"]?.downloading != false || m.states.value["b3"]?.done == 0) && guard++ < 500) delay(10)
-        }
+        assertTrue(
+            "first run must reach a terminal state",
+            awaitCondition {
+                m.states.value["b3"]?.downloading == false && (m.states.value["b3"]?.done ?: 0) != 0
+            },
+        )
         assertEquals("first start must run the download", 1, runs)
         m.forget("b3")
         assertNull(m.states.value["b3"])
         m.start("b3")
         // Second start re-creates state instead of replaying stale progress.
-        withTimeout(5000) {
-            var guard = 0
-            // 100 x 10ms keeps the poll inside the budget above, so a regression
-            // reaches the assertion below instead of a bare timeout exception.
-            while ((m.states.value["b3"]?.downloading != false || runs < 2) && guard++ < 100) delay(10)
-        }
+        assertTrue(
+            "second start must reach a terminal state",
+            awaitCondition { m.states.value["b3"]?.downloading == false },
+        )
         // Waiting only for non-null state would pass on the state that start()
         // publishes synchronously, before the job ever runs: assert the work.
         assertEquals("second start must run the download again", 2, runs)

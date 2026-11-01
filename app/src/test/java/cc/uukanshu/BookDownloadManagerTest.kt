@@ -13,6 +13,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicBoolean
@@ -102,14 +103,19 @@ class BookDownloadManagerTest {
         }
         // Drain: every started download must terminate by cancellation. If
         // any job survived a wipe untracked, `exited` never catches up.
-        withTimeout(5000) {
-            while (entered.get() != exited.get()) {
+        assertTrue(
+            "untracked live download leaked",
+            awaitCondition {
                 manager.forgetAll()
-                delay(10)
-            }
-        }
-        assertEquals("untracked live download leaked", entered.get(), exited.get())
-        assertEquals(0, manager.states.value.size)
+                entered.get() == exited.get() && !manager.isDownloading("b")
+            },
+        )
+        // A start that registers after a wipe may legitimately keep its retained
+        // terminal state (see forgetAll's KDoc), so "the map is empty" is only
+        // true when nothing is left to race: no start is issued past the loop
+        // above, so one last wipe is definitive here.
+        manager.forgetAll()
+        assertEquals("a wipe with no start left to race must drop every state", 0, manager.states.value.size)
     }
 
     // Registration-before-run regression. Dispatchers.Unconfined runs the
@@ -190,10 +196,10 @@ class BookDownloadManagerTest {
         manager.start("b1")
         withTimeout(5000) { entered.await() }
         release.complete(Unit)
-        withTimeout(5000) {
-            var guard = 0
-            while (manager.states.value["b1"]?.downloading == true && guard++ < 500) delay(10)
-        }
+        assertTrue(
+            "failed run must reach a terminal state",
+            awaitCondition { manager.states.value["b1"]?.downloading == false },
+        )
         assertEquals(500, manager.states.value["b1"]?.done)
         manager.start("b1")
         assertEquals(true, manager.states.value["b1"]?.downloading)
