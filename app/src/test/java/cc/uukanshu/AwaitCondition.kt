@@ -11,6 +11,11 @@ import kotlinx.coroutines.delay
  * the same budget, the poll spends the whole timeout and the message never
  * prints. Callers assert on the result with a message that says what never
  * happened.
+ *
+ * Must run on a real-time dispatcher (`runBlocking`, `Dispatchers.Default`):
+ * the deadline is wall-clock while `delay` obeys the coroutine scheduler, so
+ * under `runTest`'s virtual time the loop would spin through the whole budget
+ * without the clock advancing. See `AwaitConditionTest` for the contract.
  */
 internal suspend fun awaitCondition(
     budgetMs: Long = 5_000,
