@@ -3,7 +3,7 @@ package cc.uukanshu.ui
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Badge
@@ -65,7 +65,7 @@ fun UukanshuApp(container: AppContainer, app: Application) {
             val tabs = listOf(
                 Tab(Routes.HOME, display("首頁")) { Icon(Icons.Filled.Home, contentDescription = null) },
                 Tab(Routes.SEARCH, display("搜索")) { Icon(Icons.Filled.Search, contentDescription = null) },
-                Tab(Routes.LIBRARY, display("書架")) { Icon(Icons.Filled.List, contentDescription = null) },
+                Tab(Routes.LIBRARY, display("書架")) { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
                 Tab(Routes.SETTINGS, display("設定")) { Icon(Icons.Filled.Settings, contentDescription = null) },
             )
             val updateVm: UpdateViewModel = viewModel(factory = vmFactory {
