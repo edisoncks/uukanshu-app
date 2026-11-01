@@ -61,6 +61,19 @@ class VersionContractTest {
         )
     }
 
+    @Test fun rcTagNeverOfferedEvenWithoutThePrereleaseFlag() {
+        // A 1.2.28-rc.1 published without GitHub's prerelease flag must still
+        // never reach a stable user: the tag shape is the gate, and `-rc.1` is
+        // outside `vX.Y.Z`. `releases/latest` hides flagged prereleases, so this
+        // covers the case where the flag was forgotten.
+        assertNull(
+            UpdateApi.parse(
+                """{"tag_name":"v1.2.28-rc.1","prerelease":false,"assets":[""" +
+                    """{"name":"uukanshu-1.2.28-rc.1.apk","browser_download_url":"https://example.com/rc.apk","size":12345}]}""",
+            ),
+        )
+    }
+
     @Test fun tagMustCarryTheVPrefixAndThreeNumericParts() {
         // The contract says `vX.Y.Z`. `normalize` strips an optional `v`, so
         // without an explicit shape check the updater silently accepted tags the
