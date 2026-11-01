@@ -332,7 +332,17 @@ class UpdateViewModel(
                 // DataStore write must not reach the crash handler, and the
                 // offer must stay up because the skip did not stick.
                 Log.w(TAG, "Could not persist skipped version", e)
-                _ui.update { it.copy(error = Errors.friendly(e), skipping = false) }
+                // Only message a dialog the user can still see. The dialog can be
+                // dismissed while this write is in flight, and an error stored
+                // behind a hidden one resurfaces on reopen, blaming a skip the
+                // user started minutes ago (#53). The offer is untouched either
+                // way, so a retry is one tap away.
+                _ui.update {
+                    it.copy(
+                        error = if (it.visible) Errors.friendly(e) else null,
+                        skipping = false,
+                    )
+                }
                 return@launch
             }
             // Hiding the offer is the visible half of a skip, so it happens only
