@@ -9,6 +9,7 @@ import cc.uukanshu.di.PrefsApi
 import cc.uukanshu.di.RepoApi
 import cc.uukanshu.core.Errors
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -81,6 +82,9 @@ class SearchViewModel(
         viewModelScope.launch {
             prefs.simplified.collect { v -> _ui.update { it.withSimplified(v) } }
         }
+        // flatMapLatest is still experimental; the opt-in sits on this launch so
+        // the rest of the class stays on stable API only.
+        @OptIn(ExperimentalCoroutinesApi::class)
         viewModelScope.launch {
             queries.flatMapLatest { (_, raw) ->
                 flow<Ui> {
