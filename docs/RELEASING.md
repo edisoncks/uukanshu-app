@@ -83,45 +83,57 @@ overwritten.
 
 ## Publishing a prerelease (beta)
 
-Betas ship by hand from a trusted machine (CI ignores suffix tags).
-Build with the production key via env vars (alias is `uukanshu`, same as CI):
+Prereleases (`X.Y.Z-rc.1`, `X.Y.Z-beta`) go through the same CI pipeline as
+finals — same production key, same updater-contract and signature checks — but
+they are started by hand, because a suffix tag pushed to the repo is skipped by
+the workflow's job guard.
 
-```sh
-export UUKANSHU_KEYSTORE_FILE=/path/to/official.keystore
-export UUKANSHU_KEYSTORE_PASSWORD=…
-export UUKANSHU_KEY_ALIAS=uukanshu
-export UUKANSHU_KEY_PASSWORD=…
-mise run test && mise run build
-# → app/build/outputs/apk/release/uukanshu-X.Y.Z-beta.apk
-```
+1. **Bump the version *and* write the changelog.** `versionName` carries the
+   suffix, and the user-facing notes go in `docs/release-notes/v<version>.md`
+   (Traditional Chinese, plain Markdown, concise). Commit both:
 
-Three differences from the
-CI flow:
-
-1. **The version and tag carry a suffix**: `versionName = "1.2.19-beta"`, tag
-   `v1.2.19-beta`, asset `uukanshu-1.2.19-beta.apk`. The derived `versionCode`
-   is the core version's (1002019), because the platform refuses only a
-   *lower* code (see [DEVELOPMENT.md](DEVELOPMENT.md#signing)) — that is what
-   lets a beta install over any earlier release and the final install over
-   its own betas.
-2. **Create it as a GitHub prerelease:**
    ```sh
-   gh release create v1.2.19-beta \
-     app/build/outputs/apk/release/uukanshu-1.2.19-beta.apk \
-     --prerelease --title "v1.2.19-beta" --notes "…concise changelog…"
+   # app/build.gradle.kts: versionName = "1.2.28-rc.1"
+   # docs/release-notes/v1.2.28-rc.1.md
    ```
-   `releases/latest` skips prereleases, so stable users keep seeing the last
-   final release. The in-app updater additionally refuses any payload whose
-   tag carries a suffix (or whose API `prerelease` flag is set), so a beta
-   published *without* this flag still cannot be installed by the app — the
-   check reports an error until the flag is added.
-3. **Never publish a prerelease for a version whose final is already out.**
-   Successive betas of the same `X.Y.Z` are fine (they share one
-   `versionCode`; a later beta simply replaces the earlier one).
 
-Testers install the APK by hand from the release page: the app has one
-stable channel, so a beta build's own **檢查更新** keeps answering
-"up to date" until the final ships, and it will then offer the final.
+   The derived `versionCode` is the core version's (1002028), because the
+   platform refuses only a *lower* code (see
+   [DEVELOPMENT.md](DEVELOPMENT.md#signing)) — that is what lets the candidate
+   install over any earlier release and the final install over it later.
+2. **Dispatch the workflow from the default branch:**
+
+   ```sh
+   gh workflow run release.yml --ref main -f version=1.2.28-rc.1
+   ```
+
+   It refuses an input without a suffix, a non-default branch, an existing tag
+   or a missing notes file. It creates the annotated tag from the notes file
+   (the tag message is what `gh release create` publishes), then tests, builds
+   with the production key, verifies the contract + signer fingerprint and
+   publishes with `--prerelease --latest=false`.
+3. **Approve the `production` environment** when prompted, then confirm the
+   release: exactly one asset `uukanshu-X.Y.Z-rc.1.apk`, an exposed digest, and
+   `latest=false`.
+
+Notes that hold for every prerelease:
+
+- `releases/latest` skips prereleases, so stable users keep seeing the last
+  final release. The in-app updater refuses any payload whose tag carries a
+  suffix *and* any payload flagged prerelease, so a candidate cannot reach a
+  stable user even if the flag were forgotten.
+- **Never publish a prerelease for a version whose final is already out.**
+  Successive candidates of the same `X.Y.Z` are fine (they share one
+  `versionCode`; a later one simply replaces the earlier one) — but publish
+  each as either `-rc.N` or `-beta`, not both, so testers know what to expect.
+
+Testers install the APK by hand from the release page: the app has one stable
+channel, so a candidate's own **檢查更新** keeps answering "up to date" until
+the final ships, and it will then offer the final.
+
+Signing by hand (the pre-CI path) is an emergency exit only: it needs the
+production keystore and the same three properties above, and CI must be down to
+justify it.
 
 ## Updater contract (do not break)
 
