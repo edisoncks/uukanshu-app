@@ -282,6 +282,44 @@ class UpdateViewModelTest {
         assertNotNull("the skipped version must not be dropped", vm.ui.value.info)
     }
 
+    @Test fun failedSkipAfterDismissLeavesNoStaleError() = runTest(main.dispatcher) {
+        // The dialog can be dismissed while the skip's write is in flight. A
+        // failure stored behind a hidden dialog resurfaces on reopen, blaming a
+        // skip the user started earlier (#53). The claim must still be released.
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val gate = CompletableDeferred<Unit>()
+        val prefs = object : PrefsApi by MutableFakePrefs() {
+            override suspend fun setSkippedVersion(v: String?) {
+                gate.await()
+                throw java.io.IOException("disk full")
+            }
+        }
+        val vm = UpdateViewModel(
+            app,
+            prefs,
+            CountingFetcher(AtomicInteger(0), info()),
+            FakeApkDownloader(),
+            ioDispatcher = main.dispatcher,
+        )
+        vm.manualCheck()
+        main.dispatcher.scheduler.advanceUntilIdle()
+
+        vm.skipVersion()
+        assertTrue("the skip must be claimed first", vm.ui.value.skipping)
+        vm.dismiss()
+        main.dispatcher.scheduler.advanceUntilIdle()
+
+        gate.complete(Unit)
+        main.dispatcher.scheduler.advanceUntilIdle()
+        assertFalse("the claim must be released either way", vm.ui.value.skipping)
+
+        vm.reopen()
+        main.dispatcher.scheduler.advanceUntilIdle()
+        assertTrue("reopen must show the dialog", vm.ui.value.visible)
+        assertNotNull("the offer must still be there", vm.ui.value.info)
+        assertNull("a failure the user never saw must not surface on reopen", vm.ui.value.error)
+    }
+
     @Test fun skipHidesTheOfferOnlyOncePersisted() = runTest(main.dispatcher) {
         // The write is gated so the assertions can see the state *while* it is in
         // flight: hiding the offer before the preference lands would claim a skip
