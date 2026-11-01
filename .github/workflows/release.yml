@@ -2,16 +2,28 @@ name: release
 
 # Official releases ONLY, built on CI — never from a laptop.
 #
-# Flow: bump versionName -> push an ANNOTATED final tag whose message is the
-# Traditional Chinese changelog -> this workflow tests, builds, verifies the
-# updater contract + the official signature, and publishes the release.
-# Only numeric vX.Y.Z tags wake CI; prerelease tags (vX.Y.Z-*) match but are
-# skipped by the job guard below and ship by hand (see docs/RELEASING.md).
+# Two entry points, one pipeline (test -> build -> verify the updater contract
+# and the official signature -> publish):
+#
+# - Finals: push an ANNOTATED `vX.Y.Z` tag whose message is the Traditional
+#   Chinese changelog. Only numeric tags wake CI; a suffix tag matches the glob
+#   but is skipped by the job guard, so a stray beta tag cannot publish itself.
+# - Prereleases (`X.Y.Z-rc.N`, `X.Y.Z-beta`): dispatch this workflow with the
+#   version. It creates the annotated tag from
+#   `docs/release-notes/v<version>.md` and publishes with `--prerelease
+#   --latest=false`, so `/releases/latest` keeps pointing at the last final.
+#   See docs/RELEASING.md § Publishing a prerelease.
 on:
   push:
     # NOTE: tag filters are globs, not regexes — `.` is a literal dot here.
     tags:
       - "v[0-9]*.[0-9]*.[0-9]*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Prerelease version, e.g. 1.2.28-rc.1 (must match versionName and carry a suffix)"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -22,8 +34,9 @@ concurrency:
 
 jobs:
   publish:
-    # Finals only (vX.Y.Z). Anything with a suffix is a beta, handled manually.
-    if: ${{ !contains(github.ref_name, '-') }}
+    # Finals arrive as a numeric tag push. Prereleases are dispatched by hand and
+    # their version input must carry a suffix (checked in the first step).
+    if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     # A hung run should fail in minutes, not burn 6h of bills by default.
     timeout-minutes: 45
@@ -38,6 +51,36 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      # Resolves the tag both paths publish under. On dispatch the tag is created
+      # here: a suffix tag pushed by hand would be skipped by the guard above, and
+      # the changelog must be a reviewed file rather than retyped at publish time.
+      - name: Resolve release identity
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -e
+          if [ "$GITHUB_EVENT_NAME" != "workflow_dispatch" ]; then
+            echo "TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          test -n "$VERSION" || { echo "inputs.version is required"; exit 1; }
+          case "$VERSION" in
+            *-*) ;;
+            *) echo "workflow_dispatch publishes prereleases only; got '$VERSION'"; exit 1 ;;
+          esac
+          test "$GITHUB_REF_NAME" = "${{ github.event.repository.default_branch }}" \
+            || { echo "dispatched on $GITHUB_REF_NAME; run it on the default branch"; exit 1; }
+          TAG="v$VERSION"
+          test -z "$(git ls-remote --tags origin "refs/tags/$TAG")" \
+            || { echo "tag $TAG already exists; published assets are never overwritten"; exit 1; }
+          NOTES="docs/release-notes/$TAG.md"
+          test -s "$NOTES" || { echo "missing changelog $NOTES"; exit 1; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -F "$NOTES"
+          git push origin "refs/tags/$TAG"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
 
       - uses: jdx/mise-action@v5
 
@@ -87,8 +130,6 @@ jobs:
         run: mise run build
 
       - name: Verify updater contract + official signature
-        env:
-          TAG: ${{ github.ref_name }}
         run: |
           set -e
           VER="${TAG#v}"
@@ -134,17 +175,23 @@ jobs:
 
       - name: Publish GitHub release
         env:
-          TAG: ${{ github.ref_name }}
           GH_TOKEN: ${{ github.token }}
         # Fails if the release already exists — by design, assets are
         # never overwritten (see docs/RELEASING.md updater contract).
-        # No explicit --latest: gh picks it automatically by date+version,
-        # so backport tags can never steal "latest" from a newer release.
-        run: gh release create "$TAG" "$APK" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
+        # Finals: no explicit --latest, gh picks it by date+version, so backport
+        # tags can never steal "latest" from a newer release. Prereleases are
+        # pinned to --latest=false: a candidate must never be /releases/latest,
+        # not even briefly.
+        run: |
+          set -e
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            gh release create "$TAG" "$APK" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" --prerelease --latest=false
+          else
+            gh release create "$TAG" "$APK" --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
+          fi
 
       - name: Confirm digest exposure
         env:
-          TAG: ${{ github.ref_name }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
