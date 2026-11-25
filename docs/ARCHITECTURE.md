@@ -147,6 +147,7 @@ expensive to notice.
 | Only one writer owns a piece of state. | Two writers (a one-shot query racing its own flow, two pagers for one list) produce stale-wins bugs that are hard to reproduce. | see [Data layers](#data-layers) |
 | The updater is stable-only, and the release shape is fixed. | A beta must never reach a stable user, and the exact asset-name + digest match is what makes an install safe. | `UpdateApi.parse`, [RELEASING.md](RELEASING.md#updater-contract-do-not-break) |
 | The database domain is excluded from backup. | The chapter cache is re-downloadable content that would blow the ~25 MB quota; the shelf deliberately does not restore onto a new device. | `data_extraction_rules.xml` |
+| EPUB's `mimetype` is the first entry, STORED, and contains exactly `application/epub+zip`. | Strict readers reject a package whose mimetype is compressed or misplaced, so a zip-library default would silently break every export. | `EpubWriter`, `EpubWriterTest` |
 
 ## 追更 (library update check)
 
@@ -213,6 +214,12 @@ UI (ViewModels)
   empty or shrunken chapter list as failure, and tolerates the book being
   deleted mid-run. Network I/O goes through `SiteApi`; parsing and the DB merge
   happen outside the single-flight gate.
+- **Export** (`data/export/`): a dependency-free EPUB writer (`EpubWriter`:
+  OCF zip + EPUB 3 OPF/nav/XHTML) and a read-only exporter (`EpubExporter`).
+  It snapshots the cached chapter list, reads each body by stable `pageId`,
+  applies the language toggle at export time, and writes an atomically renamed
+  file into the app cache for FileProvider sharing. It never fetches a missing
+  chapter and never writes the DB.
 - **DB** (`data/db/`): Room, with schema exports committed under
   `app/schemas/`. Migrations are additive and rekey `chapters` onto the stable
   chapter id; `progress` keeps the display position only as a pre-migration
@@ -257,6 +264,11 @@ UI (ViewModels)
   and cheap — it skips every chapter id already cached. This is deliberately
   different from the updater's `DownloadManager` request, which *is* durable and
   reattached after process death (see [In-app update](#in-app-update)).
+- EPUB export is a read-only projection of cached rows: only chapters with
+  text, in TOC order, snapshotted at tap time. It never fetches a missing
+  chapter and never writes the DB; bodies are read one stable `pageId` at a
+  time so a huge book does not load into memory. The file is disposable cache,
+  not a second library.
 
 ## In-app update
 

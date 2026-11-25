@@ -36,6 +36,7 @@ class FakeRepo(
         Parser.ChapterContent("", "", "", null, null, null)
     override suspend fun cachedChapterContent(bookId: String, pageId: Long): String? = null
     override fun cachedPositionsFlow(bookId: String): Flow<Set<Long>> = flowOf(emptySet())
+    override suspend fun cachedChapters(bookId: String): List<Parser.ChapterRef> = emptyList()
     override suspend fun saveChapterContent(bookId: String, pageId: Long, content: String) = Unit
     override suspend fun saveProgress(bookId: String, position: Int, pageId: Long) = Unit
     override fun bookmarkFlow(bookId: String): Flow<BookRepo.Bookmark?> = flowOf(null)

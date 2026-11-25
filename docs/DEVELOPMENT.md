@@ -56,6 +56,10 @@ names say what they cover, and this doc deliberately does not repeat the list
 (a hand-maintained inventory only goes stale). Instrumented tests (they do
 need an emulator) live in `app/src/androidTest/`.
 
+`EpubWriterTest` also writes `app/build/test-epub/sample.epub`; use it for a
+manual EPUBCheck run when touching the exporter (see [CONTRIBUTING.md](CONTRIBUTING.md)
+for the test workflow).
+
 Add a fixture or a test with any parser, merge or updater change — what those
 tests pin is real site behaviour, documented in [SCRAPING.md](SCRAPING.md).
 
@@ -131,6 +135,7 @@ app/src/main/java/cc/uukanshu/
     parse/Parser.kt (facade) + BookIds/CardsParser/TocParser/MetaParser/ChapterParser/ParserText
     repo/BookRepo.kt + TocDiff/ShelfOrder/TocSource/TocState/TocRevalidator
     db/                  # Room: AppDb, Entities (+metas/cachedPageIds), DAOs
+    export/EpubWriter.kt + EpubExporter.kt  # cached chapters -> EPUB (zip/XML, no new deps)
     prefs/Prefs.kt       # DataStore: user prefs/check timestamps; updater job record is device-local noBackupFilesDir
     convert/T2S.kt       # Traditional → Simplified (opencc4j) + LRU
     update/              # UpdateApi/ReleaseFetcher, UpdateDownloader/ApkDownloader, ActivityLauncher, DownloadRequestMatcher, UpdateDownloadRecord, APK integrity (ApkState), VersionCompare, JsonMini

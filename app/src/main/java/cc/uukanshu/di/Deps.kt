@@ -24,6 +24,12 @@ interface RepoApi {
     suspend fun chapter(url: String): Parser.ChapterContent
     suspend fun cachedChapterContent(bookId: String, pageId: Long): String?
     fun cachedPositionsFlow(bookId: String): Flow<Set<Long>>
+
+    /**
+     * Chapters with cached text, in display order. The export path reads their
+     * bodies one at a time by pageId (see data/export/EpubExporter).
+     */
+    suspend fun cachedChapters(bookId: String): List<Parser.ChapterRef>
     suspend fun saveChapterContent(bookId: String, pageId: Long, content: String)
     suspend fun saveProgress(bookId: String, position: Int, pageId: Long = 0L)
     fun bookmarkFlow(bookId: String): Flow<BookRepo.Bookmark?>

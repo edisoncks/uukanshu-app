@@ -42,6 +42,12 @@ class BookDeletedDuringDownloadException :
 class DownloadIncompleteException(val missing: Int) :
     java.io.IOException("download incomplete: $missing chapters still uncached")
 
+/** Export has no cached book row to describe (deleted or never opened). */
+class BookNotCachedException : java.io.IOException("book is not cached")
+
+/** Export found no chapter with downloaded text after the tap. */
+class NoDownloadedChaptersException : java.io.IOException("no downloaded chapters")
+
 /** HTTP failure with a machine-readable status code (see [Errors.friendly]). */
 class HttpStatusException(val code: Int, label: String) :
     java.io.IOException("HTTP $code for $label")
@@ -77,6 +83,8 @@ object Errors {
             is TocShrunkException, is EmptyChapterListException -> return "章節列表為空，請稍後再試"
             is BookDeletedDuringDownloadException -> return "下載中書籍已被刪除"
             is DownloadIncompleteException -> return "章節列表在下載中變動，請再點一次下載整本"
+            is BookNotCachedException -> return "書籍不存在或已被刪除，請重新加入書架"
+            is NoDownloadedChaptersException -> return "尚未下載任何章節，請先下載"
             is HttpStatusException -> return httpMessage(e.code)
             is UnknownHostException, is SocketTimeoutException, is ConnectException,
             is TimeoutCancellationException -> return "網路連線失敗，請檢查網路後重試"
