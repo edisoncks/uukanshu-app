@@ -1,6 +1,7 @@
 package cc.uukanshu
 
 import cc.uukanshu.data.download.BookDownloadManager
+import cc.uukanshu.data.export.EpubExporter
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.repo.BookRepo
 import cc.uukanshu.data.update.ApkDownloader
@@ -18,6 +19,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 /** In-memory fakes proving the DI seam: VMs accept these without an Application. */
 class FakeRepo(
@@ -104,6 +106,7 @@ class FakeContainer(
     prefs: PrefsApi = FakePrefs(),
     t2s: T2S = T2S(),
     downloads: BookDownloadManager = BookDownloadManager({ _, _ -> }),
+    exporter: EpubExporter = EpubExporter(repo, t2s, File("build/tmp/container-seam-epub")),
     releaseApi: ReleaseFetcher = FakeReleaseFetcher(),
     apkDownloader: ApkDownloader = FakeApkDownloader(),
 ) : AppContainer {
@@ -111,6 +114,7 @@ class FakeContainer(
     override val prefs: PrefsApi = prefs
     override val t2s: T2S = t2s
     override val downloads: BookDownloadManager = downloads
+    override val epubExporter: EpubExporter = exporter
     override val releaseApi: ReleaseFetcher = releaseApi
     override val apkDownloader: ApkDownloader = apkDownloader
 }

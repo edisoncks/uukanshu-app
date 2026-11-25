@@ -27,7 +27,8 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <!-- In-app update: share the app-private APK with the installer. -->
+        <!-- In-app update: share the app-private APK with the installer.
+             EPUB export: share the app-private EPUB with other apps. -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

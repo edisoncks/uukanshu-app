@@ -4,8 +4,10 @@ import cc.uukanshu.data.repo.BookRepo
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cc.uukanshu.core.Display
+import cc.uukanshu.core.Errors
 import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.download.BookDownloadManager
+import cc.uukanshu.data.export.EpubExporter
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.di.RepoApi
 import cc.uukanshu.di.PrefsApi
@@ -13,11 +15,13 @@ import cc.uukanshu.data.repo.TocSource
 import cc.uukanshu.data.repo.TocState
 import android.util.Log
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 
 private const val TAG = "DetailVM"
 
@@ -27,6 +31,7 @@ class DetailViewModel(
     private val t2s: T2S,
     private val bookId: String,
     private val downloads: BookDownloadManager,
+    private val exporter: EpubExporter,
 ) : ViewModel() {
     /** Load split from live overlays (progress/badges/bookmark compose orthogonally). */
     sealed interface Load {
@@ -48,6 +53,17 @@ class DetailViewModel(
         ) : Load
     }
 
+    /**
+     * Export overlay: one VM-scoped job. The screen consumes [Ready] after
+     * handing the file to the share sheet; a failure stays until the next tap.
+     */
+    sealed interface Export {
+        data object Idle : Export
+        data class Running(val done: Int, val total: Int) : Export
+        data class Ready(val file: File) : Export
+        data class Failed(val message: String) : Export
+    }
+
     data class Ui(
         val load: Load = Load.Loading,
         val downloading: Boolean = false,
@@ -59,6 +75,7 @@ class DetailViewModel(
         val bookmark: BookRepo.Bookmark? = null,
         // 追更 overlay: badge count from Room, cleared by markSeen after paint.
         val newCount: Int = 0,
+        val export: Export = Export.Idle,
     )
 
     private val _ui = MutableStateFlow(Ui())
@@ -67,6 +84,7 @@ class DetailViewModel(
     // TocSource owns the stale-while-revalidate policy (single cold producer,
     // one terminal emission per run — see TocState); this VM only maps states.
     private var refreshJob: kotlinx.coroutines.Job? = null
+    private var exportJob: Job? = null
     private val tocSource = TocSource(repo)
 
     init {
@@ -238,6 +256,42 @@ class DetailViewModel(
         downloads.cancel(bookId)
         // Manager publishes downloading=false; reflect instantly for snappy UI.
         _ui.update { it.copy(downloading = false) }
+    }
+
+    /**
+     * One local export at a time. The job is VM-scoped: leaving Detail cancels
+     * it, and the exporter deletes the temp file. The cached overlay is a fast
+     * guard only; the exporter re-reads the DB and fails typed if it is gone.
+     */
+    fun exportEpub() {
+        if (exportJob?.isActive == true) return
+        if (_ui.value.export is Export.Ready) return
+        if (_ui.value.cached.isEmpty()) return
+        val total = _ui.value.cached.size
+        val simplified = _ui.value.simplified
+        _ui.update { it.copy(export = Export.Running(0, total)) }
+        exportJob = viewModelScope.launch {
+            try {
+                val file = exporter.export(bookId, simplified) { done, count ->
+                    _ui.update { it.copy(export = Export.Running(done, count)) }
+                }
+                _ui.update { it.copy(export = Export.Ready(file)) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _ui.update { it.copy(export = Export.Failed(Errors.friendly(e))) }
+            }
+        }
+    }
+
+    /** One-shot handoff: the share sheet owns the file after this call. */
+    fun consumeExport() {
+        _ui.update { if (it.export is Export.Ready) it.copy(export = Export.Idle) else it }
+    }
+
+    /** A share-sheet launch failure is user-visible, never a crash. */
+    fun onShareFailed(e: Exception) {
+        _ui.update { it.copy(export = Export.Failed(Errors.friendly(e))) }
     }
 
     fun displayTitle(raw: String): String =

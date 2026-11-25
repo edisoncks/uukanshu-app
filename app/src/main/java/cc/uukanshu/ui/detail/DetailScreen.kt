@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -35,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -76,10 +79,26 @@ fun DetailScreen(
     val vm: DetailViewModel = viewModel(
         key = bookId,
         factory = vmFactory {
-            DetailViewModel(container.repo, container.prefs, container.t2s, bookId, container.downloads)
+            DetailViewModel(
+                container.repo, container.prefs, container.t2s, bookId,
+                container.downloads, container.epubExporter,
+            )
         },
     )
     val ui by vm.ui.collectAsState()
+    // One-shot share: consume before launching so a recomposition or rotation
+    // cannot reopen the chooser; a launch failure becomes a visible error.
+    val exportedFile = (ui.export as? DetailViewModel.Export.Ready)?.file
+    LaunchedEffect(exportedFile) {
+        if (exportedFile != null) {
+            vm.consumeExport()
+            try {
+                shareEpub(context, exportedFile, vm.displayTitle("匯出 EPUB"))
+            } catch (e: Exception) {
+                vm.onShareFailed(e)
+            }
+        }
+    }
     // Destructive and user-confirmed: accepting a shorter online TOC prunes the
     // chapters the site dropped, downloads included (see vm.forceResync).
     var confirmResync by remember { mutableStateOf(false) }
@@ -219,6 +238,37 @@ fun DetailScreen(
                     Icon(Icons.Filled.Share, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text(vm.displayTitle("分享連結"))
+                }
+                val export = ui.export
+                OutlinedButton(
+                    onClick = { vm.exportEpub() },
+                    enabled = ui.cached.isNotEmpty() &&
+                        export !is DetailViewModel.Export.Running &&
+                        export !is DetailViewModel.Export.Ready,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                ) {
+                    if (export is DetailViewModel.Export.Running) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Filled.FileDownload, contentDescription = null)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text(vm.displayTitle(if (export is DetailViewModel.Export.Running) "匯出中" else "匯出 EPUB"))
+                }
+                when (export) {
+                    is DetailViewModel.Export.Running -> Text(
+                        vm.displayTitle("匯出中") + " ${export.done}/${export.total}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    is DetailViewModel.Export.Failed -> Text(
+                        vm.displayTitle(export.message),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    else -> Unit
                 }
                 Text(
                     "${vm.displayTitle("共")} ${load.chapters.size} ${vm.displayTitle("章")} · ${vm.displayTitle("已緩存")} ${ui.cached.size} ${vm.displayTitle("章")}",
