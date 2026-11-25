@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- In-app update: expose the app-private downloads dir to the installer. -->
+<!-- In-app update: expose the app-private downloads dir to the installer.
+     EPUB export: expose the exporter's cache subdirectory to other apps.
+     Paths here must match EpubExporter.DIR_NAME and the update download dir. -->
 <paths>
     <external-files-path name="downloads" path="Download/" />
+    <cache-path name="epub" path="epub/" />
 </paths>

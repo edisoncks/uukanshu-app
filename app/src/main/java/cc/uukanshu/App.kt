@@ -4,12 +4,14 @@ import android.app.Application
 import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.db.AppDb
 import cc.uukanshu.data.download.BookDownloadManager
+import cc.uukanshu.data.export.EpubExporter
 import cc.uukanshu.data.net.SiteApi
 import cc.uukanshu.data.net.UukanshuGate
 import cc.uukanshu.data.prefs.Prefs
 import cc.uukanshu.data.repo.BookRepo
 import cc.uukanshu.data.update.UpdateApi
 import cc.uukanshu.data.update.UpdateDownloader
+import java.io.File
 
 class App : Application() {
     override fun onCreate() {
@@ -31,6 +33,9 @@ class App : Application() {
     val repo by lazy { BookRepo(site, db) }
     // App-scoped so full-book downloads survive popping detail.
     val downloadManager by lazy { BookDownloadManager(repo) }
+    // App-scoped so Detail never builds one per composition. The export job
+    // itself stays VM-scoped: leaving Detail cancels it and removes the temp.
+    val epubExporter by lazy { EpubExporter(repo, t2s, File(cacheDir, EpubExporter.DIR_NAME)) }
     // Singletons: screens must use these, never `Prefs(app)`
     // per-composition. Fresh instances per screen wasted work and risked
     // divergent state; one instance also makes fakes injectable in tests.

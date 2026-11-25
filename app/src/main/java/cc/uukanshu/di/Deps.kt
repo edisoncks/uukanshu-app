@@ -3,6 +3,7 @@ package cc.uukanshu.di
 import androidx.compose.runtime.staticCompositionLocalOf
 import cc.uukanshu.App
 import cc.uukanshu.data.convert.T2S
+import cc.uukanshu.data.export.EpubExporter
 import cc.uukanshu.data.parse.Parser
 import cc.uukanshu.data.repo.BookRepo
 import cc.uukanshu.data.download.BookDownloadManager
@@ -24,6 +25,12 @@ interface RepoApi {
     suspend fun chapter(url: String): Parser.ChapterContent
     suspend fun cachedChapterContent(bookId: String, pageId: Long): String?
     fun cachedPositionsFlow(bookId: String): Flow<Set<Long>>
+
+    /**
+     * Chapters with cached text, in display order. The export path reads their
+     * bodies one at a time by pageId (see data/export/EpubExporter).
+     */
+    suspend fun cachedChapters(bookId: String): List<Parser.ChapterRef>
     suspend fun saveChapterContent(bookId: String, pageId: Long, content: String)
     suspend fun saveProgress(bookId: String, position: Int, pageId: Long = 0L)
     fun bookmarkFlow(bookId: String): Flow<BookRepo.Bookmark?>
@@ -89,6 +96,7 @@ interface AppContainer {
     val prefs: PrefsApi
     val t2s: T2S
     val downloads: BookDownloadManager
+    val epubExporter: EpubExporter
     val releaseApi: ReleaseFetcher
     val apkDownloader: ApkDownloader
 }
@@ -98,6 +106,7 @@ class RealAppContainer(app: App) : AppContainer {
     override val prefs: PrefsApi = app.prefs as PrefsApi
     override val t2s: T2S = app.t2s
     override val downloads: BookDownloadManager = app.downloadManager
+    override val epubExporter: EpubExporter = app.epubExporter
     override val releaseApi: ReleaseFetcher = app.updateApi
     override val apkDownloader: ApkDownloader = app.updateDownloader
 }

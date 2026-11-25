@@ -230,6 +230,17 @@ class BookRepo(
     override fun cachedPositionsFlow(bookId: String): Flow<Set<Long>> =
         db.chapters().cachedPositionsFlow(bookId).map { it.toSet() }
 
+    /**
+     * Chapters with cached text, in display order. Export snapshots this list
+     * and reads bodies by stable pageId; the full TOC is deliberately not used.
+     */
+    override suspend fun cachedChapters(bookId: String): List<Parser.ChapterRef> =
+        withContext(ioDispatcher) {
+            db.chapters().cachedMeta(bookId).map {
+                Parser.ChapterRef(it.position, it.pageId, it.title, it.url)
+            }
+        }
+
     /** Content write by stable pageId. */
     override suspend fun saveChapterContent(bookId: String, pageId: Long, content: String) {
         dbWrite.withLock {

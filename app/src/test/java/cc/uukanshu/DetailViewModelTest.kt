@@ -3,6 +3,7 @@ package cc.uukanshu
 import cc.uukanshu.core.TocShrunkException
 import cc.uukanshu.data.convert.T2S
 import cc.uukanshu.data.download.BookDownloadManager
+import cc.uukanshu.data.export.EpubExporter
 import cc.uukanshu.data.repo.BookRepo
 import cc.uukanshu.di.RepoApi
 import cc.uukanshu.ui.detail.DetailViewModel
@@ -15,10 +16,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import java.io.IOException
 
 class DetailViewModelTest {
     @get:Rule val main = MainDispatcherRule()
+    @get:Rule val tmp = TemporaryFolder()
 
     private fun manager(
         scope: CoroutineScope,
@@ -28,7 +31,10 @@ class DetailViewModelTest {
     private fun vm(
         repo: RepoApi,
         downloads: BookDownloadManager,
-    ) = DetailViewModel(repo, MutableFakePrefs(), T2S(), "1", downloads)
+    ) = DetailViewModel(
+        repo, MutableFakePrefs(), T2S(), "1", downloads,
+        EpubExporter(repo, T2S(), tmp.newFolder(), main.dispatcher),
+    )
 
     private fun idle() {
         main.dispatcher.scheduler.advanceUntilIdle()

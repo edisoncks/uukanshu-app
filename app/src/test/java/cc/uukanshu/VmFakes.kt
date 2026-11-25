@@ -51,6 +51,8 @@ class MutableFakeRepo(
     var checkAllCalls = 0
     var libraryCalls = 0
     var markSeenCalls = mutableListOf<String>()
+    var cachedRefs: List<Parser.ChapterRef> = emptyList()
+    var cachedChapterCalls = 0
 
     override suspend fun category(categoryId: Int, page: Int) = emptyList<Parser.BookItem>()
     override suspend fun recent(page: Int) = emptyList<Parser.BookItem>()
@@ -76,6 +78,10 @@ class MutableFakeRepo(
         chaptersText[pageId]
     override fun cachedPositionsFlow(bookId: String): Flow<Set<Long>> =
         flowOf(chaptersText.keys.toSet())
+    override suspend fun cachedChapters(bookId: String): List<Parser.ChapterRef> {
+        cachedChapterCalls++
+        return cachedRefs
+    }
     override suspend fun saveChapterContent(bookId: String, pageId: Long, content: String) {
         savedContent += Triple(bookId, pageId, content)
         chaptersText[pageId] = content

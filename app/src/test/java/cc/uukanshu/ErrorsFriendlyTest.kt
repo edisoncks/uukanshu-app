@@ -1,10 +1,12 @@
 package cc.uukanshu
 
 import cc.uukanshu.core.BookDeletedDuringDownloadException
+import cc.uukanshu.core.BookNotCachedException
 import cc.uukanshu.core.CloudflareBlockedException
 import cc.uukanshu.core.EmptyChapterListException
 import cc.uukanshu.core.Errors
 import cc.uukanshu.core.HttpStatusException
+import cc.uukanshu.core.NoDownloadedChaptersException
 import cc.uukanshu.core.TocShrunkException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -26,6 +28,8 @@ class ErrorsFriendlyTest {
         assertEquals("章節列表為空，請稍後再試", Errors.friendly(EmptyChapterListException()))
         assertEquals("章節列表為空，請稍後再試", Errors.friendly(TocShrunkException(cached = 100, fresh = 3)))
         assertEquals("下載中書籍已被刪除", Errors.friendly(BookDeletedDuringDownloadException()))
+        assertEquals("書籍不存在或已被刪除，請重新加入書架", Errors.friendly(BookNotCachedException()))
+        assertEquals("尚未下載任何章節，請先下載", Errors.friendly(NoDownloadedChaptersException()))
     }
 
     @Test fun mapsNetworkExceptions() {

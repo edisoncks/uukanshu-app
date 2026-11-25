@@ -38,6 +38,7 @@ Author: Example
 [ Continue: Ch.12 ]
 [ Download whole book ]
 [ Share link ]
+[ Export EPUB ]
 
 872 chapters · 3 saved
 -------------------------------
@@ -50,6 +51,7 @@ Author: Example
 - The top bar keeps the book title visible while scrolling; back is top-left.
 - **Continue reading** jumps back in; **Download whole book** saves it offline.
 - Saved chapters show **✓**; **Share link** sends the book URL to a friend.
+- **Export EPUB** packages the saved (✓) chapters into an EPUB and opens the system share sheet, so you can save it or send it to another reader. Chapters that were not downloaded are not included, and nothing is fetched.
 
 ### Reader
 

@@ -65,6 +65,20 @@ class DbDaoTest {
         assertEquals(listOf(101L), db.chapters().cachedPageIds("b1"))
     }
 
+    @Test fun cachedMetaReturnsOnlyDownloadedRowsInOrder() = runTest {
+        db.chapters().upsertAll(
+            listOf(
+                ChapterEntity("b1", 3, 103L, "c3", "u3", content = "x"),
+                ChapterEntity("b1", 1, 101L, "c1", "u1", content = ""),
+                ChapterEntity("b1", 2, 102L, "c2", "u2", content = "y"),
+            ),
+        )
+        val metas = db.chapters().cachedMeta("b1")
+        assertEquals(listOf(102L, 103L), metas.map { it.pageId })
+        assertEquals(listOf(2, 3), metas.map { it.position })
+        assertEquals(listOf("c2", "c3"), metas.map { it.title })
+    }
+
     @Test fun deleteBookFullWipesAllTables() = runTest {
         db.books().upsert(BookEntity("b1", "T", "A", "", "", ""))
         db.chapters().upsertAll(listOf(ChapterEntity("b1", 1, 101L, "c1", "u1", content = "x")))

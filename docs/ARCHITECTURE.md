@@ -118,7 +118,7 @@ Rules every screen follows:
 |---|---|
 | Home | Two feeds (recent / category) over Paging 3, one HTML page per load, no hand-rolled prefetcher. Ids, scroll and cached pagers are per list and bounded: lists never leak items or positions into each other, coming back from a book replays already-loaded pages instead of refetching page 1, an explicit tab/category switch resets that list to the top, and a long session cannot accumulate pagers. |
 | Search | One cancellable query pipeline per keystroke (a superseded search cancels structurally, and re-submitting the same text refires instead of being conflated away), deduped by book id, following the language toggle live. While a new query loads, the previous results stay visible under a progress bar. |
-| Detail | The chapter list is stale-while-revalidate: the cached list paints immediately and one refresh either confirms it or leaves it visibly stale with the reason; offline and refreshing are derived from that phase rather than tracked, so they cannot disagree with it. Download progress, cached-chapter badges and the bookmark are separate live overlays, so they can never invalidate the loaded book. Shrink handling and its escape hatch are invariants — see below. |
+| Detail | The chapter list is stale-while-revalidate: the cached list paints immediately and one refresh either confirms it or leaves it visibly stale with the reason; offline and refreshing are derived from that phase rather than tracked, so they cannot disagree with it. Download progress, cached-chapter badges and the bookmark are separate live overlays, so they can never invalidate the loaded book. 匯出 EPUB is a VM-scoped, read-only overlay: only cached chapters, one share handoff through FileProvider, no network or DB writes. Shrink handling and its escape hatch are invariants — see below. |
 | Reader | Settings sheet: the appearance section is `ThemeOptionsCard`, the same composable the Settings tab renders (see § Theme), so a theme reads the same in both places. One chapter load owns one TOC generation and gets at most one bounded restart (two fetch attempts in total, never a loop), so a TOC shift mid-load cannot open the wrong chapter, and a failure cannot retry forever. Text is cache-first, network second, always keyed by the stable chapter id. Prev/next are last-tap-wins. A chapter the site deleted is reported as deleted instead of being retried forever. |
 | Library | The shelf is a single reactive read (never a one-shot query racing its own flow), stale-while-revalidate, with per-book download rows taken from the app-scoped manager. Deleting a book also drops the manager's retained state for that book. |
 | Settings | Four cards — appearance, language, 追更, update — all writing `Prefs`, so every screen follows live. The appearance card shows the four themes as one segmented row (`ThemeOptionsCard` over `THEME_OPTIONS`): a theme is one tap out of four, not a list of rows to scroll. The card, its row and its padding are one composable, not a copy — the reader sheet calls it too (see the Reader row) — so the two screens cannot drift apart. The label is a plain `Text` on purpose: capping its width needs the segment's real width, and the natural way to ask (`BoxWithConstraints`) is a `SubcomposeLayout`, which throws inside `SegmentedButton`'s intrinsic measurement — that crash shipped in 1.2.26, and `ThemeOptionsCardTest` now composes the card so it cannot ship again, and bounds-locks each label inside its segment at 320/360/393dp and font scale 1.0/1.3. Measured budget from material3 1.3.0's own defaults: a 360dp phone gives each of the four segments 74.5dp; `SegmentedButtonDefaults.ContentPadding` fixes 12dp per side and that version exposes no `contentPadding` parameter to tune it; the label is measured against the inner width before the check icon's box is added (`IconSize` 18dp, `IconSpacing` 8dp), so overrun eats the padding first. The only case the bounds test excludes is a 2.0x font scale at 360dp, where the selected label is shaved by about 1dp and the labels ellipsize — material's own behaviour, not something this row adds. The 追更 switch names the bookshelf, so it cannot be read as the app-update check in the card below it, and its state shares a line with the last-check stamp instead of stacking. |
@@ -147,6 +147,7 @@ expensive to notice.
 | Only one writer owns a piece of state. | Two writers (a one-shot query racing its own flow, two pagers for one list) produce stale-wins bugs that are hard to reproduce. | see [Data layers](#data-layers) |
 | The updater is stable-only, and the release shape is fixed. | A beta must never reach a stable user, and the exact asset-name + digest match is what makes an install safe. | `UpdateApi.parse`, [RELEASING.md](RELEASING.md#updater-contract-do-not-break) |
 | The database domain is excluded from backup. | The chapter cache is re-downloadable content that would blow the ~25 MB quota; the shelf deliberately does not restore onto a new device. | `data_extraction_rules.xml` |
+| EPUB's `mimetype` is the first entry, STORED, and contains exactly `application/epub+zip`. | Strict readers reject a package whose mimetype is compressed or misplaced, so a zip-library default would silently break every export. | `EpubWriter`, `EpubWriterTest` |
 
 ## 追更 (library update check)
 
@@ -213,6 +214,12 @@ UI (ViewModels)
   empty or shrunken chapter list as failure, and tolerates the book being
   deleted mid-run. Network I/O goes through `SiteApi`; parsing and the DB merge
   happen outside the single-flight gate.
+- **Export** (`data/export/`): a dependency-free EPUB writer (`EpubWriter`:
+  OCF zip + EPUB 3 OPF/nav/XHTML) and a read-only exporter (`EpubExporter`).
+  It snapshots the cached chapter list, reads each body by stable `pageId`,
+  applies the language toggle at export time, and writes an atomically renamed
+  file into the app cache for FileProvider sharing. It never fetches a missing
+  chapter and never writes the DB.
 - **DB** (`data/db/`): Room, with schema exports committed under
   `app/schemas/`. Migrations are additive and rekey `chapters` onto the stable
   chapter id; `progress` keeps the display position only as a pre-migration
@@ -257,6 +264,11 @@ UI (ViewModels)
   and cheap — it skips every chapter id already cached. This is deliberately
   different from the updater's `DownloadManager` request, which *is* durable and
   reattached after process death (see [In-app update](#in-app-update)).
+- EPUB export is a read-only projection of cached rows: only chapters with
+  text, in TOC order, snapshotted at tap time. It never fetches a missing
+  chapter and never writes the DB; bodies are read one stable `pageId` at a
+  time so a huge book does not load into memory. The file is disposable cache,
+  not a second library.
 
 ## In-app update
 

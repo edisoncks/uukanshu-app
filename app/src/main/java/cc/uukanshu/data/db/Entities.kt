@@ -195,6 +195,17 @@ interface ChapterDao {
     suspend fun cachedPageIds(bookId: String): List<Long>
 
     /**
+     * Metadata-only snapshot of chapters with downloaded text, in display
+     * order. Export reads bodies one pageId at a time (see EpubExporter), so
+     * this query must never load `content`.
+     */
+    @Query(
+        "SELECT pageId, position, title, url FROM chapters " +
+            "WHERE bookId = :bookId AND content != '' ORDER BY position",
+    )
+    suspend fun cachedMeta(bookId: String): List<ChapterMetaRef>
+
+    /**
      * Shelf stats in one round trip, without loading chapter contents.
      * LENGTH(CAST(content AS BLOB)) counts stored UTF-8 bytes, matching
      * the previous Kotlin-side accounting.
