@@ -14,6 +14,9 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.time.Instant
 import java.util.UUID
 
@@ -26,9 +29,10 @@ import java.util.UUID
  * chapter book and tolerates a concurrent TOC refresh: a chapter pruned
  * between the two reads is simply skipped.
  *
- * Output is atomic: `<title>.epub.tmp` is renamed only after the package is
- * complete, so a share can never see half a book. Files older than
- * [STALE_MS] are pruned to keep the cache directory bounded.
+ * Output is complete before it is visible: `<title>.epub.tmp` is renamed
+ * only after the package is done, using an atomic replace where the
+ * filesystem supports it. Files older than [STALE_MS] are pruned on each
+ * export to keep the cache directory bounded.
  */
 class EpubExporter(
     private val repo: RepoApi,
@@ -100,8 +104,7 @@ class EpubExporter(
                 }
             }
             if (written == 0) throw NoDownloadedChaptersException()
-            if (final.exists() && !final.delete()) throw IOException("cannot replace ${final.name}")
-            if (!tmp.renameTo(final)) throw IOException("cannot finish ${final.name}")
+            replace(tmp, final)
             final
         } catch (e: Throwable) {
             tmp.delete()
@@ -109,7 +112,28 @@ class EpubExporter(
         }
     }
 
-    /** Stable per book, so re-exports update one library entry instead of adding another. */
+    /**
+     * One atomic replacement where the filesystem supports it, so a share of
+     * a previous export never observes a missing target. The delete+rename
+     * fallback only runs on filesystems without atomic moves.
+     */
+    private fun replace(tmp: File, target: File) {
+        try {
+            Files.move(
+                tmp.toPath(),
+                target.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE,
+            )
+        } catch (e: AtomicMoveNotSupportedException) {
+            if (!target.delete() && target.exists()) {
+                throw IOException("cannot replace ${target.name}")
+            }
+            if (!tmp.renameTo(target)) throw IOException("cannot finish ${target.name}")
+        }
+    }
+
+    /** Stable per book, so a reader can recognize a re-export as the same book. */
     private fun identifierFor(bookId: String): String =
         "urn:uuid:" + UUID.nameUUIDFromBytes("uukanshu:$bookId".toByteArray(Charsets.UTF_8))
 

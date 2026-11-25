@@ -293,7 +293,7 @@ internal fun paragraphs(text: String): List<String> =
 /** File-name policy for the shared EPUB (a receiving app may save it anywhere). */
 internal object EpubPaths {
     private const val MAX_BASE_LENGTH = 80
-    private val illegal = Regex("""[\\/:*?"<>|\u0000-\u001F\u007F]""")
+    private val illegal = Regex("""[\\/:*?"<>|\u0000-\u001F\u007F-\u009F]""")
     private val spaces = Regex("""\s+""")
 
     fun fileNameFor(title: String, bookId: String): String {

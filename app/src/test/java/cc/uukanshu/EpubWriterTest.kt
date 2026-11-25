@@ -185,6 +185,7 @@ class EpubWriterTest {
         assertEquals("book-7.epub", EpubPaths.fileNameFor("...", "7"))
         assertEquals("book-7.epub", EpubPaths.fileNameFor("", "7"))
         assertEquals("hidden.epub", EpubPaths.fileNameFor("  . hidden . ", "7"))
+        assertEquals("a_b.epub", EpubPaths.fileNameFor("a\u0085b", "7"))
         val long = EpubPaths.fileNameFor("x".repeat(200), "7")
         assertTrue(long.length <= 85)
         assertTrue(long.endsWith(".epub"))

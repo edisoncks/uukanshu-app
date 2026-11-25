@@ -143,6 +143,44 @@ class EpubExporterTest {
         assertEquals("A_B_ C_.epub", file.name)
     }
 
+    @Test fun blankTitleFallsBackToTheBookId() = runTest(main.dispatcher) {
+        val repo = ExportRepo(info = BookRepo.BookInfo("42", "   ", "作者"))
+        val file = exporter(repo, tmp.newFolder()).export("42", simplified = false)
+        assertEquals("book-42.epub", file.name)
+    }
+
+    @Test fun reExportReplacesTheExistingFile() = runTest(main.dispatcher) {
+        val dir = tmp.newFolder()
+        val first = exporter(
+            ExportRepo(bodies = mutableMapOf(101L to "one", 102L to "two")),
+            dir,
+        ).export("1", simplified = false)
+        val firstContent = first.readBytes()
+
+        val second = exporter(
+            ExportRepo(bodies = mutableMapOf(101L to "changed", 102L to "two")),
+            dir,
+        ).export("1", simplified = false)
+
+        assertEquals(first.name, second.name)
+        assertFalse(firstContent.contentEquals(second.readBytes()))
+    }
+
+    @Test fun identifierIsStablePerBook() = runTest(main.dispatcher) {
+        val dir = tmp.newFolder()
+        fun identifier(file: File): String {
+            val opf = zipMap(file).getValue("OEBPS/content.opf")
+            val match = Regex("""<dc:identifier id="bookid">([^<]+)</dc:identifier>""").find(opf)
+            return requireNotNull(match) { "identifier missing in ${file.name}" }.groupValues[1]
+        }
+
+        val firstId = identifier(exporter(ExportRepo(), dir).export("1", simplified = false))
+        val secondId = identifier(exporter(ExportRepo(), dir).export("1", simplified = false))
+
+        assertEquals(firstId, secondId)
+        assertTrue(firstId.startsWith("urn:uuid:"))
+    }
+
     @Test fun noCachedBookRowFailsTyped() = runTest(main.dispatcher) {
         val repo = ExportRepo(info = null)
         var thrown: Throwable? = null
@@ -182,12 +220,17 @@ class EpubExporterTest {
         val dir = tmp.newFolder()
         val now = Instant.parse("2025-01-02T03:04:05Z")
         val old = File(dir, "old.epub").apply { writeText("old"); setLastModified(0L) }
+        val staleTmp = File(dir, "old.epub.tmp").apply {
+            writeText("old")
+            setLastModified(0L)
+        }
         val recent = File(dir, "recent.epub").apply {
             writeText("recent")
             setLastModified(now.toEpochMilli())
         }
         exporter(ExportRepo(), dir, now).export("1", simplified = false)
         assertFalse(old.exists())
+        assertFalse(staleTmp.exists())
         assertTrue(recent.exists())
     }
 
@@ -202,6 +245,7 @@ class EpubExporterTest {
         }
         assertTrue("expected IOException, got $thrown", thrown is IOException)
         assertTrue(dir.listFiles().orEmpty().none { it.name.endsWith(".tmp") })
+        assertTrue(dir.listFiles().orEmpty().none { it.name.endsWith(".epub") })
     }
 
     @Test fun cancellationLeavesNoTempFile() = runTest(main.dispatcher) {
