@@ -15,6 +15,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.util.zip.ZipFile
 
 class DetailExportTest {
     @get:Rule val main = MainDispatcherRule()
@@ -52,13 +53,35 @@ class DetailExportTest {
         vm.exportEpub()
         idle()
 
-        val ready = vm.ui.value.export as? DetailViewModel.Export.Ready
-        assertTrue("expected Ready, got ${vm.ui.value.export}", ready != null)
-        assertTrue(ready!!.file.exists())
-        assertEquals("T.epub", ready.file.name)
+        val ready = vm.ui.value.export
+        assertTrue("expected Ready, got $ready", ready is DetailViewModel.Export.Ready)
+        val file = (ready as DetailViewModel.Export.Ready).file
+        assertTrue(file.exists())
+        assertEquals("T.epub", file.name)
 
         vm.consumeExport()
         assertEquals(DetailViewModel.Export.Idle, vm.ui.value.export)
+    }
+
+    @Test fun exportUsesTheCurrentScriptPreference() = runTest(main.dispatcher) {
+        val repo = repo()
+        val vm = vm(repo, this, MutableFakePrefs(simplified = true))
+        idle()
+
+        vm.exportEpub()
+        idle()
+
+        val export = vm.ui.value.export
+        assertTrue("expected Ready, got $export", export is DetailViewModel.Export.Ready)
+        val file = (export as DetailViewModel.Export.Ready).file
+        val opf = ZipFile(file).use { zip ->
+            zip.getInputStream(zip.getEntry("OEBPS/content.opf"))
+                .use { it.readBytes().toString(Charsets.UTF_8) }
+        }
+        assertTrue(
+            "the VM must pass the current language preference: $opf",
+            opf.contains("<dc:language>zh-Hans</dc:language>"),
+        )
     }
 
     @Test fun noCachedTextDoesNotStartAnExport() = runTest(main.dispatcher) {

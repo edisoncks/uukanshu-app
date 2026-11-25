@@ -48,5 +48,9 @@ class EpubShareTest {
         assertEquals("content", uri.scheme)
         assertEquals("${context.packageName}.fileprovider", uri.authority)
         assertTrue(uri.path.orEmpty().contains(EpubExporter.DIR_NAME))
+        val content = context.contentResolver.openInputStream(uri)?.use {
+            it.readBytes().toString(Charsets.UTF_8)
+        }
+        assertEquals("the provider must serve the file, not only mint a URI", "x", content)
     }
 }

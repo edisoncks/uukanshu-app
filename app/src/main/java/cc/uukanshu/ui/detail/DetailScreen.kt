@@ -256,6 +256,8 @@ fun DetailScreen(
                     Text(vm.displayTitle(if (export is DetailViewModel.Export.Running) "匯出中" else "匯出 EPUB"))
                 }
                 when (export) {
+                    DetailViewModel.Export.Idle -> Unit
+                    is DetailViewModel.Export.Ready -> Unit
                     is DetailViewModel.Export.Running -> Text(
                         vm.displayTitle("匯出中") + " ${export.done}/${export.total}",
                         style = MaterialTheme.typography.bodySmall,
@@ -268,7 +270,6 @@ fun DetailScreen(
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(top = 4.dp),
                     )
-                    else -> Unit
                 }
                 Text(
                     "${vm.displayTitle("共")} ${load.chapters.size} ${vm.displayTitle("章")} · ${vm.displayTitle("已緩存")} ${ui.cached.size} ${vm.displayTitle("章")}",
